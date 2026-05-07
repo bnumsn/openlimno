@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openlimno.org/wedm/0.1/case.schema.json",
+  "title": "OpenLimno Case Configuration",
+  "description": "Top-level case YAML/JSON. SPEC v0.5 §3.1.5.",
+  "type": "object",
+  "required": ["openlimno", "case", "mesh", "hydrodynamics", "habitat", "output"],
+  "additionalProperties": false,
+  "properties": {
+    "openlimno": {
+      "type": "string",
+      "enum": ["0.1"],
+      "description": "WEDM schema version"
+    },
+    "case": {
+      "type": "object",
+      "required": ["name", "crs"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "description": { "type": "string" },
+        "crs": {
+          "type": "string",
+          "pattern": "^EPSG:[0-9]+$",
+          "description": "EPSG code, e.g. EPSG:32612"
+        }
+      }
+    },
+    "mesh": {
+      "type": "object",
+      "required": ["uri"],
+      "additionalProperties": false,
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "uri-reference",
+          "description": "Path or URI to UGRID NetCDF mesh"
+        },
+        "time_varying": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, mesh changes over time (manual swap, §13.7 future auto)"
+        }
+      }
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Pointers to WEDM data files used by this case (Parquet / NetCDF). M2+ may consolidate into a single project archive.",
+      "properties": {
+        "cross_section": { "type": "string", "format": "uri-reference" },
+        "hsi_curve": { "type": "string", "format": "uri-reference" },
+        "hsi_evidence": { "type": "string", "format": "uri-reference" },
+        "species": { "type": "string", "format": "uri-reference" },
+        "life_stage": { "type": "string", "format": "uri-reference" },
+        "rating_curve": { "type": "string", "format": "uri-reference" }
+      }
+    },
+    "hydrodynamics": {
+      "type": "object",
+      "required": ["backend"],
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": ["builtin-1d", "schism"]
+        },
+        "cfl": { "type": "number", "minimum": 0.05, "maximum": 0.99 },
+        "boundaries": { "type": "object" },
+        "schism": { "$ref": "./schism_config.schema.json" },
+        "builtin_1d": { "$ref": "./builtin_1d_config.schema.json" }
+      }
+    },
+    "habitat": {
+      "type": "object",
+      "required": ["species", "stages", "metric"],
+      "additionalProperties": false,
+      "properties": {
+        "species": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z_]+$" },
+          "minItems": 1
+        },
+        "stages": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["egg", "larvae", "fry", "juvenile", "adult", "spawner", "spawning"]
+          },
+          "minItems": 1
+        },
+        "metric": {
+          "type": "string",
+          "enum": ["wua-q", "wua-time", "hts", "hdc", "hfa", "tennant", "wetted-perimeter", "drifting-egg"]
+        },
+        "composite": {
+          "type": "string",
+          "enum": ["geometric_mean", "arithmetic_mean", "min", "weighted_geometric"],
+          "default": "geometric_mean"
+        },
+        "acknowledge_independence": {
+          "type": "boolean",
+          "description": "MUST be true when composite is geometric_mean or arithmetic_mean (SPEC §4.2.2.2)"
+        },
+        "acknowledge_independence_reason": {
+          "type": "string",
+          "description": "Free-text justification when acknowledge_independence is true"
+        },
+        "scale": {
+          "type": "string",
+          "enum": ["cell", "hmu", "reach", "all"],
+          "default": "cell"
+        },
+        "drifting_egg": {
+          "type": "object",
+          "description": "Drifting-egg evaluation config (SPEC §4.2.6); used when metric=drifting-egg",
+          "additionalProperties": false,
+          "required": ["species", "params", "spawning_station_m"],
+          "properties": {
+            "species": {
+              "type": "string",
+              "pattern": "^[a-z_]+$",
+              "description": "Pelagic-spawning species id matching drifting_egg_params"
+            },
+            "params": {
+              "type": "string",
+              "format": "uri-reference",
+              "description": "Path to drifting_egg_params.parquet"
+            },
+            "spawning_station_m": { "type": "number", "minimum": 0 },
+            "max_drift_km": { "type": "number", "minimum": 1, "default": 200 },
+            "dt_s": { "type": "number", "minimum": 1, "default": 600 },
+            "temperature_forcing": {
+              "type": "object",
+              "description": "Source of T(x) for hatch integration",
+              "oneOf": [
+                {
+                  "required": ["type", "value_C"],
+                  "properties": {
+                    "type": { "const": "constant" },
+                    "value_C": { "type": "number", "minimum": 0, "maximum": 40 }
+                  }
+                },
+                {
+                  "required": ["type", "csv"],
+                  "properties": {
+                    "type": { "const": "csv" },
+                    "csv": { "type": "string", "format": "uri-reference" },
+                    "station_column": { "type": "string", "default": "station_m" },
+                    "temp_column": { "type": "string", "default": "temp_C" }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "composite": { "enum": ["geometric_mean", "arithmetic_mean"] }
+            }
+          },
+          "then": {
+            "required": ["acknowledge_independence", "acknowledge_independence_reason"],
+            "properties": {
+              "acknowledge_independence": { "const": true }
+            }
+          }
+        }
+      ]
+    },
+    "passage": { "$ref": "./passage_config.schema.json" },
+    "studyplan": { "$ref": "./studyplan.schema.json" },
+    "output": {
+      "type": "object",
+      "required": ["dir", "formats"],
+      "additionalProperties": false,
+      "properties": {
+        "dir": { "type": "string" },
+        "formats": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["netcdf", "csv", "parquet"] },
+          "minItems": 1
+        },
+        "vars": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "emit": { "type": "boolean", "default": true }
+      }
+    },
+    "regulatory_export": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["CN-SL712", "US-FERC-4e", "EU-WFD"]
+      },
+      "uniqueItems": true,
+      "description": "SPEC §4.2.4.2"
+    }
+  }
+}

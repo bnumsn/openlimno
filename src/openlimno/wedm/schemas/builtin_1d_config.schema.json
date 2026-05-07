@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openlimno.org/wedm/0.1/builtin_1d_config.schema.json",
+  "title": "Built-in 1D Solver Configuration",
+  "description": "Configuration for OpenLimno's built-in 1D Saint-Venant solver. SPEC v0.5 §4.1.1. M0 stub; M2 expands.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "scheme": {
+      "type": "string",
+      "enum": ["preissmann", "lax-wendroff"],
+      "default": "preissmann"
+    },
+    "manning_n": {
+      "oneOf": [
+        { "type": "number", "minimum": 0.005, "maximum": 0.2 },
+        { "type": "string", "description": "Path to per-segment Manning's n CSV" }
+      ]
+    },
+    "max_iter": { "type": "integer", "minimum": 1 },
+    "tolerance": { "type": "number", "minimum": 0 }
+  }
+}

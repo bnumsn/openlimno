@@ -1,0 +1,35 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.10
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: validate-wedm-schemas
+        name: Validate WEDM JSON-Schemas
+        entry: python -m openlimno.wedm.validate_schemas
+        language: system
+        files: ^src/openlimno/wedm/schemas/.*\.json$
+        pass_filenames: false
+
+      - id: spec-scope-check
+        name: SPEC scope check (warn if §0.3 keywords appear in 1.0 code)
+        entry: python tools/m0_checklist/spec_scope_check.py
+        language: system
+        files: ^src/openlimno/.*\.py$
+        pass_filenames: true

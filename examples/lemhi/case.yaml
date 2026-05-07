@@ -1,0 +1,52 @@
+# Lemhi River PHABSIM equivalence case (placeholder).
+# M0 sample: schema-valid but with placeholder file paths.
+# M1 will replace `mesh.uri`, boundary series, and HSI references with real Lemhi data.
+
+openlimno: '0.1'
+
+case:
+  name: lemhi_phabsim_replication
+  description: Replicates the canonical PHABSIM Bovee 1997 standard case using Lemhi data
+  crs: EPSG:32612
+
+mesh:
+  uri: ../../data/lemhi/mesh.ugrid.nc
+  time_varying: false
+
+data:
+  cross_section: ../../data/lemhi/cross_section.parquet
+  hsi_curve: ../../data/lemhi/hsi_curve.parquet
+  hsi_evidence: ../../data/lemhi/hsi_evidence.parquet
+  species: ../../data/lemhi/species.parquet
+  life_stage: ../../data/lemhi/life_stage.parquet
+  rating_curve: ../../data/lemhi/Q_2024.csv  # used as discharge series for regulatory export
+
+hydrodynamics:
+  backend: builtin-1d
+  cfl: 0.4
+  builtin_1d:
+    scheme: preissmann
+  boundaries:
+    upstream:
+      type: discharge
+      series: ../../data/lemhi/Q_2024.csv
+    downstream:
+      type: rating-curve
+      ref: ../../data/lemhi/rating_curve.parquet
+
+habitat:
+  species: [oncorhynchus_mykiss]
+  stages: [spawning, fry]
+  metric: wua-q
+  composite: min                            # 'min' avoids the independence assumption (no acknowledge needed)
+  scale: cell
+
+output:
+  dir: ./out/lemhi_2024/
+  formats: [netcdf, csv]
+  vars: [water_depth, velocity_magnitude, wua, hsi_depth, hsi_velocity]
+
+provenance:
+  emit: true
+
+regulatory_export: [CN-SL712, US-FERC-4e, EU-WFD]

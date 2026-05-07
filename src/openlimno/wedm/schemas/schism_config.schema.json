@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openlimno.org/wedm/0.1/schism_config.schema.json",
+  "title": "SCHISM Adapter Configuration",
+  "description": "Configuration for OpenLimno's SCHISM subprocess wrapper. SPEC v0.5 §6.1, ADR-0002. M0 stub; M3 expands.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "lts_version": {
+      "type": "string",
+      "description": "Pinned SCHISM LTS version (e.g. v5.10.x). M0 selects."
+    },
+    "executable": {
+      "type": "string",
+      "description": "Path to schism executable; conda-forge schism preferred"
+    },
+    "n_procs": { "type": "integer", "minimum": 1 },
+    "param_overrides": {
+      "type": "object",
+      "description": "Pass-through overrides for param.nml fields (use sparingly)"
+    },
+    "timeout_s": { "type": "integer", "minimum": 60 }
+  }
+}

@@ -1,0 +1,52 @@
+problem_statement: |
+  Establish minimum and suitable ecological flow recommendations for the
+  Lemhi River near Lemhi, ID, supporting native steelhead (Oncorhynchus mykiss)
+  spawning success and juvenile rearing under projected diversion scenarios.
+
+study_planning:
+  spatial_scope: "Lemhi River mainstem from Hayden Creek confluence to Salmon River, 18 km"
+  temporal_scope: "Water years 2020-2024 (5 years post-2020 reconnection works)"
+  stakeholders:
+    - "Idaho Department of Fish and Game"
+    - "USFWS / NOAA Fisheries (ESA section 7)"
+    - "Lemhi Soil & Water Conservation District"
+    - "Local irrigators"
+
+target_species_rationale:
+  - species: oncorhynchus_mykiss
+    rationale: |
+      ESA-listed Snake River steelhead DPS uses Lemhi for spawning and rearing.
+      Population recovery is the primary regulatory driver.
+    protection_status: "ESA Threatened (Snake River steelhead DPS)"
+  - species: oncorhynchus_tshawytscha
+    rationale: |
+      Spring/summer Chinook are also ESA-listed; secondary target.
+    protection_status: "ESA Threatened (Snake River spring/summer Chinook ESU)"
+
+objective_variables:
+  - wua-q
+  - wua-time
+  - hdc
+  - persistent_habitat
+  - passage_eta_p
+
+tuf_override:
+  - species: oncorhynchus_mykiss
+    stage: spawning
+    monthly: [0, 0, 0.2, 0.8, 1.0, 0.4, 0, 0, 0, 0, 0, 0]
+    rationale: |
+      Adjusted from library default per IDFG 2023 redd-survey timing data;
+      Lemhi spawning peaks late-Apr through May, declining by mid-June.
+
+hsi_source_decision:
+  preference: neighboring_basin
+  rationale: |
+    USFWS Blue Book (Bovee 1978; Raleigh-Hickman-Solomon 1984) is calibrated
+    in Pacific Northwest streams. Treat as transferability_score=0.6.
+    Local recalibration is desirable but not in scope of this study.
+
+uncertainty_sources_acknowledged:
+  - hsi_uncertainty
+  - transferability
+  - measurement_error
+  - temporal_assumption

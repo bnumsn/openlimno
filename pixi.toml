@@ -1,0 +1,104 @@
+[project]
+name = "openlimno"
+version = "0.1.0-dev"
+description = "Open-source water ecology modeling platform"
+authors = ["OpenLimno Contributors <hello@openlimno.org>"]
+channels = ["conda-forge"]
+platforms = ["linux-64", "linux-aarch64", "osx-arm64", "osx-64", "win-64"]
+license = "Apache-2.0"
+license-file = "LICENSE"
+homepage = "https://openlimno.org"
+repository = "https://github.com/openlimno/openlimno"
+
+# ---------------------------------------------------------------
+# Core runtime dependencies (1.0 minimal)
+# ---------------------------------------------------------------
+[dependencies]
+python = ">=3.11,<3.13"
+numpy = ">=1.26"
+pandas = ">=2.2"
+xarray = ">=2024.1"
+netcdf4 = ">=1.6"
+pyarrow = ">=15"
+pyproj = ">=3.6"
+shapely = ">=2.0"
+geopandas = ">=0.14"
+rasterio = ">=1.3"
+fiona = ">=1.9"
+matplotlib = ">=3.8"
+pyyaml = ">=6"
+jsonschema = ">=4.21"
+click = ">=8.1"
+rich = ">=13"
+
+# Mesh tooling
+gmsh = ">=4.12"
+triangle = "*"            # Conda recipe; for non-conda fallbacks see ADR-0003
+
+# IFIM / habitat numerical helpers
+scipy = ">=1.12"
+
+# Workflow + calibration
+snakemake-minimal = ">=8"
+pestpp = "*"              # M2+; pin in M0 environment audit
+
+# ---------------------------------------------------------------
+# Optional integrations (1.0 wraps these via subprocess)
+# ---------------------------------------------------------------
+[feature.schism.dependencies]
+# Pinned LTS in ADR-0002. M0 must select a version.
+schism = "*"               # Placeholder; real pin in M0
+pyschism = "*"             # SCHISM team's helper
+
+[feature.qgis.dependencies]
+# QGIS plugin runs in QGIS's own Python; this feature is for development testing only.
+qgis = ">=3.34"
+
+# ---------------------------------------------------------------
+# Development / test / docs
+# ---------------------------------------------------------------
+[feature.dev.dependencies]
+pytest = ">=8"
+pytest-cov = ">=5"
+pytest-regressions = ">=2"
+hypothesis = ">=6"
+ruff = ">=0.4"
+mypy = ">=1.10"
+pre-commit = ">=3.7"
+
+[feature.docs.dependencies]
+mkdocs = ">=1.6"
+mkdocs-material = ">=9.5"
+mkdocstrings = ">=0.25"
+mkdocstrings-python = ">=1.10"
+
+# ---------------------------------------------------------------
+# Environments
+# ---------------------------------------------------------------
+[environments]
+default = { features = ["dev"], solve-group = "default" }
+docs = { features = ["docs"], solve-group = "default" }
+schism = { features = ["dev", "schism"], solve-group = "schism" }
+qgis = { features = ["dev", "qgis"], solve-group = "qgis" }
+all = { features = ["dev", "docs", "schism"], solve-group = "all" }
+
+# ---------------------------------------------------------------
+# Tasks
+# ---------------------------------------------------------------
+[tasks]
+test = "pytest tests/ -v"
+test-cov = "pytest tests/ --cov=src/openlimno --cov-report=term-missing --cov-report=xml"
+lint = "ruff check src/ tests/"
+lint-fix = "ruff check --fix src/ tests/"
+format = "ruff format src/ tests/"
+typecheck = "mypy src/openlimno"
+validate-schemas = "python -m openlimno.wedm.validate_schemas"
+docs-serve = { cmd = "mkdocs serve", env = { ENVIRONMENT = "default" } }
+docs-build = "mkdocs build --strict"
+benchmark-mms = "pytest benchmarks/mms -v"
+benchmark-toro = "pytest benchmarks/toro -v"
+benchmark-phabsim = "pytest benchmarks/phabsim_bovee1997 -v"
+benchmark-all = { depends-on = ["benchmark-mms", "benchmark-toro", "benchmark-phabsim"] }
+
+# Pre-commit hook: composite quality gate
+check = { depends-on = ["lint", "typecheck", "test", "validate-schemas"] }

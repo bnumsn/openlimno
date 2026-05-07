@@ -1,0 +1,60 @@
+name: Bug report
+description: Something doesn't work as documented in SPEC.md
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Before filing, please check:
+        - This is **not** a §0.3 non-goal (SPEC.md). If it is, this isn't a bug.
+        - There's no existing duplicate issue.
+  - type: input
+    id: openlimno-version
+    attributes:
+      label: OpenLimno version
+      placeholder: "0.X.Y"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [Linux, macOS, Windows]
+    validations:
+      required: true
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: "3.11.x / 3.12.x"
+    validations:
+      required: true
+  - type: textarea
+    id: spec-section
+    attributes:
+      label: SPEC section claimed (if applicable)
+      description: Quote the SPEC text the actual behavior contradicts.
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimum command + minimum YAML / data
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: provenance
+    attributes:
+      label: provenance.json (if available)
+      description: Paste the contents; this captures versions / inputs deterministically.

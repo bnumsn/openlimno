@@ -1,0 +1,19 @@
+[general]
+name=OpenLimno
+qgisMinimumVersion=3.34
+qgisMaximumVersion=3.99
+description=Open-source water ecology habitat viewer (PHABSIM/IFIM modernization). Read-only viewer for OpenLimno NetCDF and Parquet outputs.
+version=0.1.0
+author=OpenLimno Contributors
+email=hello@openlimno.org
+about=Read-only QGIS viewer for OpenLimno hydraulic and habitat outputs. Opens UGRID NetCDF mesh files, hydraulic results (water_depth, velocity, water_surface, wetted_area), WUA-Q CSV/Parquet curves, and HSI evidence. Calculations run via the external `openlimno` CLI; this plugin does not perform numerical work in QGIS Python (avoids GDAL/Python conflicts; see ADR-0005).
+tracker=https://github.com/openlimno/openlimno/issues
+repository=https://github.com/openlimno/openlimno
+homepage=https://openlimno.org
+icon=resources/openlimno_icon.svg
+experimental=True
+deprecated=False
+tags=python,hydrology,fish,habitat,ecology,netcdf,wua,phabsim
+category=Plugins
+hasProcessingProvider=no
+license=Apache-2.0

@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openlimno.org/wedm/0.1/biological_observations.schema.json",
+  "title": "Biological Observations Tables",
+  "description": "Biological observation tables (SPEC v0.5 §3.1.4.2). Each definition is a row schema for the named Parquet table.",
+  "type": "object",
+  "$defs": {
+    "fish_sampling": {
+      "type": "object",
+      "required": ["campaign_id", "geom_wkt", "method", "species", "count"],
+      "additionalProperties": false,
+      "properties": {
+        "campaign_id": { "type": "string", "format": "uuid" },
+        "time": { "type": "string", "format": "date-time" },
+        "geom_wkt": { "type": "string" },
+        "method": {
+          "type": "string",
+          "enum": ["electrofishing", "snorkel", "seine", "gill_net", "fyke_net", "hook_line", "kick_net"]
+        },
+        "effort_seconds": { "type": "number", "minimum": 0 },
+        "effort_meters": { "type": "number", "minimum": 0 },
+        "species": { "type": "string" },
+        "count": { "type": "integer", "minimum": 0 },
+        "length_mm": { "type": "number", "minimum": 0 },
+        "weight_g": { "type": "number", "minimum": 0 },
+        "age": { "type": "integer", "minimum": 0 },
+        "sex": { "type": "string", "enum": ["M", "F", "U"] },
+        "qc_flag": { "type": "string" }
+      }
+    },
+    "redd_count": {
+      "type": "object",
+      "required": ["campaign_id", "geom_wkt", "species", "count"],
+      "additionalProperties": false,
+      "properties": {
+        "campaign_id": { "type": "string", "format": "uuid" },
+        "geom_wkt": { "type": "string" },
+        "species": { "type": "string" },
+        "count": { "type": "integer", "minimum": 0 },
+        "redd_status": {
+          "type": "string",
+          "enum": ["active", "superimposed", "buried", "old", "test"]
+        },
+        "substrate_dominant": { "type": "string" },
+        "depth_m": { "type": "number", "minimum": 0 },
+        "velocity_ms": { "type": "number", "minimum": 0 },
+        "survey_date": { "type": "string", "format": "date" }
+      }
+    },
+    "pit_tag_event": {
+      "type": "object",
+      "required": ["tag_id", "species", "event_type", "location_wkt", "time"],
+      "additionalProperties": false,
+      "properties": {
+        "tag_id": { "type": "string" },
+        "species": { "type": "string" },
+        "length_mm": { "type": "number", "minimum": 0 },
+        "event_type": {
+          "type": "string",
+          "enum": ["release", "recapture", "detection", "mortality"]
+        },
+        "location_wkt": { "type": "string" },
+        "time": { "type": "string", "format": "date-time" },
+        "antenna_id": { "type": "string" },
+        "operator_id": { "type": "string" }
+      }
+    },
+    "rst_count": {
+      "type": "object",
+      "required": ["campaign_id", "station_wkt", "time_start", "time_end", "species", "count"],
+      "additionalProperties": false,
+      "properties": {
+        "campaign_id": { "type": "string", "format": "uuid" },
+        "station_wkt": { "type": "string" },
+        "time_start": { "type": "string", "format": "date-time" },
+        "time_end": { "type": "string", "format": "date-time" },
+        "species": { "type": "string" },
+        "life_stage": {
+          "type": "string",
+          "enum": ["fry", "juvenile", "smolt", "adult"]
+        },
+        "count": { "type": "integer", "minimum": 0 },
+        "water_temp_C": { "type": "number" },
+        "discharge_m3s": { "type": "number", "minimum": 0 },
+        "trap_efficiency_pct": { "type": "number", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "edna_sample": {
+      "type": "object",
+      "required": ["campaign_id", "geom_wkt", "time", "water_volume_L", "target_species"],
+      "additionalProperties": false,
+      "properties": {
+        "campaign_id": { "type": "string", "format": "uuid" },
+        "geom_wkt": { "type": "string" },
+        "time": { "type": "string", "format": "date-time" },
+        "water_volume_L": { "type": "number", "minimum": 0 },
+        "target_species": { "type": "string" },
+        "qPCR_copies_per_L": { "type": "number", "minimum": 0 },
+        "lab_method_doi": { "type": "string" },
+        "limit_of_detection": { "type": "number", "minimum": 0 }
+      }
+    },
+    "macroinvertebrate_sample": {
+      "type": "object",
+      "required": ["campaign_id", "geom_wkt", "method", "taxa", "count"],
+      "additionalProperties": false,
+      "properties": {
+        "campaign_id": { "type": "string", "format": "uuid" },
+        "geom_wkt": { "type": "string" },
+        "method": {
+          "type": "string",
+          "enum": ["Surber", "kicknet", "Hess", "drift_net"]
+        },
+        "taxa": { "type": "string" },
+        "count": { "type": "integer", "minimum": 0 },
+        "biomass_g": { "type": "number", "minimum": 0 },
+        "EPT_richness": { "type": "integer", "minimum": 0 },
+        "BMWP_score": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

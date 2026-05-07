@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openlimno.org/wedm/0.1/life_stage.schema.json",
+  "title": "Life Stage",
+  "description": "Per-species life-stage entry with habitat zone and TUF default. SPEC v0.5 §3.1.3 + §4.4.1.1.",
+  "type": "object",
+  "required": ["species", "stage", "habitat_zone"],
+  "additionalProperties": false,
+  "properties": {
+    "species": { "type": "string", "pattern": "^[a-z_]+$" },
+    "stage": {
+      "type": "string",
+      "enum": ["egg", "larvae", "fry", "juvenile", "adult", "spawner", "spawning"]
+    },
+    "time_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "start_doy": { "type": "integer", "minimum": 1, "maximum": 366 },
+        "end_doy": { "type": "integer", "minimum": 1, "maximum": 366 }
+      },
+      "description": "Day-of-year window for this life stage"
+    },
+    "habitat_zone": {
+      "type": "string",
+      "enum": ["spawning", "rearing", "feeding", "wintering", "migration_corridor"],
+      "description": "Functional habitat zone, allows multi-zone life-stage tagging for migratory species"
+    },
+    "TUF_default": {
+      "type": "object",
+      "description": "Library default Time Use Factor; can be overridden by case studyplan.tuf_override (SPEC §4.4.1.1)",
+      "additionalProperties": false,
+      "properties": {
+        "monthly": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0, "maximum": 1 },
+          "minItems": 12,
+          "maxItems": 12
+        },
+        "decadal": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0, "maximum": 1 },
+          "minItems": 36,
+          "maxItems": 36,
+          "description": "Per-decad (3 per month) weights"
+        }
+      },
+      "oneOf": [
+        { "required": ["monthly"] },
+        { "required": ["decadal"] }
+      ]
+    },
+    "notes": { "type": "string" }
+  }
+}

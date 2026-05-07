@@ -1,0 +1,106 @@
+site_name: OpenLimno
+site_description: Open-source water ecology modeling platform
+site_url: https://docs.openlimno.org
+repo_url: https://github.com/openlimno/openlimno
+repo_name: openlimno/openlimno
+edit_uri: edit/main/docs/
+
+copyright: "Copyright 2026 OpenLimno Contributors. Docs licensed under CC-BY-4.0; code under Apache-2.0."
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.instant
+    - navigation.indexes
+    - navigation.top
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: numpy
+            show_source: true
+            members_order: source
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - footnotes
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - getting_started/install.md
+      - getting_started/quickstart.md
+      - getting_started/concepts.md
+  - User Guide:
+      - user_guide/index.md
+      - user_guide/preprocess.md
+      - user_guide/hydro.md
+      - user_guide/habitat.md
+      - user_guide/passage.md
+      - user_guide/studyplan.md
+      - user_guide/regulatory_export.md
+      - user_guide/qgis.md
+  - Spec:
+      - SPEC.md
+  - Decisions (ADRs):
+      - decisions/index.md
+  - Governance:
+      - governance/GOVERNANCE.md
+      - governance/MAINTAINERS.md
+      - governance/SPEC_CHANGE_PROPOSAL.md
+  - API Reference:
+      - api/wedm.md
+      - api/preprocess.md
+      - api/hydro.md
+      - api/habitat.md
+      - api/passage.md
+  - Changelog: CHANGELOG.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/openlimno
+  version:
+    provider: mike

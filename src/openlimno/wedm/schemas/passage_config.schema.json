@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openlimno.org/wedm/0.1/passage_config.schema.json",
+  "title": "Passage Configuration",
+  "description": "Fish passage analysis config (η_P + user-supplied η_A). SPEC v0.5 §4.3.",
+  "type": "object",
+  "required": ["culvert", "species", "attraction_efficiency"],
+  "additionalProperties": false,
+  "properties": {
+    "culvert": {
+      "type": "object",
+      "required": ["length_m", "diameter_or_width_m", "slope_percent", "material"],
+      "properties": {
+        "length_m": { "type": "number", "minimum": 0 },
+        "diameter_or_width_m": { "type": "number", "minimum": 0 },
+        "slope_percent": { "type": "number" },
+        "material": { "type": "string", "enum": ["concrete", "corrugated_metal", "smooth_metal", "plastic", "natural"] },
+        "shape": { "type": "string", "enum": ["circular", "box", "arch", "elliptical"] },
+        "embedment_m": { "type": "number", "minimum": 0 }
+      }
+    },
+    "species": { "type": "string", "pattern": "^[a-z_]+$" },
+    "life_stage": {
+      "type": "string",
+      "enum": ["fry", "juvenile", "adult", "spawner"]
+    },
+    "attraction_efficiency": {
+      "type": "object",
+      "required": ["value", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "η_A ∈ [0,1]; default 1.0 (=FishXing assumption); 0.3-0.7 empirically more realistic"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required: cite measurement / assumption basis"
+        },
+        "note": { "type": "string" }
+      }
+    },
+    "monte_carlo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "n": { "type": "integer", "minimum": 100, "default": 1000 },
+        "seed": { "type": "integer" }
+      }
+    },
+    "discharge_series_uri": {
+      "type": "string",
+      "format": "uri-reference"
+    }
+  }
+}

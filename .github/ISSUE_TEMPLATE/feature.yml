@@ -1,0 +1,37 @@
+name: Feature request
+description: Propose a new capability
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        OpenLimno 1.0 has a frozen scope (SPEC §0.3). Before filing:
+        - If this is in §13 (research roadmap), label your issue `research-roadmap`.
+        - If this would expand 1.0 scope, file a [SPEC change proposal](../docs/governance/SPEC_CHANGE_PROPOSAL.md) instead of a feature request.
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope category
+      options:
+        - 1.0 scope (already in §4)
+        - Research roadmap (§13)
+        - Would expand 1.0 scope (need SPEC change)
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: What concrete user / project need does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

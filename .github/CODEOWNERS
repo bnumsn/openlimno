@@ -1,0 +1,31 @@
+# OpenLimno CODEOWNERS
+# Per SPEC §11 governance: ≥ 2 reviewers per core module (bus factor)
+# M0 deliverable: replace _TBD_ with real GitHub handles
+
+# Default fallback (PSC reviews)
+*                                           @openlimno/psc
+
+# Module ownership
+/src/openlimno/wedm/                        @openlimno/wedm-maintainers
+/src/openlimno/preprocess/                  @openlimno/preprocess-maintainers
+/src/openlimno/hydro/                       @openlimno/hydro-maintainers
+/src/openlimno/habitat/                     @openlimno/habitat-maintainers
+/src/openlimno/passage/                     @openlimno/passage-maintainers
+/src/openlimno/studyplan/                   @openlimno/habitat-maintainers
+/src/openlimno/qgis/                        @openlimno/qgis-maintainers
+
+# Documentation
+/docs/                                      @openlimno/docs-maintainers
+/SPEC.md                                    @openlimno/psc
+/docs/governance/                           @openlimno/psc
+
+# CI / build
+/.github/                                   @openlimno/release-managers
+/pixi.toml                                  @openlimno/release-managers
+/pyproject.toml                             @openlimno/release-managers
+
+# Schemas (extra eyes - data model is contract)
+/src/openlimno/wedm/schemas/                @openlimno/wedm-maintainers @openlimno/psc
+
+# Benchmarks (must not regress)
+/benchmarks/                                @openlimno/psc

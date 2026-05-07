@@ -1,0 +1,24 @@
+name: Weekly benchmarks
+
+on:
+  schedule:
+    # Mondays 02:00 UTC
+    - cron: "0 2 * * 1"
+  workflow_dispatch:
+
+jobs:
+  benchmark-all:
+    name: Full benchmark suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.30.0
+          environments: schism
+          cache: true
+      - run: pixi run -e schism benchmark-all
+      - name: Publish benchmark dashboard
+        # M2+: push results to gh-pages benchmarks/ for public dashboard
+        run: echo "TODO M2: publish to gh-pages"

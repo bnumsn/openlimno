@@ -1,0 +1,59 @@
+{
+  "wedm_version": "0.1",
+  "openlimno_version": "0.1.0-dev",
+  "generator": "tools/build_lemhi_dataset.py",
+  "files": {
+    "Q_2024.csv": {
+      "real": true,
+      "source": "USGS gauge 13305000"
+    },
+    "rating_curve.parquet": {
+      "real": false,
+      "note": "synthetic"
+    },
+    "species.parquet": {
+      "real": true,
+      "source": "FishBase + Lemhi Subbasin Plan"
+    },
+    "life_stage.parquet": {
+      "real": true,
+      "source": "IDFG / Lemhi Subbasin Plan"
+    },
+    "hsi_curve.parquet": {
+      "real": true,
+      "source": "USFWS Blue Book + Raleigh 1984"
+    },
+    "hsi_evidence.parquet": {
+      "real": true
+    },
+    "swimming_performance.parquet": {
+      "real": true,
+      "source": "Bell 1986; Hodge 1996"
+    },
+    "passage_criteria.parquet": {
+      "real": true,
+      "source": "Reiser-Peacock 1985"
+    },
+    "drifting_egg_params.parquet": {
+      "real": true,
+      "source": "\u6613\u4f2f\u9c81 1988; \u6bb5\u4e2d\u534e; \u66f9\u6587\u5ba3 (Yangtze endemic)"
+    },
+    "survey_campaign.parquet": {
+      "real": false,
+      "note": "synthetic IDFG-style"
+    },
+    "cross_section.parquet": {
+      "real": false,
+      "note": "synthetic"
+    },
+    "redd_count.parquet": {
+      "real": false,
+      "note": "synthetic"
+    },
+    "mesh.ugrid.nc": {
+      "real": false,
+      "note": "synthetic 1D mesh"
+    }
+  },
+  "license": "CC-BY-4.0 (synthetic) / public-domain (USGS) / public-literature (HSI)"
+}

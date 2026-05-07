@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openlimno.org/wedm/0.1/studyplan.schema.json",
+  "title": "IFIM Study Plan",
+  "description": "Lightweight IFIM study planning module. SPEC v0.5 §4.4.",
+  "type": "object",
+  "required": ["problem_statement", "target_species_rationale", "objective_variables"],
+  "additionalProperties": false,
+  "properties": {
+    "problem_statement": {
+      "type": "string",
+      "minLength": 50,
+      "description": "Free-text statement of the management question (IFIM Step 1)"
+    },
+    "study_planning": {
+      "type": "object",
+      "description": "IFIM Step 2",
+      "additionalProperties": false,
+      "properties": {
+        "spatial_scope": { "type": "string" },
+        "temporal_scope": { "type": "string" },
+        "stakeholders": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "target_species_rationale": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["species", "rationale"],
+        "properties": {
+          "species": { "type": "string" },
+          "rationale": { "type": "string" },
+          "protection_status": { "type": "string" }
+        }
+      }
+    },
+    "objective_variables": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": ["wua-q", "wua-time", "hts", "hdc", "hfa", "persistent_habitat", "drifting-egg", "passage_eta_p"]
+      }
+    },
+    "tuf_override": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["species", "stage"],
+        "properties": {
+          "species": { "type": "string" },
+          "stage": { "type": "string" },
+          "monthly": {
+            "type": "array",
+            "items": { "type": "number", "minimum": 0, "maximum": 1 },
+            "minItems": 12,
+            "maxItems": 12
+          },
+          "rationale": { "type": "string" }
+        }
+      },
+      "description": "Case-level TUF override; takes precedence over life_stage.TUF_default (SPEC §4.4.1.1)"
+    },
+    "hsi_source_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "preference": { "type": "string", "enum": ["site_calibrated", "neighboring_basin", "national", "international"] },
+        "rationale": { "type": "string" }
+      }
+    },
+    "uncertainty_sources_acknowledged": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "measurement_error",
+          "hsi_uncertainty",
+          "calibration_residual",
+          "model_structural",
+          "temporal_assumption",
+          "transferability"
+        ]
+      },
+      "description": "1.0 does not compute UQ but requires explicit acknowledgment"
+    }
+  }
+}

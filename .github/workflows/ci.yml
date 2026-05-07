@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "release/*"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint & format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.30.0
+          environments: default
+          cache: true
+      - run: pixi run lint
+      - run: pixi run -- ruff format --check src/ tests/
+
+  typecheck:
+    name: Type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.30.0
+          environments: default
+          cache: true
+      - run: pixi run typecheck
+
+  schema-validation:
+    name: WEDM schema self-validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.30.0
+          environments: default
+          cache: true
+      - run: pixi run validate-schemas
+
+  test:
+    name: Test (${{ matrix.os }} / Py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.30.0
+          environments: default
+          cache: true
+      - run: pixi run test-cov
+      - uses: codecov/codecov-action@v4
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  benchmark-fast:
+    name: Benchmark (fast subset, every PR)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.30.0
+          environments: default
+          cache: true
+      - run: pixi run benchmark-mms
+      - run: pixi run benchmark-toro
+      - run: pixi run benchmark-phabsim
+
+  docs:
+    name: Docs build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.30.0
+          environments: docs
+          cache: true
+      - run: pixi run -e docs docs-build
+
+  spec-scope-check:
+    name: SPEC scope discipline check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.30.0
+          environments: default
+          cache: true
+      - run: pixi run -- python tools/m0_checklist/spec_scope_check.py src/openlimno/
+
+  ci-success:
+    name: CI success gate
+    needs: [lint, typecheck, schema-validation, test, benchmark-fast, docs, spec-scope-check]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
+      - run: echo "All checks passed"

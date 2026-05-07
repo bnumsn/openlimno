@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openlimno.org/wedm/0.1/physical_observations.schema.json",
+  "title": "Physical Observations Tables",
+  "description": "Physical observation tables. SPEC v0.5 §3.1.4.1.",
+  "type": "object",
+  "$defs": {
+    "survey_campaign": {
+      "type": "object",
+      "required": ["id", "date", "agency"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "date": { "type": "string", "format": "date" },
+        "agency": { "type": "string" },
+        "equipment": { "type": "string" },
+        "weather": { "type": "string" },
+        "license": { "type": "string" },
+        "doi": { "type": "string" },
+        "principal_investigator": { "type": "string" },
+        "notes": { "type": "string" }
+      }
+    },
+    "observations": {
+      "type": "object",
+      "required": ["campaign_id", "time", "geom_wkt", "variable", "value", "units"],
+      "additionalProperties": false,
+      "properties": {
+        "campaign_id": { "type": "string", "format": "uuid" },
+        "time": { "type": "string", "format": "date-time" },
+        "geom_wkt": { "type": "string" },
+        "variable": { "type": "string" },
+        "value": { "type": "number" },
+        "units": { "type": "string" },
+        "sensor": { "type": "string" },
+        "qc_flag": {
+          "type": "string",
+          "enum": ["pass", "warn", "fail", "interpolated", "estimated"]
+        }
+      }
+    },
+    "cross_section": {
+      "type": "object",
+      "required": ["campaign_id", "station_m", "geom_wkt", "points"],
+      "additionalProperties": false,
+      "properties": {
+        "campaign_id": { "type": "string", "format": "uuid" },
+        "station_m": { "type": "number" },
+        "geom_wkt": { "type": "string" },
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["distance_m", "elevation_m"],
+            "properties": {
+              "distance_m": { "type": "number" },
+              "elevation_m": { "type": "number" },
+              "depth_m": { "type": "number" },
+              "substrate": { "type": "string" },
+              "cover": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "adcp_transect": {
+      "type": "object",
+      "required": ["campaign_id", "geom_wkt", "ensembles"],
+      "additionalProperties": false,
+      "properties": {
+        "campaign_id": { "type": "string", "format": "uuid" },
+        "geom_wkt": { "type": "string" },
+        "ensembles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "time": { "type": "string", "format": "date-time" },
+              "depth_m": { "type": "number" },
+              "u_ms": { "type": "number" },
+              "v_ms": { "type": "number" },
+              "w_ms": { "type": "number" },
+              "backscatter_dB": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    "rating_curve": {
+      "type": "object",
+      "required": ["gauge_id", "points"],
+      "additionalProperties": false,
+      "properties": {
+        "gauge_id": { "type": "string" },
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["h_m", "Q_m3s"],
+            "properties": {
+              "h_m": { "type": "number" },
+              "Q_m3s": { "type": "number", "minimum": 0 },
+              "sigma_Q": { "type": "number", "minimum": 0 }
+            }
+          }
+        },
+        "valid_range": {
+          "type": "object",
+          "properties": {
+            "h_min": { "type": "number" },
+            "h_max": { "type": "number" }
+          }
+        },
+        "source_doi": { "type": "string" }
+      }
+    },
+    "hydraulic_controls": {
+      "type": "object",
+      "required": ["id", "type", "geom_wkt"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": ["weir", "culvert", "dam", "gate", "bridge", "fishway"]
+        },
+        "geom_wkt": { "type": "string" },
+        "geometry_params": { "type": "object" },
+        "operation_rules": { "type": "string" }
+      }
+    },
+    "hsi_evidence": {
+      "type": "object",
+      "required": ["curve_id", "paper_doi", "quality_grade"],
+      "additionalProperties": false,
+      "properties": {
+        "curve_id": { "type": "string" },
+        "paper_doi": { "type": "string" },
+        "n_observations": { "type": "integer", "minimum": 0 },
+        "geographic_region": { "type": "string" },
+        "quality_grade": {
+          "type": "string",
+          "enum": ["A", "B", "C"],
+          "description": "Authoritative grade (SPEC §4.2.2.1). HSICurve.quality_grade is derived from this on load."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,54 @@
+# Bovee 1997 PHABSIM replication case.
+#
+# Six-section uniform prismatic reach (rectangular b=10 m, n=0.030, S=0.001)
+# with stylised Bovee 1978 steelhead spawning HSI. Closed-form analytic
+# WUA values are stored in ``data/expected_wua.json`` and asserted by the
+# benchmark suite within 1e-3 (SPEC §7).
+#
+# Run:
+#   python examples/phabsim_replication/build_data.py
+#   PYTHONPATH=src openlimno run examples/phabsim_replication/case.yaml
+
+openlimno: '0.1'
+
+case:
+  name: bovee_1997_phabsim_replication
+  description: PHABSIM standard regression — closed-form WUA on a prismatic reach
+  crs: EPSG:32612
+
+mesh:
+  uri: ./data/mesh.placeholder.nc   # 1D — Builtin1D ignores; only used for SCHISM
+  time_varying: false
+
+data:
+  cross_section: ./data/cross_section.parquet
+  hsi_curve:     ./data/hsi_curve.parquet
+  species:       ./data/species.parquet
+  life_stage:    ./data/life_stage.parquet
+
+hydrodynamics:
+  backend: builtin-1d
+  cfl: 0.4
+  builtin_1d:
+    scheme: preissmann
+
+habitat:
+  species: [oncorhynchus_mykiss]
+  stages: [spawning]
+  metric: wua-q
+  composite: geometric_mean
+  acknowledge_independence: true
+  acknowledge_independence_reason: |
+    SPEC §4.2.2.2: depth and velocity are treated as independent for the
+    geometric-mean composite. This is the canonical PHABSIM assumption used
+    in Bovee 1986 and Stalnaker 1995 — replicating those results requires
+    the same assumption.
+  scale: cell
+
+output:
+  dir: ./out/
+  formats: [csv, parquet, netcdf]
+  vars: [water_depth, velocity_magnitude, wua, hsi_depth, hsi_velocity]
+
+provenance:
+  emit: true
