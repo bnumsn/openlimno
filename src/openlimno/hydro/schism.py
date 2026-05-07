@@ -21,7 +21,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +66,14 @@ class SCHISMAdapter:
     timeout_s: float | None = None
     lts_version: str = LTS_VERSION
 
-    _input_files: list[str] = field(default_factory=lambda: [
-        "hgrid.gr3", "vgrid.in", "param.nml", "bctides.in",
-    ])
+    _input_files: list[str] = field(
+        default_factory=lambda: [
+            "hgrid.gr3",
+            "vgrid.in",
+            "param.nml",
+            "bctides.in",
+        ]
+    )
 
     # ------------------------------------------------------------------
     # HydroSolver Protocol
@@ -96,9 +101,10 @@ class SCHISMAdapter:
                 _write_hgrid_from_ugrid(Path(wedm_mesh_path), work_dir / "hgrid.gr3")
                 used_real_mesh = True
                 logger.info("hgrid.gr3 generated from %s", wedm_mesh_path)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.warning(
-                    "UGRID → hgrid.gr3 conversion failed: %s; using placeholder", e,
+                    "UGRID → hgrid.gr3 conversion failed: %s; using placeholder",
+                    e,
                 )
 
         if not used_real_mesh:
@@ -112,9 +118,7 @@ class SCHISMAdapter:
         # SCHISM main parameter file (real, runnable skeleton)
         (work_dir / "param.nml").write_text(_render_param_nml(param_overrides))
         # vgrid.in: single-layer (depth-averaged) — valid for 2D habitat runs
-        (work_dir / "vgrid.in").write_text(
-            "2 !ivcor\n1 !nvrt\n1 1.0 -1.0\n"
-        )
+        (work_dir / "vgrid.in").write_text("2 !ivcor\n1 !nvrt\n1 1.0 -1.0\n")
         # bctides.in stub: no tidal forcing; user supplies BCs if needed
         (work_dir / "bctides.in").write_text(
             "! bctides.in — supply boundary conditions per your case\n"
@@ -122,15 +126,18 @@ class SCHISMAdapter:
         )
 
         marker = work_dir / ".openlimno_prepared"
-        marker.write_text(json.dumps({
-            "case_yaml": str(case_yaml),
-            "lts_version": self.lts_version,
-            "input_files": self._input_files,
-            "real_mesh": used_real_mesh,
-            "wedm_mesh_path": str(wedm_mesh_path) if wedm_mesh_path else None,
-        }))
-        logger.info("SCHISM work_dir prepared at %s (real_mesh=%s)",
-                    work_dir, used_real_mesh)
+        marker.write_text(
+            json.dumps(
+                {
+                    "case_yaml": str(case_yaml),
+                    "lts_version": self.lts_version,
+                    "input_files": self._input_files,
+                    "real_mesh": used_real_mesh,
+                    "wedm_mesh_path": str(wedm_mesh_path) if wedm_mesh_path else None,
+                }
+            )
+        )
+        logger.info("SCHISM work_dir prepared at %s (real_mesh=%s)", work_dir, used_real_mesh)
         return work_dir
 
     def run(
@@ -148,9 +155,7 @@ class SCHISMAdapter:
         work_dir = Path(work_dir).resolve()
         marker = work_dir / ".openlimno_prepared"
         if not marker.exists():
-            raise RuntimeError(
-                f"work_dir {work_dir} not prepared; call prepare() first"
-            )
+            raise RuntimeError(f"work_dir {work_dir} not prepared; call prepare() first")
 
         log_path = work_dir / "schism.log"
         start = time.time()
@@ -221,9 +226,7 @@ class SCHISMAdapter:
         work_dir = Path(work_dir).resolve()
         schout_files = sorted(work_dir.glob("schout_*.nc"))
         if not schout_files:
-            raise FileNotFoundError(
-                f"No schout_*.nc found in {work_dir}; was the run successful?"
-            )
+            raise FileNotFoundError(f"No schout_*.nc found in {work_dir}; was the run successful?")
         # Open as multi-file dataset
         return xr.open_mfdataset(schout_files, combine="by_coords")
 
@@ -237,20 +240,30 @@ class SCHISMAdapter:
             mount = f"{work_dir}:/work"
             if self.container_runtime in ("docker", "podman"):
                 return [
-                    self.container_runtime, "run", "--rm",
-                    "-v", mount, "-w", "/work",
+                    self.container_runtime,
+                    "run",
+                    "--rm",
+                    "-v",
+                    mount,
+                    "-w",
+                    "/work",
                     self.container_image,
                 ]
             if self.container_runtime == "apptainer":
                 return [
-                    "apptainer", "run",
-                    "--bind", mount,
+                    "apptainer",
+                    "run",
+                    "--bind",
+                    mount,
                     self.container_image,
                 ]
         # Native path
-        exe = self.executable or os.environ.get("OPENLIMNO_SCHISM") or shutil.which(
-            "pschism_TVD-VL"
-        ) or shutil.which("schism")
+        exe = (
+            self.executable
+            or os.environ.get("OPENLIMNO_SCHISM")
+            or shutil.which("pschism_TVD-VL")
+            or shutil.which("schism")
+        )
         if not exe:
             raise RuntimeError(
                 "No SCHISM executable found. Set executable=, container_image=, "
@@ -269,13 +282,13 @@ def _render_param_nml(overrides: dict[str, Any] | None = None) -> str:
     ``SCHISMAdapter.prepare(..., param_overrides=...)``.
     """
     defaults: dict[str, Any] = {
-        "ipre": 0,           # 0 = run, 1 = pre-process only
-        "ibc": 0,            # baroclinic option (0 = barotropic)
-        "rnday": 1.0,        # simulation length in days
-        "dt": 100.0,         # time step in s
+        "ipre": 0,  # 0 = run, 1 = pre-process only
+        "ibc": 0,  # baroclinic option (0 = barotropic)
+        "rnday": 1.0,  # simulation length in days
+        "dt": 100.0,  # time step in s
         "msc2": 24,
         "mdc2": 30,
-        "ihot": 0,           # cold start
+        "ihot": 0,  # cold start
         "indvel": 1,
         "ihorcon": 0,
     }
@@ -305,8 +318,8 @@ def _write_hgrid_from_ugrid(ugrid_path: Path, hgrid_path: Path) -> None:
     UGRID conventions: ``mesh2d_face_nodes`` with fill_value indicating
     "not a node" (typically -1 or NetCDF _FillValue).
     """
-    import xarray as xr
     import numpy as np
+    import xarray as xr
 
     ds = xr.open_dataset(ugrid_path)
     try:
@@ -318,9 +331,7 @@ def _write_hgrid_from_ugrid(ugrid_path: Path, hgrid_path: Path) -> None:
             None,
         )
         if x_name is None or y_name is None or face_name is None:
-            raise ValueError(
-                "UGRID mesh missing required vars (mesh2d_node_x/y/face_nodes)"
-            )
+            raise ValueError("UGRID mesh missing required vars (mesh2d_node_x/y/face_nodes)")
         x = np.asarray(ds[x_name].values, dtype=float)
         y = np.asarray(ds[y_name].values, dtype=float)
         face_nodes = np.asarray(ds[face_name].values)
@@ -330,10 +341,7 @@ def _write_hgrid_from_ugrid(ugrid_path: Path, hgrid_path: Path) -> None:
             (n for n in ("bottom_elevation", "depth", "node_z") if n in ds.variables),
             None,
         )
-        z = (
-            np.asarray(ds[z_name].values, dtype=float)
-            if z_name else np.zeros_like(x)
-        )
+        z = np.asarray(ds[z_name].values, dtype=float) if z_name else np.zeros_like(x)
 
         # Detect fill value in face_nodes
         fill = ds[face_name].attrs.get("_FillValue", -1)
@@ -348,12 +356,12 @@ def _write_hgrid_from_ugrid(ugrid_path: Path, hgrid_path: Path) -> None:
         f.write("OpenLimno UGRID-derived mesh\n")
         f.write(f"{ne} {np_count}\n")
         for i in range(np_count):
-            f.write(f"{i+1} {x[i]:.6f} {y[i]:.6f} {z[i]:.6f}\n")
+            f.write(f"{i + 1} {x[i]:.6f} {y[i]:.6f} {z[i]:.6f}\n")
         for i in range(ne):
             row = face_nodes[i]
             valid = [int(n) + 1 for n in row if int(n) != int(fill) and int(n) >= 0]
             t = len(valid)  # 3 = tri, 4 = quad
-            f.write(f"{i+1} {t} " + " ".join(str(n) for n in valid) + "\n")
+            f.write(f"{i + 1} {t} " + " ".join(str(n) for n in valid) + "\n")
         f.write("0 = number of open boundary segments\n")
         f.write("0 = number of land boundary segments\n")
 

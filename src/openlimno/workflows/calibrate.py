@@ -13,7 +13,6 @@ Use case (Lemhi-typical):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -92,7 +91,9 @@ def calibrate_manning_n(
         return _rmse(Q_pred, obs_Q)
 
     result = minimize_scalar(
-        objective, bounds=bounds, method="bounded",
+        objective,
+        bounds=bounds,
+        method="bounded",
         options={"xatol": 1e-5, "maxiter": 200},
     )
 

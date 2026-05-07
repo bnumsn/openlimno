@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import yaml
 
 from openlimno.wedm import validate_studyplan
@@ -35,13 +34,11 @@ class StudyPlan:
     config: dict[str, Any]
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "StudyPlan":
+    def from_yaml(cls, path: str | Path) -> StudyPlan:
         path = Path(path)
         errors = validate_studyplan(path)
         if errors:
-            raise ValueError(
-                "Study plan failed schema validation:\n  - " + "\n  - ".join(errors)
-            )
+            raise ValueError("Study plan failed schema validation:\n  - " + "\n  - ".join(errors))
         with path.open("r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
         return cls(config=config)

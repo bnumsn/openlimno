@@ -1,6 +1,6 @@
 # SPEC Change Proposal Template
 
-> Use this template to propose changes to [`SPEC.md`](../../SPEC.md). File as a GitHub Issue tagged `spec-change`. Public comment period ≥ 14 days. Decision by PSC majority vote.
+> Use this template to propose changes to [`SPEC.md`](../SPEC.md). File as a GitHub Issue tagged `spec-change`. Public comment period ≥ 14 days. Decision by PSC majority vote.
 
 ---
 

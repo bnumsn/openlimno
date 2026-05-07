@@ -8,7 +8,6 @@ import pytest
 
 from openlimno.preprocess import read_hecras_geometry, read_river2d_cdg
 
-
 # Small synthetic .g03 fragment with two cross-sections on one reach.
 _HECRAS_G03 = """\
 Geom Title=Synthetic Test Geometry

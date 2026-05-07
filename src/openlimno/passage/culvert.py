@@ -13,9 +13,7 @@ from typing import Literal
 import numpy as np
 
 CulvertShape = Literal["circular", "box", "arch", "elliptical"]
-CulvertMaterial = Literal[
-    "concrete", "corrugated_metal", "smooth_metal", "plastic", "natural"
-]
+CulvertMaterial = Literal["concrete", "corrugated_metal", "smooth_metal", "plastic", "natural"]
 
 # Manning's n by material (Chow 1959 + FHWA HY-8)
 MANNING_N: dict[CulvertMaterial, float] = {
@@ -68,9 +66,7 @@ class Culvert:
         # Arch/elliptical fallback: approximate as box of equivalent hydraulic radius
         return self._box_normal(discharge_m3s, n, S)
 
-    def _circular_normal(
-        self, Q: float, n: float, S: float
-    ) -> tuple[float, float]:
+    def _circular_normal(self, Q: float, n: float, S: float) -> tuple[float, float]:
         """Normal depth in a partial-flowing circular culvert."""
         D = self.diameter_or_width_m
 
@@ -82,14 +78,14 @@ class Culvert:
                 A = np.pi * (D / 2) ** 2
                 P = np.pi * D
                 R = A / P  # = D/4
-                return (1.0 / n) * A * R ** (2.0 / 3.0) * S ** 0.5
+                return (1.0 / n) * A * R ** (2.0 / 3.0) * S**0.5
             # Partial: chord + circular segment
             r = D / 2
             theta = 2 * np.arccos(1 - h / r)  # central angle
-            A = (r ** 2) * (theta - np.sin(theta)) / 2
+            A = (r**2) * (theta - np.sin(theta)) / 2
             P = r * theta
             R = A / P if P > 0 else 0.0
-            return (1.0 / n) * A * R ** (2.0 / 3.0) * S ** 0.5
+            return (1.0 / n) * A * R ** (2.0 / 3.0) * S**0.5
 
         # Bisection to find h
         lo, hi = 1e-4, D - 1e-4
@@ -108,13 +104,11 @@ class Culvert:
         # Recompute area at h
         r = D / 2
         theta = 2 * np.arccos(1 - h / r)
-        A = (r ** 2) * (theta - np.sin(theta)) / 2
+        A = (r**2) * (theta - np.sin(theta)) / 2
         v = Q / A if A > 0 else 0.0
         return v, h
 
-    def _box_normal(
-        self, Q: float, n: float, S: float
-    ) -> tuple[float, float]:
+    def _box_normal(self, Q: float, n: float, S: float) -> tuple[float, float]:
         """Normal depth in a rectangular box culvert."""
         b = self.diameter_or_width_m
         H = self.height_m or b
@@ -126,7 +120,7 @@ class Culvert:
             A = b * h_eff
             P = b + 2 * h_eff
             R = A / P if P > 0 else 0.0
-            return (1.0 / n) * A * R ** (2.0 / 3.0) * S ** 0.5
+            return (1.0 / n) * A * R ** (2.0 / 3.0) * S**0.5
 
         lo, hi = 1e-4, H - 1e-4
         if Q_at_h(hi) < Q:

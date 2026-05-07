@@ -24,13 +24,13 @@ def test_calibrate_recovers_known_n() -> None:
     """Synthesize observed rating with n=0.030, calibrate from initial 0.045."""
     xs = make_rect(n=0.030)
     obs_h = np.array([0.3, 0.5, 0.8, 1.2, 1.6])
-    obs_Q = np.array([
-        xs.manning_discharge(h, slope=0.001) for h in obs_h
-    ])
+    obs_Q = np.array([xs.manning_discharge(h, slope=0.001) for h in obs_h])
     obs = pd.DataFrame({"h_m": obs_h, "Q_m3s": obs_Q})
 
     res = calibrate_manning_n(
-        cross_section=xs, observed_rating=obs, slope=0.001,
+        cross_section=xs,
+        observed_rating=obs,
+        slope=0.001,
         initial_n=0.045,
     )
     assert res.calibrated_value == pytest.approx(0.030, rel=1e-3)
@@ -58,13 +58,14 @@ def test_calibrate_respects_bounds() -> None:
     """Out-of-bounds optimum should clamp to bounds."""
     xs = make_rect(n=0.005)
     obs_h = np.array([0.5, 1.0])
-    obs_Q = np.array([
-        xs.manning_discharge(h, slope=0.001) for h in obs_h
-    ])
+    obs_Q = np.array([xs.manning_discharge(h, slope=0.001) for h in obs_h])
     obs = pd.DataFrame({"h_m": obs_h, "Q_m3s": obs_Q})
 
     res = calibrate_manning_n(
-        xs, obs, slope=0.001, initial_n=0.030,
+        xs,
+        obs,
+        slope=0.001,
+        initial_n=0.030,
         bounds=(0.012, 0.080),  # excludes the true 0.005
     )
     # Calibrated value should be at lower bound

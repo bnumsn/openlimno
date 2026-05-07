@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from openlimno.habitat import (
@@ -49,9 +48,13 @@ def test_hsi_extrapolation_clamped() -> None:
 def test_hsi_invalid_x_monotonicity() -> None:
     with pytest.raises(ValueError, match="non-decreasing"):
         HSICurve(
-            species="x", life_stage="adult", variable="depth",
+            species="x",
+            life_stage="adult",
+            variable="depth",
             points=[(0.0, 0.0), (0.3, 1.0), (0.1, 0.5)],
-            category="I", geographic_origin="x", transferability_score=0.5,
+            category="I",
+            geographic_origin="x",
+            transferability_score=0.5,
             quality_grade="C",
         )
 
@@ -59,9 +62,13 @@ def test_hsi_invalid_x_monotonicity() -> None:
 def test_hsi_invalid_suitability_range() -> None:
     with pytest.raises(ValueError, match=r"\[0, 1\]"):
         HSICurve(
-            species="x", life_stage="adult", variable="depth",
+            species="x",
+            life_stage="adult",
+            variable="depth",
             points=[(0.0, 0.0), (0.3, 1.5)],
-            category="I", geographic_origin="x", transferability_score=0.5,
+            category="I",
+            geographic_origin="x",
+            transferability_score=0.5,
             quality_grade="C",
         )
 

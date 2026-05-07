@@ -29,12 +29,14 @@ class DriftingEggResult:
 
     species: str
     spawning_station_m: float
-    hatch_station_m: float        # downstream distance where hatch completed
+    hatch_station_m: float  # downstream distance where hatch completed
     drift_distance_km: float
     hatch_temp_C_mean: float
-    mortality_fraction: float     # ∈ [0,1]; fraction of trajectory in slow water
-    success: bool                 # True if hatch reached AND mortality < 0.5
-    trajectory: pd.DataFrame      # columns: time_s, station_m, depth_m, velocity_ms, temp_C, hatch_progress
+    mortality_fraction: float  # ∈ [0,1]; fraction of trajectory in slow water
+    success: bool  # True if hatch reached AND mortality < 0.5
+    trajectory: (
+        pd.DataFrame
+    )  # columns: time_s, station_m, depth_m, velocity_ms, temp_C, hatch_progress
 
     def summary(self) -> str:
         return (
@@ -99,13 +101,15 @@ def evaluate_drifting_egg(
         hatch_progress += dt_s / hatch_seconds
         temps_drifted.append(T)
 
-        rows.append({
-            "time_s": t_s,
-            "station_m": x,
-            "velocity_ms": u,
-            "temp_C": T,
-            "hatch_progress": hatch_progress,
-        })
+        rows.append(
+            {
+                "time_s": t_s,
+                "station_m": x,
+                "velocity_ms": u,
+                "temp_C": T,
+                "hatch_progress": hatch_progress,
+            }
+        )
 
         # Step downstream
         x_next = x + u * dt_s
@@ -151,12 +155,8 @@ def load_drifting_egg_params(path: str | Path, species: str) -> dict[str, object
     return {
         "drift_distance_km_min": float(row["drift_distance_km_min"]),
         "drift_distance_km_max": float(row["drift_distance_km_max"]),
-        "hatch_temp_days_curve": [
-            (float(t), float(d)) for t, d in row["hatch_temp_days"]
-        ],
-        "mortality_velocity_threshold_ms": float(
-            row["mortality_velocity_threshold_ms"]
-        ),
+        "hatch_temp_days_curve": [(float(t), float(d)) for t, d in row["hatch_temp_days"]],
+        "mortality_velocity_threshold_ms": float(row["mortality_velocity_threshold_ms"]),
     }
 
 

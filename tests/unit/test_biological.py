@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
-import pytest
 
 from openlimno.preprocess import (
     read_edna_sample,
@@ -40,9 +39,9 @@ def test_read_fish_sampling_basic(tmp_path: Path) -> None:
 def test_read_fish_sampling_alternative_method() -> None:
     """Reader does NOT enforce method enum; validator does."""
     import io
+
     csv = io.StringIO(
-        "time,geom_wkt,method,species,count\n"
-        "2024-08-15,POINT(0 0),wrong_method,xx,5\n"
+        "time,geom_wkt,method,species,count\n2024-08-15,POINT(0 0),wrong_method,xx,5\n"
     )
     df = pd.read_csv(csv)
     df.columns = [c.lower() for c in df.columns]
@@ -112,10 +111,12 @@ def test_read_edna_basic(tmp_path: Path) -> None:
     )
     df = read_edna_sample(csv, campaign_id="lemhi-edna-2024")
     # Reader doesn't normalize; we preserve user's column names.
-    df = df.rename(columns={
-        "water_volume_l": "water_volume_L",
-        "qpcr_copies_per_l": "qPCR_copies_per_L",
-    })
+    df = df.rename(
+        columns={
+            "water_volume_l": "water_volume_L",
+            "qpcr_copies_per_l": "qPCR_copies_per_L",
+        }
+    )
     errs = validate_biological_table(df, "edna_sample")
     assert errs == [], errs
 
@@ -130,10 +131,12 @@ def test_read_macroinvertebrate_basic(tmp_path: Path) -> None:
         "POINT(584000 4980000),Surber,Ephemeroptera,150,2.5,8,72\n"
     )
     df = read_macroinvertebrate_sample(csv, campaign_id="lemhi-macro-2024")
-    df = df.rename(columns={
-        "ept_richness": "EPT_richness",
-        "bmwp_score": "BMWP_score",
-    })
+    df = df.rename(
+        columns={
+            "ept_richness": "EPT_richness",
+            "bmwp_score": "BMWP_score",
+        }
+    )
     errs = validate_biological_table(df, "macroinvertebrate_sample")
     assert errs == [], errs
 

@@ -27520,7 +27520,7 @@ packages:
 - pypi: ./
   name: openlimno
   version: 0.1.0.dev0
-  sha256: 445976219723a23caaf6200d359a25736395ff5969b006508f4a87da16966b5e
+  sha256: 5846f518c80bed7df07cb9466f30e4be7132c2a8d3fd674708c35a2c68cf6fe2
   requires_dist:
   - numpy>=1.26
   - pandas>=2.2

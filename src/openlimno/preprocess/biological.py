@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -37,8 +36,7 @@ def _bio_schemas() -> dict[str, dict[str, Any]]:
     return schema["$defs"]
 
 
-def _read_table(path: str | Path,
-                date_columns: list[str] | None = None) -> pd.DataFrame:
+def _read_table(path: str | Path, date_columns: list[str] | None = None) -> pd.DataFrame:
     p = Path(path)
     if p.suffix.lower() in {".xls", ".xlsx", ".xlsm"}:
         df = pd.read_excel(p)
@@ -58,9 +56,7 @@ def _stamp_campaign(df: pd.DataFrame, campaign_id: str | None) -> pd.DataFrame:
     return df
 
 
-def validate_biological_table(
-    df: pd.DataFrame, table_name: str
-) -> list[str]:
+def validate_biological_table(df: pd.DataFrame, table_name: str) -> list[str]:
     """Validate every row of df against the named biological table schema.
 
     Returns a list of human-readable errors (empty list = OK).
@@ -83,17 +79,17 @@ def validate_biological_table(
     return errs
 
 
-def write_to_parquet(
-    df: pd.DataFrame, path: str | Path, table_name: str
-) -> Path:
+def write_to_parquet(df: pd.DataFrame, path: str | Path, table_name: str) -> Path:
     """Write a biological observation DataFrame to WEDM-conformant Parquet."""
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     table = pa.Table.from_pandas(df, preserve_index=False)
-    table = table.replace_schema_metadata({
-        **(table.schema.metadata or {}),
-        b"openlimno.format": f"wedm/0.1/biological/{table_name}".encode(),
-    })
+    table = table.replace_schema_metadata(
+        {
+            **(table.schema.metadata or {}),
+            b"openlimno.format": f"wedm/0.1/biological/{table_name}".encode(),
+        }
+    )
     pq.write_table(table, p)
     return p
 
@@ -101,17 +97,13 @@ def write_to_parquet(
 # --------------------------------------------------------------
 # Per-table readers
 # --------------------------------------------------------------
-def read_fish_sampling(
-    path: str | Path, campaign_id: str | None = None
-) -> pd.DataFrame:
+def read_fish_sampling(path: str | Path, campaign_id: str | None = None) -> pd.DataFrame:
     """Read fish sampling (electrofishing/snorkel/seine/...) table."""
     df = _read_table(path, date_columns=["time"])
     return _stamp_campaign(df, campaign_id)
 
 
-def read_redd_count(
-    path: str | Path, campaign_id: str | None = None
-) -> pd.DataFrame:
+def read_redd_count(path: str | Path, campaign_id: str | None = None) -> pd.DataFrame:
     """Read redd survey table."""
     df = _read_table(path, date_columns=["survey_date"])
     return _stamp_campaign(df, campaign_id)
@@ -122,25 +114,19 @@ def read_pit_tag_event(path: str | Path) -> pd.DataFrame:
     return _read_table(path, date_columns=["time"])
 
 
-def read_rst_count(
-    path: str | Path, campaign_id: str | None = None
-) -> pd.DataFrame:
+def read_rst_count(path: str | Path, campaign_id: str | None = None) -> pd.DataFrame:
     """Read RST (rotary screw trap) count table."""
     df = _read_table(path, date_columns=["time_start", "time_end"])
     return _stamp_campaign(df, campaign_id)
 
 
-def read_edna_sample(
-    path: str | Path, campaign_id: str | None = None
-) -> pd.DataFrame:
+def read_edna_sample(path: str | Path, campaign_id: str | None = None) -> pd.DataFrame:
     """Read eDNA sample table."""
     df = _read_table(path, date_columns=["time"])
     return _stamp_campaign(df, campaign_id)
 
 
-def read_macroinvertebrate_sample(
-    path: str | Path, campaign_id: str | None = None
-) -> pd.DataFrame:
+def read_macroinvertebrate_sample(path: str | Path, campaign_id: str | None = None) -> pd.DataFrame:
     """Read macroinvertebrate (Surber/kicknet/Hess/...) sample table."""
     df = _read_table(path)
     return _stamp_campaign(df, campaign_id)

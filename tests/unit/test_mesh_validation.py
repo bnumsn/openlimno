@@ -13,8 +13,9 @@ from openlimno.preprocess import validate_ugrid_mesh
 LEMHI_MESH = Path(__file__).resolve().parents[2] / "data" / "lemhi" / "mesh.ugrid.nc"
 
 
-def _write_minimal_ugrid(path: Path, *, with_depth: bool = True,
-                          with_conventions: bool = True) -> None:
+def _write_minimal_ugrid(
+    path: Path, *, with_depth: bool = True, with_conventions: bool = True
+) -> None:
     x = np.array([0.0, 1.0, 1.0, 0.0])
     y = np.array([0.0, 0.0, 1.0, 1.0])
     z = np.array([0.5, 0.4, 0.3, 0.4])
@@ -22,8 +23,7 @@ def _write_minimal_ugrid(path: Path, *, with_depth: bool = True,
     data_vars = {
         "mesh2d_node_x": (("node",), x),
         "mesh2d_node_y": (("node",), y),
-        "mesh2d_face_nodes": (("face", "vertex"), face_nodes,
-                               {"_FillValue": -1}),
+        "mesh2d_face_nodes": (("face", "vertex"), face_nodes, {"_FillValue": -1}),
     }
     if with_depth:
         data_vars["bottom_elevation"] = (("node",), z)
@@ -46,8 +46,7 @@ def test_missing_connectivity_invalid(tmp_path: Path) -> None:
     p = tmp_path / "bad.nc"
     x = np.array([0.0, 1.0])
     y = np.array([0.0, 1.0])
-    xr.Dataset({"mesh2d_node_x": (("node",), x),
-                 "mesh2d_node_y": (("node",), y)}).to_netcdf(p)
+    xr.Dataset({"mesh2d_node_x": (("node",), x), "mesh2d_node_y": (("node",), y)}).to_netcdf(p)
     rep = validate_ugrid_mesh(p)
     assert not rep.is_valid
     assert any("connectivity" in e.lower() for e in rep.errors)

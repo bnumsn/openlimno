@@ -5,7 +5,7 @@
 | 版本 | 0.5.0 (frozen) |
 | 状态 | **Approved-for-M0 (无条件)** — 三轮领域验收 12/12 PASS;SPEC 进入冻结期, 后续仅接受真实流域案例驱动的字段补丁 |
 | 起草日期 | 2026-05-07 |
-| 前一版本 | [SPEC-v0.1-archive.md](./SPEC-v0.1-archive.md) (v0.1 → v0.2 → v0.3 → v0.4 → v0.5) |
+| 前一版本 | `SPEC-v0.1-archive.md` in repository root (v0.1 → v0.2 → v0.3 → v0.4 → v0.5) |
 | 适用范围 | 1.0 = PHABSIM/IFIM 现代化替代 + SCHISM 包装 2D 栖息地 + 桌面工作流 |
 | 许可 | Apache-2.0 (代码) / CC-BY-4.0 (规格、数据、文档) |
 

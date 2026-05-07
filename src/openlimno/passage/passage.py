@@ -38,9 +38,7 @@ class SwimmingModel:
     prolonged_curve: list[tuple[float, float]] = field(default_factory=list)
     sustained_curve: list[tuple[float, float]] = field(default_factory=list)
 
-    def _interp(
-        self, curve: list[tuple[float, float]], temp_C: float
-    ) -> float:
+    def _interp(self, curve: list[tuple[float, float]], temp_C: float) -> float:
         if not curve:
             return 0.0
         Ts = np.array([p[0] for p in curve])
@@ -66,8 +64,8 @@ class PassageResult:
     barrel_depth_m: float
     fish_speed_ms: float  # the swim speed used
     swim_band: Literal["burst", "prolonged", "sustained"]
-    eta_P: float                    # passage success rate ∈ [0,1]
-    monte_carlo_std: float = 0.0    # std-dev of η_P if MC; else 0
+    eta_P: float  # passage success rate ∈ [0,1]
+    monte_carlo_std: float = 0.0  # std-dev of η_P if MC; else 0
 
     def summary(self) -> str:
         return (

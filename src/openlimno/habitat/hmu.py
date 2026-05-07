@@ -29,9 +29,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-HMUType = Literal[
-    "cascade", "step", "riffle", "run", "glide", "pool", "backwater"
-]
+HMUType = Literal["cascade", "step", "riffle", "run", "glide", "pool", "backwater"]
 
 
 @dataclass
@@ -39,15 +37,17 @@ class HMUThresholds:
     """Wadeson 1994 / Parasiewicz 2007-inspired thresholds (overridable)."""
 
     # (lower_Fr, upper_Fr, label) — searched in order
-    bands: list[tuple[float, float, HMUType]] = field(default_factory=lambda: [
-        (1.0, np.inf, "cascade"),
-        (0.7, 1.0, "step"),
-        (0.4, 0.7, "riffle"),
-        (0.2, 0.4, "run"),
-        (0.05, 0.2, "glide"),
-        (0.001, 0.05, "pool"),
-        (0.0, 0.001, "backwater"),
-    ])
+    bands: list[tuple[float, float, HMUType]] = field(
+        default_factory=lambda: [
+            (1.0, np.inf, "cascade"),
+            (0.7, 1.0, "step"),
+            (0.4, 0.7, "riffle"),
+            (0.2, 0.4, "run"),
+            (0.05, 0.2, "glide"),
+            (0.001, 0.05, "pool"),
+            (0.0, 0.001, "backwater"),
+        ]
+    )
 
 
 def classify_hmu(
@@ -96,9 +96,7 @@ def aggregate_wua_by_hmu(
         rec = rows.setdefault(label, {"wua_m2": 0.0, "n_sections": 0})
         rec["wua_m2"] += c * a
         rec["n_sections"] += 1
-    df = pd.DataFrame([
-        {"hmu_type": k, **v} for k, v in rows.items()
-    ])
+    df = pd.DataFrame([{"hmu_type": k, **v} for k, v in rows.items()])
     return df.sort_values("hmu_type").reset_index(drop=True)
 
 
@@ -111,9 +109,7 @@ def aggregate_wua_by_reach(
 
     Columns: reach, wua_m2, n_sections.
     """
-    return aggregate_wua_by_hmu(csi, area, reach_labels).rename(
-        columns={"hmu_type": "reach"}
-    )
+    return aggregate_wua_by_hmu(csi, area, reach_labels).rename(columns={"hmu_type": "reach"})
 
 
 __all__ = [

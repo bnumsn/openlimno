@@ -41,6 +41,7 @@ class HydroSolver(Protocol):
 
 
 __all__ = [
+    "SCHISM_LTS_VERSION",
     "Builtin1D",
     "CrossSection",
     "HydroSolver",
@@ -48,6 +49,5 @@ __all__ = [
     "RunResult",
     "SCHISMAdapter",
     "SCHISMRunReport",
-    "SCHISM_LTS_VERSION",
     "load_sections_from_parquet",
 ]

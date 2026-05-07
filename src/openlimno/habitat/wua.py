@@ -5,7 +5,8 @@ Cell-level only in M1; HMU/reach aggregation lands in M2 (§4.2.3.2-3).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
@@ -53,7 +54,7 @@ def evaluate_section_csi(
 
 
 def wua_q_curve(
-    sections_solver: callable,  # type: ignore[type-arg]  (callable signature documented below)
+    sections_solver: Callable[..., list[Any]],
     sections: list,
     discharges_m3s: list[float],
     hsi_curves: dict[tuple[str, str, str], HSICurve],
@@ -104,14 +105,14 @@ def wua_q_curve(
                 composite=composite,
                 acknowledge_independence=acknowledge_independence,
             )
-            cell_area = (
-                section_areas_m2[i] if section_areas_m2 is not None else r.area_m2
-            )
+            cell_area = section_areas_m2[i] if section_areas_m2 is not None else r.area_m2
             wua += csi * cell_area
             n_used += 1
-        rows.append({
-            "discharge_m3s": Q,
-            "wua_m2": wua,
-            "n_sections_used": n_used,
-        })
+        rows.append(
+            {
+                "discharge_m3s": Q,
+                "wua_m2": wua,
+                "n_sections_used": n_used,
+            }
+        )
     return pd.DataFrame(rows)

@@ -28,8 +28,11 @@ def _write_synthetic_ugrid_2d(path: Path) -> None:
         data_vars={
             "mesh2d_node_x": (("node",), x),
             "mesh2d_node_y": (("node",), y),
-            "mesh2d_face_nodes": (("face", "vertex"), face_nodes,
-                                   {"_FillValue": -1, "start_index": 0}),
+            "mesh2d_face_nodes": (
+                ("face", "vertex"),
+                face_nodes,
+                {"_FillValue": -1, "start_index": 0},
+            ),
             "bottom_elevation": (("node",), z),
         },
         attrs={"Conventions": "UGRID-1.0"},
@@ -104,9 +107,7 @@ def test_schism_dry_run_end_to_end(tmp_path: Path, lemhi_present: bool) -> None:
     assert "SCHISM unavailable / dry-run" in joined
 
 
-def test_schism_without_executable_falls_back(
-    tmp_path: Path, lemhi_present: bool
-) -> None:
+def test_schism_without_executable_falls_back(tmp_path: Path, lemhi_present: bool) -> None:
     """If SCHISM isn't installed and dry_run isn't set, run() must still
     produce habitat output by falling back to Builtin1D (return_code != 0).
     """
@@ -120,6 +121,7 @@ def test_schism_without_executable_falls_back(
     # If a real SCHISM binary happens to be installed, this test is moot;
     # in that case skip rather than spend minutes running a real solve.
     import shutil
+
     if shutil.which("pschism_TVD-VL") or shutil.which("schism"):
         pytest.skip("Real SCHISM binary present; test only exercises fallback")
     res = case.run(discharges_m3s=[5.0])

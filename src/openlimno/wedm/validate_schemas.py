@@ -28,7 +28,7 @@ def main() -> int:
                 schema = json.load(f)
             Draft202012Validator.check_schema(schema)
             print(f"  ok  {schema_path.name}")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             failures.append((schema_path, str(e)))
             print(f"  FAIL {schema_path.name}: {e}", file=sys.stderr)
     if failures:

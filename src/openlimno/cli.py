@@ -114,8 +114,12 @@ def validate(case_yaml: str) -> None:
 
 @main.command()
 @click.argument("case_yaml", type=click.Path(exists=True))
-@click.option("--executor", type=click.Choice(["local"]), default="local",
-              help="1.0 supports only local; HPC/cloud in §13")
+@click.option(
+    "--executor",
+    type=click.Choice(["local"]),
+    default="local",
+    help="1.0 supports only local; HPC/cloud in §13",
+)
 @click.option("--manning-n", default=0.035, type=float, help="Channel roughness")
 @click.option("--slope", default=0.002, type=float, help="Bed slope")
 def run(case_yaml: str, executor: str, manning_n: float, slope: float) -> None:
@@ -145,16 +149,19 @@ def wua(case_yaml: str, species: str, stage: str, plot: bool, n_q: int) -> None:
     Runs the case at log-spaced discharges and prints the WUA column for the
     target (species, stage) plus optional PNG plot.
     """
-    from openlimno.case import Case
     import numpy as np
+
+    from openlimno.case import Case
 
     case = Case.from_yaml(case_yaml)
     Qs = list(np.logspace(0, np.log10(30), n_q))
     result = case.run(discharges_m3s=Qs)
     col = f"wua_m2_{species}_{stage}"
     if col not in result.wua_q.columns:
-        console.print(f"[red]✗[/] no WUA column for ({species}, {stage}); "
-                      f"available: {[c for c in result.wua_q.columns if c.startswith('wua_m2_')]}")
+        console.print(
+            f"[red]✗[/] no WUA column for ({species}, {stage}); "
+            f"available: {[c for c in result.wua_q.columns if c.startswith('wua_m2_')]}"
+        )
         sys.exit(1)
     df_show = result.wua_q[["discharge_m3s", col]].rename(columns={col: "wua_m2"})
     console.print(df_show.to_string(index=False))
@@ -176,21 +183,48 @@ def wua(case_yaml: str, species: str, stage: str, plot: bool, n_q: int) -> None:
 
 
 @main.command()
-@click.option("--culvert", type=click.Path(exists=True), required=True,
-              help="Culvert YAML config (geometry + material)")
-@click.option("--swim", "swim_path", type=click.Path(exists=True), required=True,
-              help="swimming_performance.parquet")
+@click.option(
+    "--culvert",
+    type=click.Path(exists=True),
+    required=True,
+    help="Culvert YAML config (geometry + material)",
+)
+@click.option(
+    "--swim",
+    "swim_path",
+    type=click.Path(exists=True),
+    required=True,
+    help="swimming_performance.parquet",
+)
 @click.option("--species", required=True)
 @click.option("--stage", default="adult")
-@click.option("--discharge", "Q", type=float, required=True,
-              help="Discharge through culvert (m³/s)")
+@click.option(
+    "--discharge", "Q", type=float, required=True, help="Discharge through culvert (m³/s)"
+)
 @click.option("--temp", "T", type=float, default=12.0)
-@click.option("--monte-carlo", "n_mc", type=int, default=0,
-              help="Number of Monte Carlo samples (0 = deterministic)")
-@click.option("--attraction-eta", type=float, default=1.0,
-              help="η_A user input (ADR-0007); 1.0 = no attraction effect")
-def passage(culvert: str, swim_path: str, species: str, stage: str,
-            Q: float, T: float, n_mc: int, attraction_eta: float) -> None:
+@click.option(
+    "--monte-carlo",
+    "n_mc",
+    type=int,
+    default=0,
+    help="Number of Monte Carlo samples (0 = deterministic)",
+)
+@click.option(
+    "--attraction-eta",
+    type=float,
+    default=1.0,
+    help="η_A user input (ADR-0007); 1.0 = no attraction effect",
+)
+def passage(
+    culvert: str,
+    swim_path: str,
+    species: str,
+    stage: str,
+    Q: float,
+    T: float,
+    n_mc: int,
+    attraction_eta: float,
+) -> None:
     """Compute fish passage success rate (η_P) for a culvert.
 
     See SPEC §4.3 / ADR-0007 on η_A vs η_P decomposition.
@@ -206,27 +240,30 @@ def passage(culvert: str, swim_path: str, species: str, stage: str,
     cv_cfg = _yaml.safe_load(Path(culvert).read_text())
     cv = Culvert(**{k: v for k, v in cv_cfg.items() if k != "attraction_efficiency"})
     swim = load_swimming_model_from_parquet(swim_path, species, stage)  # type: ignore[arg-type]
-    res = passage_success_rate(cv, swim, discharge_m3s=Q, temp_C=T,
-                                monte_carlo=n_mc, seed=42)
+    res = passage_success_rate(cv, swim, discharge_m3s=Q, temp_C=T, monte_carlo=n_mc, seed=42)
 
     eta_total = attraction_eta * res.eta_P
     console.print(res.summary())
-    console.print(
-        f"  η_A (user input): {attraction_eta:.2f}  "
-        f"→ η = η_A × η_P = {eta_total:.3f}"
-    )
+    console.print(f"  η_A (user input): {attraction_eta:.2f}  → η = η_A × η_P = {eta_total:.3f}")
 
 
 @main.command()
 @click.argument("case_yaml", type=click.Path(exists=True))
-@click.option("--observed", type=click.Path(exists=True), required=True,
-              help="Rating curve Parquet/CSV with columns h_m, Q_m3s")
-@click.option("--algo", default="scipy", type=click.Choice(["scipy", "pestpp-glm"]),
-              help="scipy = M2 1-parameter; pestpp-glm = 1.x multi-parameter")
+@click.option(
+    "--observed",
+    type=click.Path(exists=True),
+    required=True,
+    help="Rating curve Parquet/CSV with columns h_m, Q_m3s",
+)
+@click.option(
+    "--algo",
+    default="scipy",
+    type=click.Choice(["scipy", "pestpp-glm"]),
+    help="scipy = M2 1-parameter; pestpp-glm = 1.x multi-parameter",
+)
 @click.option("--initial-n", default=0.035, type=float)
 @click.option("--slope", default=0.002, type=float)
-def calibrate(case_yaml: str, observed: str, algo: str,
-              initial_n: float, slope: float) -> None:
+def calibrate(case_yaml: str, observed: str, algo: str, initial_n: float, slope: float) -> None:
     """Calibrate Manning's n against an observed rating curve.
 
     M2: scipy-based 1-parameter; PEST++ multi-parameter in 1.x.
@@ -268,8 +305,11 @@ def calibrate(case_yaml: str, observed: str, algo: str,
 
 @main.command()
 @click.argument("provenance_json", type=click.Path(exists=True))
-@click.option("--check-only/--rerun", default=True,
-              help="check-only verifies SHA-256 fingerprints; rerun re-executes")
+@click.option(
+    "--check-only/--rerun",
+    default=True,
+    help="check-only verifies SHA-256 fingerprints; rerun re-executes",
+)
 def reproduce(provenance_json: str, check_only: bool) -> None:
     """Reproduce a previous run from its provenance.json.
 
@@ -293,12 +333,13 @@ def reproduce(provenance_json: str, check_only: bool) -> None:
     if actual != expected:
         console.print(f"[red]✗[/] case YAML drift: {expected[:12]} → {actual[:12]}")
     else:
-        console.print(f"[green]✓[/] case YAML SHA matches")
+        console.print("[green]✓[/] case YAML SHA matches")
 
     # Verify input data SHAs
     for label, sha in prov["inputs"].get("input_data_sha256", {}).items():
         # Note: the path is not stored explicitly; we use the case data section
         from openlimno.case import Case
+
         case = Case.from_yaml(case_yaml)
         data_path = case._resolve(case.config.get("data", {}).get(label, ""))
         if not data_path.exists():
@@ -330,11 +371,13 @@ def studyplan() -> None:
 @studyplan.command("init")
 @click.argument("output_path", type=click.Path())
 @click.option("--problem", default=None, help="One-line problem statement")
-@click.option("--species", multiple=True, default=("oncorhynchus_mykiss",),
-              help="Target species (repeatable)")
+@click.option(
+    "--species", multiple=True, default=("oncorhynchus_mykiss",), help="Target species (repeatable)"
+)
 @click.option("--interactive/--non-interactive", default=False)
-def studyplan_init(output_path: str, problem: str | None,
-                   species: tuple[str, ...], interactive: bool) -> None:
+def studyplan_init(
+    output_path: str, problem: str | None, species: tuple[str, ...], interactive: bool
+) -> None:
     """Generate a studyplan.yaml.
 
     Non-interactive (default): writes a templated studyplan with the supplied
@@ -363,12 +406,13 @@ def studyplan_init(output_path: str, problem: str | None,
     plan = {
         "problem_statement": problem,
         "target_species_rationale": [
-            {"species": sp, "rationale": "EDIT: why this species"}
-            for sp in species
+            {"species": sp, "rationale": "EDIT: why this species"} for sp in species
         ],
         "objective_variables": ["wua-q", "persistent_habitat"],
         "uncertainty_sources_acknowledged": [
-            "hsi_uncertainty", "transferability", "measurement_error",
+            "hsi_uncertainty",
+            "transferability",
+            "measurement_error",
         ],
     }
     out.write_text(_yaml.safe_dump(plan, sort_keys=False, allow_unicode=True))
@@ -407,21 +451,33 @@ def hsi() -> None:
 
 @hsi.command("upgrade")
 @click.argument("parquet_file", type=click.Path(exists=True))
-@click.option("--out", "output_path", type=click.Path(), required=False,
-              help="Output path; defaults to overwriting input")
-@click.option("--set-grade", type=click.Choice(["A", "B", "C"]),
-              help="Bulk-set quality_grade for all curves")
+@click.option(
+    "--out",
+    "output_path",
+    type=click.Path(),
+    required=False,
+    help="Output path; defaults to overwriting input",
+)
+@click.option(
+    "--set-grade", type=click.Choice(["A", "B", "C"]), help="Bulk-set quality_grade for all curves"
+)
 @click.option("--set-origin", help="Bulk-set geographic_origin for all curves")
-@click.option("--set-transferability", type=float,
-              help="Bulk-set transferability_score for all curves")
-@click.option("--mark-independence-tested/--unmark", default=None,
-              help="Set independence_tested true/false")
+@click.option(
+    "--set-transferability", type=float, help="Bulk-set transferability_score for all curves"
+)
+@click.option(
+    "--mark-independence-tested/--unmark", default=None, help="Set independence_tested true/false"
+)
 @click.option("--interactive/--non-interactive", default=False)
-def hsi_upgrade(parquet_file: str, output_path: str | None,
-                set_grade: str | None, set_origin: str | None,
-                set_transferability: float | None,
-                mark_independence_tested: bool | None,
-                interactive: bool) -> None:
+def hsi_upgrade(
+    parquet_file: str,
+    output_path: str | None,
+    set_grade: str | None,
+    set_origin: str | None,
+    set_transferability: float | None,
+    mark_independence_tested: bool | None,
+    interactive: bool,
+) -> None:
     """Upgrade HSI metadata in a Parquet file (ADR-0006 / SPEC §4.2.2.3).
 
     Non-interactive: bulk-applies the --set-* flags. Interactive: prompts per
@@ -476,11 +532,9 @@ def preprocess_xs(input_path: str, output_path: str, campaign_id: str | None) ->
     from openlimno.preprocess import read_cross_sections, write_cross_sections_to_parquet
 
     df = read_cross_sections(input_path, campaign_id=campaign_id)
-    write_cross_sections_to_parquet(df, output_path,
-                                     source_note=f"imported from {input_path}")
+    write_cross_sections_to_parquet(df, output_path, source_note=f"imported from {input_path}")
     console.print(
-        f"[green]✓[/] {len(df)} rows from {len(df['station_m'].unique())} stations "
-        f"→ {output_path}"
+        f"[green]✓[/] {len(df)} rows from {len(df['station_m'].unique())} stations → {output_path}"
     )
 
 

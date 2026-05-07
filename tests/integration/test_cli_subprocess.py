@@ -24,7 +24,10 @@ def _run(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
     env = {**os.environ, "PYTHONPATH": str(REPO / "src")}
     return subprocess.run(
         [sys.executable, "-m", "openlimno", *args],
-        capture_output=True, text=True, cwd=cwd or REPO, env=env,
+        capture_output=True,
+        text=True,
+        cwd=cwd or REPO,
+        env=env,
         timeout=120,
     )
 
@@ -34,8 +37,18 @@ def test_help_invokes_successfully() -> None:
     assert proc.returncode == 0
     assert "Usage:" in proc.stdout
     # Verify all 10 top-level commands are registered (SPEC §3.4)
-    for cmd in ("init", "validate", "run", "wua", "passage",
-                "calibrate", "reproduce", "studyplan", "hsi", "preprocess"):
+    for cmd in (
+        "init",
+        "validate",
+        "run",
+        "wua",
+        "passage",
+        "calibrate",
+        "reproduce",
+        "studyplan",
+        "hsi",
+        "preprocess",
+    ):
         assert cmd in proc.stdout, f"command '{cmd}' missing from --help"
 
 
@@ -75,9 +88,7 @@ def test_run_lemhi_via_subprocess(tmp_path: Path) -> None:
     redirected = tmp_path / "case.yaml"
     yaml_text = LEMHI_CASE.read_text()
     yaml_text = yaml_text.replace("./out/lemhi_2024/", str(out_dir) + "/")
-    yaml_text = yaml_text.replace(
-        "../../data/lemhi/", str(LEMHI_DATA) + "/"
-    )
+    yaml_text = yaml_text.replace("../../data/lemhi/", str(LEMHI_DATA) + "/")
     redirected.write_text(yaml_text)
 
     proc = _run("run", str(redirected))

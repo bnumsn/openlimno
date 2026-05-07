@@ -8,7 +8,6 @@ import pytest
 
 from openlimno.case import Case
 
-
 CASE_YAML = Path(__file__).resolve().parents[2] / "examples" / "lemhi" / "case.yaml"
 
 

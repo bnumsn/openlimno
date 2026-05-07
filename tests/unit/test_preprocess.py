@@ -51,11 +51,13 @@ def test_read_cross_sections_missing_required(tmp_path: Path) -> None:
 
 def test_read_cross_sections_excel_smoke(tmp_path: Path) -> None:
     pytest.importorskip("openpyxl")
-    df = pd.DataFrame({
-        "station_m": [0, 0, 100, 100],
-        "distance_m": [-5, 5, -5, 5],
-        "elevation_m": [1.5, 1.5, 1.4, 1.4],
-    })
+    df = pd.DataFrame(
+        {
+            "station_m": [0, 0, 100, 100],
+            "distance_m": [-5, 5, -5, 5],
+            "elevation_m": [1.5, 1.5, 1.4, 1.4],
+        }
+    )
     xlsx = tmp_path / "xs.xlsx"
     df.to_excel(xlsx, index=False)
     out = read_cross_sections(xlsx)
@@ -63,13 +65,15 @@ def test_read_cross_sections_excel_smoke(tmp_path: Path) -> None:
 
 
 def test_write_cross_sections_to_parquet_roundtrip(tmp_path: Path) -> None:
-    df = pd.DataFrame({
-        "campaign_id": ["cid"] * 3,
-        "station_m": [0.0, 0.0, 0.0],
-        "distance_m": [-1.0, 0.0, 1.0],
-        "elevation_m": [1.5, 1.0, 1.5],
-        "point_index": [0, 1, 2],
-    })
+    df = pd.DataFrame(
+        {
+            "campaign_id": ["cid"] * 3,
+            "station_m": [0.0, 0.0, 0.0],
+            "distance_m": [-1.0, 0.0, 1.0],
+            "elevation_m": [1.5, 1.0, 1.5],
+            "point_index": [0, 1, 2],
+        }
+    )
     out = tmp_path / "xs.parquet"
     write_cross_sections_to_parquet(df, out, source_note="test")
     assert out.exists()
@@ -98,9 +102,7 @@ def test_read_adcp_qrev_basic(tmp_path: Path) -> None:
 def test_read_adcp_qrev_alias_columns(tmp_path: Path) -> None:
     csv = tmp_path / "alias.csv"
     csv.write_text(
-        "datetime,depth,v_east,v_north\n"
-        "2024-04-01,1.0,0.3,0.05\n"
-        "2024-04-01,1.1,0.4,0.04\n"
+        "datetime,depth,v_east,v_north\n2024-04-01,1.0,0.3,0.05\n2024-04-01,1.1,0.4,0.04\n"
     )
     df = read_adcp_qrev(csv)
     assert df["depth_m"].iloc[0] == pytest.approx(1.0)
@@ -126,8 +128,15 @@ def test_read_dem_synthetic(tmp_path: Path) -> None:
     out = tmp_path / "dem.tif"
     transform = from_origin(0, 100, 1.0, 1.0)
     with rasterio.open(
-        out, "w", driver="GTiff", height=10, width=10, count=1,
-        dtype="float32", crs="EPSG:32612", transform=transform,
+        out,
+        "w",
+        driver="GTiff",
+        height=10,
+        width=10,
+        count=1,
+        dtype="float32",
+        crs="EPSG:32612",
+        transform=transform,
     ) as ds:
         ds.write(elev, 1)
 
@@ -146,8 +155,15 @@ def test_read_dem_sample_along_line(tmp_path: Path) -> None:
     out = tmp_path / "flat.tif"
     transform = from_origin(0, 20, 1.0, 1.0)
     with rasterio.open(
-        out, "w", driver="GTiff", height=20, width=20, count=1,
-        dtype="float32", crs="EPSG:32612", transform=transform,
+        out,
+        "w",
+        driver="GTiff",
+        height=20,
+        width=20,
+        count=1,
+        dtype="float32",
+        crs="EPSG:32612",
+        transform=transform,
     ) as ds:
         ds.write(elev, 1)
 

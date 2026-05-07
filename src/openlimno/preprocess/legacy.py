@@ -62,7 +62,7 @@ def _parse_numeric_body(line: str) -> list[float]:
                     pass
         return out
     for i in range(0, len(s), 8):
-        chunk = s[i:i + 8].strip()
+        chunk = s[i : i + 8].strip()
         if chunk:
             try:
                 out.append(float(chunk))
@@ -104,14 +104,16 @@ def read_hecras_geometry(path: str | Path) -> pd.DataFrame:
             if i + 1 >= len(cur_pts):
                 break
             elev, dist = cur_pts[i], cur_pts[i + 1]
-            rows.append({
-                "river": river,
-                "reach": reach,
-                "station_m": float(cur_station),
-                "point_index": i // 2,
-                "distance_m": float(dist),
-                "elevation_m": float(elev),
-            })
+            rows.append(
+                {
+                    "river": river,
+                    "reach": reach,
+                    "station_m": float(cur_station),
+                    "point_index": i // 2,
+                    "distance_m": float(dist),
+                    "elevation_m": float(elev),
+                }
+            )
         cur_pts = []
         cur_station = None
 
@@ -150,7 +152,8 @@ def read_hecras_geometry(path: str | Path) -> pd.DataFrame:
         )
     logger.info(
         "HEC-RAS imported: %d points across %d cross-sections",
-        len(rows), len({r["station_m"] for r in rows})
+        len(rows),
+        len({r["station_m"] for r in rows}),
     )
     return pd.DataFrame(rows)
 

@@ -66,8 +66,7 @@ def compute_ferc_4e(
         raise ValueError(f"WUA column '{wua_col}' not in wua_q DataFrame")
 
     peak = float(wua_q[wua_col].max())
-    Q_suitable = _interp_q_at_wua(wua_q, target_wua_pct * peak,
-                                   "discharge_m3s", wua_col)
+    Q_suitable = _interp_q_at_wua(wua_q, target_wua_pct * peak, "discharge_m3s", wua_col)
 
     ds = discharge_series.copy()
     ds["time"] = pd.to_datetime(ds["time"])
@@ -82,10 +81,9 @@ def compute_ferc_4e(
         q33, q67 = annual.quantile([0.33, 0.67])
     else:
         q33, q67 = annual.quantile([0.25, 0.75])
-    year_type = pd.Series({
-        y: ("wet" if v > q67 else "dry" if v < q33 else "normal")
-        for y, v in annual.items()
-    })
+    year_type = pd.Series(
+        {y: ("wet" if v > q67 else "dry" if v < q33 else "normal") for y, v in annual.items()}
+    )
     ds["year_type"] = ds["year"].map(year_type)
 
     rows = []
@@ -94,13 +92,15 @@ def compute_ferc_4e(
         wet = sub_m[sub_m["year_type"] == "wet"]["discharge_m3s"].mean()
         normal = sub_m[sub_m["year_type"] == "normal"]["discharge_m3s"].mean()
         dry = sub_m[sub_m["year_type"] == "dry"]["discharge_m3s"].mean()
-        rows.append({
-            "month": m,
-            "wet_year_q_m3s": float(wet) if not np.isnan(wet) else float("nan"),
-            "normal_year_q_m3s": float(normal) if not np.isnan(normal) else float("nan"),
-            "dry_year_q_m3s": float(dry) if not np.isnan(dry) else float("nan"),
-            "suitable_eco_flow_m3s": Q_suitable,
-        })
+        rows.append(
+            {
+                "month": m,
+                "wet_year_q_m3s": float(wet) if not np.isnan(wet) else float("nan"),
+                "normal_year_q_m3s": float(normal) if not np.isnan(normal) else float("nan"),
+                "dry_year_q_m3s": float(dry) if not np.isnan(dry) else float("nan"),
+                "suitable_eco_flow_m3s": Q_suitable,
+            }
+        )
 
     return FERC4eResult(
         monthly_by_year_type=pd.DataFrame(rows),

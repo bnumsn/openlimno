@@ -8,8 +8,9 @@ import pytest
 from openlimno.hydro.builtin_1d import Builtin1D, CrossSection
 
 
-def make_uniform_reach(n_sections: int = 6, dx: float = 100.0,
-                       slope: float = 0.001, n: float = 0.025) -> list[CrossSection]:
+def make_uniform_reach(
+    n_sections: int = 6, dx: float = 100.0, slope: float = 0.001, n: float = 0.025
+) -> list[CrossSection]:
     """A uniform-prismatic reach: same cross-section, sloping bed.
 
     Bed elev[i] = slope * (n_sections - 1 - i) * dx (highest upstream).
@@ -22,12 +23,14 @@ def make_uniform_reach(n_sections: int = 6, dx: float = 100.0,
     rise = (half_top - half_bot) / 2.0  # for side-slope 2:1
     for i in range(n_sections):
         bed = slope * (n_sections - 1 - i) * dx
-        sections.append(CrossSection(
-            station_m=i * dx,
-            distance_m=np.array([-half_top, -half_bot, half_bot, half_top]),
-            elevation_m=np.array([bed + rise, bed, bed, bed + rise]),
-            manning_n=n,
-        ))
+        sections.append(
+            CrossSection(
+                station_m=i * dx,
+                distance_m=np.array([-half_top, -half_bot, half_bot, half_top]),
+                elevation_m=np.array([bed + rise, bed, bed, bed + rise]),
+                manning_n=n,
+            )
+        )
     return sections
 
 
@@ -42,9 +45,7 @@ def test_standard_step_uniform_reach_matches_normal_depth() -> None:
     h_normal = mansq.depth_mean_m
 
     # Run standard step using MANSQ WSE as boundary
-    results = solver.solve_standard_step(
-        sections, Q, downstream_wse_m=mansq.water_surface_m
-    )
+    results = solver.solve_standard_step(sections, Q, downstream_wse_m=mansq.water_surface_m)
 
     # Each section's water depth (relative to its own bed) should ≈ h_normal
     for r, xs in zip(results, sections, strict=False):
@@ -63,9 +64,7 @@ def test_standard_step_backwater_wse_decreases_downstream() -> None:
 
     # Backwater: set downstream WSE 0.5 m above normal
     mansq = solver.solve_normal_depth(sections[-1], Q)
-    results = solver.solve_standard_step(
-        sections, Q, downstream_wse_m=mansq.water_surface_m + 0.5
-    )
+    results = solver.solve_standard_step(sections, Q, downstream_wse_m=mansq.water_surface_m + 0.5)
 
     wses = [r.water_surface_m for r in results]
     # Upstream WSE > downstream WSE (always true with positive bed slope)
@@ -84,8 +83,8 @@ def test_standard_step_results_self_consistent() -> None:
     for i in range(len(results) - 1):
         r_up = results[i]
         r_dn = results[i + 1]
-        E_up = r_up.water_surface_m + r_up.velocity_mean_ms ** 2 / (2 * g)
-        E_dn = r_dn.water_surface_m + r_dn.velocity_mean_ms ** 2 / (2 * g)
+        E_up = r_up.water_surface_m + r_up.velocity_mean_ms**2 / (2 * g)
+        E_dn = r_dn.water_surface_m + r_dn.velocity_mean_ms**2 / (2 * g)
         # Energy decreases downstream (loss to friction)
         assert E_up >= E_dn - 1e-3
 

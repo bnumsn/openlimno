@@ -101,7 +101,7 @@ ecologists with engineers.
 
 Within 30 days of this post (deadline: 2026-06-07):
 
-1. **Read** [SPEC v0.5](../../../SPEC.md) and the
+1. **Read** [SPEC v0.5](../../SPEC.md) and the
    [1.0 Capability Boundary Statement](../CAPABILITY_BOUNDARY_1_0.md).
 2. **Open a Discussion** at `https://github.com/openlimno/openlimno/discussions`
    with title `[Maintainer Candidate] <your name>` containing:
@@ -119,7 +119,7 @@ competency bar will be confirmed by the project initiator (acrochen@gmail.com)
 
 ## What if I want to contribute but not maintain? (我想贡献但不当维护者怎么办)
 
-We absolutely want you. See [CONTRIBUTING.md](../../../CONTRIBUTING.md). The
+We absolutely want you. See `CONTRIBUTING.md` in the repository root. The
 project also welcomes:
 
 - **Reviewers-of-Record** for the three regulatory frameworks

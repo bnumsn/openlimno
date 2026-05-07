@@ -76,7 +76,9 @@ def test_build_command_container_apptainer(tmp_path: Path) -> None:
     assert "--bind" in cmd
 
 
-def test_build_command_no_executable_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_command_no_executable_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("OPENLIMNO_SCHISM", raising=False)
     monkeypatch.setattr("shutil.which", lambda _name: None)
     adapter = SCHISMAdapter()

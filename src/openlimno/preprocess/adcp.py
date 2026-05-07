@@ -46,9 +46,7 @@ def _resolve_column(df: pd.DataFrame, canonical: str) -> str | None:
     return None
 
 
-def read_adcp_qrev(
-    path: str | Path, campaign_id: str | None = None
-) -> pd.DataFrame:
+def read_adcp_qrev(path: str | Path, campaign_id: str | None = None) -> pd.DataFrame:
     """Read a USGS QRev CSV ADCP transect into a WEDM-conformant DataFrame.
 
     Parameters
@@ -89,8 +87,7 @@ def read_adcp_qrev(
         except Exception:
             out["time"] = pd.NaT
 
-    for canonical in ("depth_m", "u_ms", "v_ms", "w_ms", "backscatter_db",
-                      "lon", "lat"):
+    for canonical in ("depth_m", "u_ms", "v_ms", "w_ms", "backscatter_db", "lon", "lat"):
         c = _resolve_column(df, canonical)
         if c:
             out[canonical] = pd.to_numeric(df[c], errors="coerce")

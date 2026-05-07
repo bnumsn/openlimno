@@ -20,12 +20,8 @@ def make_trapezoid_xs(
     half_top = top_width / 2.0
     half_bot = bottom_width / 2.0
     rise = (half_top - half_bot) / side_slope
-    distance = np.array([
-        -half_top, -half_bot, half_bot, half_top
-    ])
-    elevation = np.array([
-        bed_elev + rise, bed_elev, bed_elev, bed_elev + rise
-    ])
+    distance = np.array([-half_top, -half_bot, half_bot, half_top])
+    elevation = np.array([bed_elev + rise, bed_elev, bed_elev, bed_elev + rise])
     return CrossSection(station_m=station, distance_m=distance, elevation_m=elevation, manning_n=n)
 
 
@@ -43,11 +39,11 @@ def test_full_wet_trapezoid_geometry() -> None:
     xs = make_trapezoid_xs(bottom_width=5.0, side_slope=2.0, top_width=25.0, bed_elev=0.0)
     A, P, T, R = xs.hydraulic_props(water_surface_m=1.0)
     # A = h*(b + m*h) = 1*(5 + 2*1) = 7
-    assert A == pytest.approx(7.0, rel=1e-3)
+    assert pytest.approx(7.0, rel=1e-3) == A
     # T = b + 2*m*h = 5 + 2*2*1 = 9
-    assert T == pytest.approx(9.0, rel=1e-3)
+    assert pytest.approx(9.0, rel=1e-3) == T
     # P = b + 2*h*sqrt(1+m^2) = 5 + 2*1*sqrt(5) ≈ 9.472
-    assert P == pytest.approx(5.0 + 2.0 * np.sqrt(5.0), rel=1e-3)
+    assert pytest.approx(5.0 + 2.0 * np.sqrt(5.0), rel=1e-3) == P
 
 
 def test_manning_normal_depth_self_consistent() -> None:
@@ -55,9 +51,7 @@ def test_manning_normal_depth_self_consistent() -> None:
 
     Channel: b=5 m, side slope 2:1, n=0.025, S=0.001, Q=10 m3/s.
     """
-    xs = make_trapezoid_xs(
-        bottom_width=5.0, side_slope=2.0, top_width=25.0, bed_elev=0.0, n=0.025
-    )
+    xs = make_trapezoid_xs(bottom_width=5.0, side_slope=2.0, top_width=25.0, bed_elev=0.0, n=0.025)
     solver = Builtin1D(slope=0.001)
     Q_in = 10.0
     result = solver.solve_normal_depth(xs, discharge_m3s=Q_in)
@@ -76,9 +70,7 @@ def test_manning_textbook_chow_example() -> None:
     R = 0.7390
     Q = 40 * 7 * 0.7390^(2/3) * 0.0316 = 7.24
     """
-    xs = make_trapezoid_xs(
-        bottom_width=5.0, side_slope=2.0, top_width=25.0, bed_elev=0.0, n=0.025
-    )
+    xs = make_trapezoid_xs(bottom_width=5.0, side_slope=2.0, top_width=25.0, bed_elev=0.0, n=0.025)
     Q_at_1m = xs.manning_discharge(water_surface_m=1.0, slope=0.001)
     assert Q_at_1m == pytest.approx(7.24, rel=0.01)
 

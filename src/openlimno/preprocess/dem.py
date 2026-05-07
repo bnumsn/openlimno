@@ -67,23 +67,27 @@ def read_dem(path: str | Path) -> DEM:
     path = Path(path)
     try:
         import rasterio
+
         with rasterio.open(path) as ds:
             elev = ds.read(1).astype(float)
             transform = ds.transform
-            t = (transform.a, transform.b, transform.c,
-                 transform.d, transform.e, transform.f)
+            t = (transform.a, transform.b, transform.c, transform.d, transform.e, transform.f)
             crs = ds.crs.to_string() if ds.crs else "EPSG:4326"
             nodata = ds.nodata if ds.nodata is not None else None
             bounds = (ds.bounds.left, ds.bounds.bottom, ds.bounds.right, ds.bounds.top)
             return DEM(
-                elevation=elev, transform=t, crs=crs,
-                nodata=nodata, bounds=bounds,
+                elevation=elev,
+                transform=t,
+                crs=crs,
+                nodata=nodata,
+                bounds=bounds,
             )
     except ImportError:
         pass
 
     try:
         from osgeo import gdal
+
         ds = gdal.Open(str(path))
         if ds is None:
             raise FileNotFoundError(path)
@@ -97,12 +101,17 @@ def read_dem(path: str | Path) -> DEM:
         crs_str = f"EPSG:{crs}" if crs else "EPSG:4326"
         rows, cols = elev.shape
         bounds = (
-            c, f + e * rows,
-            c + a * cols, f,
+            c,
+            f + e * rows,
+            c + a * cols,
+            f,
         )
         return DEM(
-            elevation=elev, transform=(a, b, c, d, e, f),
-            crs=crs_str, nodata=nodata, bounds=bounds,
+            elevation=elev,
+            transform=(a, b, c, d, e, f),
+            crs=crs_str,
+            nodata=nodata,
+            bounds=bounds,
         )
     except ImportError:
         raise ImportError(

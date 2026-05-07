@@ -19,11 +19,13 @@ def test_plugin_module_importable_without_qgis() -> None:
     import succeeds in any environment.
     """
     from openlimno.qgis.openlimno_qgis_plugin import plugin
+
     assert hasattr(plugin, "OpenLimnoPlugin")
 
 
 def test_plugin_class_factory_signature() -> None:
     from openlimno.qgis.openlimno_qgis_plugin import classFactory
+
     # iface arg is required; we don't actually instantiate without QGIS
     assert callable(classFactory)
 
@@ -64,10 +66,10 @@ def test_plugin_parquet_helper_returns_list(tmp_path: Path) -> None:
     import pandas as pd
 
     df = pd.DataFrame({"discharge_m3s": [1.0, 2.0], "wua": [10.0, 20.0]})
-    pq.write_table(pa.Table.from_pandas(df, preserve_index=False),
-                   str(tmp_path / "wua.parquet"))
+    pq.write_table(pa.Table.from_pandas(df, preserve_index=False), str(tmp_path / "wua.parquet"))
 
     from openlimno.qgis.openlimno_qgis_plugin.plugin import OpenLimnoPlugin
+
     rows = OpenLimnoPlugin._read_wua_parquet(str(tmp_path / "wua.parquet"))
     assert len(rows) == 2
     assert rows[0]["discharge_m3s"] == 1.0

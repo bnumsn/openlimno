@@ -9,7 +9,6 @@ import json
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import pytest
 import xarray as xr
 
@@ -95,8 +94,8 @@ def test_provenance_complete(lemhi_run) -> None:
 
 def test_acknowledge_independence_enforced_at_run() -> None:
     """If a case requests geom mean without ack, the run must fail before computation."""
-    import textwrap
     import tempfile
+    import textwrap
 
     bad_yaml = textwrap.dedent("""\
         openlimno: '0.1'
@@ -125,6 +124,7 @@ def test_acknowledge_independence_enforced_at_run() -> None:
     # when schema is somehow bypassed. That's tested by unit tests (test_habitat).
     # Here we just confirm validate_case rejects geom_mean w/o ack:
     from openlimno.wedm import validate_case
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         f.write(bad_yaml.replace("composite: min", "composite: geometric_mean"))
         path = f.name

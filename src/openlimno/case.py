@@ -16,7 +16,7 @@ import socket
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -50,7 +50,7 @@ class CaseRunResult:
     sections: list[CrossSection]
     discharges_m3s: list[float]
     hydraulic_results: dict[float, list[Any]]  # Q -> list[MANSQResult]
-    wua_q: pd.DataFrame                          # columns: discharge_m3s, wua_m2_<sp>_<stage>, ...
+    wua_q: pd.DataFrame  # columns: discharge_m3s, wua_m2_<sp>_<stage>, ...
     provenance_path: Path
     warnings: list[str] = field(default_factory=list)
 
@@ -69,14 +69,11 @@ class Case:
     case_yaml_path: Path
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "Case":
+    def from_yaml(cls, path: str | Path) -> Case:
         path = Path(path).resolve()
         errors = validate_case(path)
         if errors:
-            raise ValueError(
-                f"Case YAML failed schema validation:\n  - "
-                + "\n  - ".join(errors)
-            )
+            raise ValueError("Case YAML failed schema validation:\n  - " + "\n  - ".join(errors))
         with path.open("r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
         return cls(config=config, case_yaml_path=path)
@@ -117,17 +114,15 @@ class Case:
             discharges_m3s = [float(q) for q in np.logspace(0, 1.5, 8)]
 
         # 1. Load cross-sections
-        cross_section_path = self._resolve(cfg.get("data", {}).get(
-            "cross_section",
-            "../../data/lemhi/cross_section.parquet"
-        ))
+        cross_section_path = self._resolve(
+            cfg.get("data", {}).get("cross_section", "../../data/lemhi/cross_section.parquet")
+        )
         sections = load_sections_from_parquet(cross_section_path, manning_n=manning_n)
 
         # 2. Load HSI curves
-        hsi_path = self._resolve(cfg.get("data", {}).get(
-            "hsi_curve",
-            "../../data/lemhi/hsi_curve.parquet"
-        ))
+        hsi_path = self._resolve(
+            cfg.get("data", {}).get("hsi_curve", "../../data/lemhi/hsi_curve.parquet")
+        )
         hsi_curves = load_hsi_from_parquet(hsi_path)
 
         # 3. Run hydraulics (sweep) via HydroSolver Protocol
@@ -144,8 +139,12 @@ class Case:
 
         if backend == "builtin-1d":
             solver = Builtin1D(slope=slope)
-            solver.prepare(self.case_yaml_path, hydro_work,
-                           sections=sections, discharges_m3s=list(discharges_m3s))
+            solver.prepare(
+                self.case_yaml_path,
+                hydro_work,
+                sections=sections,
+                discharges_m3s=list(discharges_m3s),
+            )
             solver.run(hydro_work)
             hydraulic_results = solver.read_results(hydro_work)
         elif backend == "schism":
@@ -160,7 +159,8 @@ class Case:
                 timeout_s=schism_cfg.get("timeout_s"),
             )
             adapter.prepare(
-                self.case_yaml_path, hydro_work,
+                self.case_yaml_path,
+                hydro_work,
                 wedm_mesh_path=mesh_path,
             )
             dry = bool(schism_cfg.get("dry_run", False))
@@ -173,8 +173,12 @@ class Case:
                 # Fall back to Builtin1D approximation so the rest of the
                 # pipeline still produces output (useful for CI without SCHISM)
                 solver = Builtin1D(slope=slope)
-                solver.prepare(self.case_yaml_path, hydro_work,
-                               sections=sections, discharges_m3s=list(discharges_m3s))
+                solver.prepare(
+                    self.case_yaml_path,
+                    hydro_work,
+                    sections=sections,
+                    discharges_m3s=list(discharges_m3s),
+                )
                 solver.run(hydro_work)
                 hydraulic_results = solver.read_results(hydro_work)
                 warnings.append(
@@ -187,8 +191,7 @@ class Case:
                 hydraulic_results = adapter.read_results(hydro_work)  # type: ignore[assignment]
         else:
             raise NotImplementedError(
-                f"Unknown hydrodynamics backend '{backend}'. "
-                "Supported: builtin-1d, schism."
+                f"Unknown hydrodynamics backend '{backend}'. Supported: builtin-1d, schism."
             )
 
         # 4. Habitat (cell WUA-Q for each species/stage)
@@ -223,47 +226,60 @@ class Case:
 
         # 4b. HMU multi-scale aggregation (SPEC §4.2.3.2-3)
         hmu_df = self._aggregate_hmu(
-            hydraulic_results, hsi_curves, species_list, stage_list,
-            composite=composite, ack=ack, warnings=warnings,
+            hydraulic_results,
+            hsi_curves,
+            species_list,
+            stage_list,
+            composite=composite,
+            ack=ack,
+            warnings=warnings,
         )
 
         # 4c. StudyPlan TUF override (SPEC §4.4.1.1)
         sp_obj = self._load_studyplan(studyplan_path, warnings)
 
         # 4d. Drift egg evaluation (SPEC §4.2.6) - only if explicitly requested
-        drift_results = self._maybe_drift_egg(
-            cfg, hydraulic_results, sections, out_dir, warnings,
+        # (return value unused at this layer; auto-writes drift_egg.csv to out_dir)
+        self._maybe_drift_egg(
+            cfg,
+            hydraulic_results,
+            sections,
+            out_dir,
+            warnings,
         )
 
         # 5. Outputs
         formats = cfg["output"]["formats"]
         # Watermark header for tentative HSI (computed below; pass to writers)
         wua_quality_grade = self._compute_wua_quality(
-            hsi_curves, species_list, stage_list, warnings,
+            hsi_curves,
+            species_list,
+            stage_list,
+            warnings,
         )
-        watermark_header = (
-            self._wua_csv_header(wua_quality_grade) if "csv" in formats else None
-        )
+        watermark_header = self._wua_csv_header(wua_quality_grade) if "csv" in formats else None
         if "csv" in formats:
             self._write_csv_with_header(wua_df, out_dir / "wua_q.csv", watermark_header)
             if hmu_df is not None and len(hmu_df) > 0:
-                self._write_csv_with_header(hmu_df, out_dir / "wua_hmu.csv",
-                                             watermark_header)
+                self._write_csv_with_header(hmu_df, out_dir / "wua_hmu.csv", watermark_header)
         if "parquet" in formats:
             wua_df.to_parquet(out_dir / "wua_q.parquet", index=False)
             if hmu_df is not None and len(hmu_df) > 0:
                 hmu_df.to_parquet(out_dir / "wua_hmu.parquet", index=False)
         if "netcdf" in formats:
-            self._write_hydraulic_netcdf(
-                hydraulic_results, sections, out_dir / "hydraulics.nc"
-            )
+            self._write_hydraulic_netcdf(hydraulic_results, sections, out_dir / "hydraulics.nc")
 
         # 5b. Regulatory exports (SPEC §4.2.4.2)
         reg_exports = cfg.get("regulatory_export", [])
         if reg_exports:
             self._run_regulatory_exports(
-                reg_exports, wua_df, species_list, stage_list,
-                out_dir, discharge_series_path, warnings,
+                reg_exports,
+                wua_df,
+                species_list,
+                stage_list,
+                out_dir,
+                discharge_series_path,
+                warnings,
             )
 
         # 6. HSI watermarking warning (already computed above for CSV header)
@@ -276,8 +292,13 @@ class Case:
         # 7. Provenance
         prov_path = out_dir / "provenance.json"
         provenance = self._build_provenance(
-            discharges_m3s, sections, species_list, stage_list, warnings,
-            studyplan=sp_obj, wua_quality_grade=wua_quality_grade,
+            discharges_m3s,
+            sections,
+            species_list,
+            stage_list,
+            warnings,
+            studyplan=sp_obj,
+            wua_quality_grade=wua_quality_grade,
             data_paths={
                 "cross_section": cross_section_path,
                 "hsi_curve": hsi_path,
@@ -307,9 +328,7 @@ class Case:
             path = (self.case_dir / path).resolve()
         return path
 
-    def _resolve_mesh_uri(
-        self, cfg: dict[str, Any], warnings: list[str]
-    ) -> Path | None:
+    def _resolve_mesh_uri(self, cfg: dict[str, Any], warnings: list[str]) -> Path | None:
         """Resolve and validate ``cfg["mesh"]["uri"]`` (UGRID-2D NetCDF).
 
         Returns the resolved path on success, ``None`` if mesh missing or
@@ -326,31 +345,23 @@ class Case:
             return None
         try:
             from openlimno.preprocess import validate_ugrid_mesh
+
             report = validate_ugrid_mesh(path)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             warnings.append(f"mesh validation failed: {e}")
             return path
         if not report.is_valid:
-            warnings.append(
-                "UGRID mesh validation FAILED: "
-                + "; ".join(report.errors)
-            )
+            warnings.append("UGRID mesh validation FAILED: " + "; ".join(report.errors))
             return None
         if report.warnings:
-            warnings.append(
-                f"UGRID mesh warnings ({path.name}): "
-                + "; ".join(report.warnings)
-            )
-        warnings.append(
-            f"Mesh OK: {report.n_nodes} nodes, {report.n_faces} faces "
-            f"({path.name})"
-        )
+            warnings.append(f"UGRID mesh warnings ({path.name}): " + "; ".join(report.warnings))
+        warnings.append(f"Mesh OK: {report.n_nodes} nodes, {report.n_faces} faces ({path.name})")
         return path
 
     def _aggregate_hmu(
         self,
         hydraulic_results: dict[float, list[Any]],
-        hsi_curves: dict[tuple[str, str, str], "HSICurve"],
+        hsi_curves: dict[tuple[str, str, str], HSICurve],
         species_list: list[str],
         stage_list: list[str],
         composite: str,
@@ -383,14 +394,16 @@ class Case:
                     csi = composite_csi(suits, method=composite)  # type: ignore[arg-type]
                     hmu_df = aggregate_wua_by_hmu(csi, areas, labels)
                     for _, h in hmu_df.iterrows():
-                        rows.append({
-                            "discharge_m3s": float(Q),
-                            "species": species,
-                            "life_stage": stage,
-                            "hmu_type": h["hmu_type"],
-                            "wua_m2": float(h["wua_m2"]),
-                            "n_sections": int(h["n_sections"]),
-                        })
+                        rows.append(
+                            {
+                                "discharge_m3s": float(Q),
+                                "species": species,
+                                "life_stage": stage,
+                                "hmu_type": h["hmu_type"],
+                                "wua_m2": float(h["wua_m2"]),
+                                "n_sections": int(h["n_sections"]),
+                            }
+                        )
         return pd.DataFrame(rows) if rows else None
 
     def _load_studyplan(
@@ -401,12 +414,11 @@ class Case:
             return None
         try:
             from openlimno.studyplan import StudyPlan
+
             sp = StudyPlan.from_yaml(self._resolve(studyplan_path))
-            warnings.append(
-                f"StudyPlan loaded with {len(sp.tuf_overrides())} TUF overrides"
-            )
+            warnings.append(f"StudyPlan loaded with {len(sp.tuf_overrides())} TUF overrides")
             return sp
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             warnings.append(f"StudyPlan load failed: {e}")
             return None
 
@@ -448,7 +460,7 @@ class Case:
 
         try:
             params = load_drifting_egg_params(params_path, species)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             warnings.append(f"drift-egg params load failed: {e}")
             return None
 
@@ -468,9 +480,7 @@ class Case:
                 for s, r in zip(sections, results, strict=False)
             }
             if max(u_field.values()) <= 0:
-                warnings.append(
-                    f"drift-egg: all-zero velocities at Q={Q}; skipping that discharge"
-                )
+                warnings.append(f"drift-egg: all-zero velocities at Q={Q}; skipping that discharge")
                 continue
             try:
                 res = evaluate_drifting_egg(
@@ -479,25 +489,25 @@ class Case:
                     velocity_along_reach=u_field,
                     temperature_along_reach=T_field,
                     hatch_temp_days_curve=params["hatch_temp_days_curve"],  # type: ignore[arg-type]
-                    mortality_velocity_threshold_ms=params[
-                        "mortality_velocity_threshold_ms"
-                    ],  # type: ignore[arg-type]
+                    mortality_velocity_threshold_ms=params["mortality_velocity_threshold_ms"],  # type: ignore[arg-type]
                     dt_s=dt_s,
                     max_drift_km=max_drift_km,
                 )
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 warnings.append(f"drift-egg eval failed at Q={Q}: {e}")
                 continue
-            rows.append({
-                "discharge_m3s": float(Q),
-                "species": res.species,
-                "spawning_station_m": res.spawning_station_m,
-                "hatch_station_m": res.hatch_station_m,
-                "drift_distance_km": res.drift_distance_km,
-                "hatch_temp_C_mean": res.hatch_temp_C_mean,
-                "mortality_fraction": res.mortality_fraction,
-                "success": bool(res.success),
-            })
+            rows.append(
+                {
+                    "discharge_m3s": float(Q),
+                    "species": res.species,
+                    "spawning_station_m": res.spawning_station_m,
+                    "hatch_station_m": res.hatch_station_m,
+                    "drift_distance_km": res.drift_distance_km,
+                    "hatch_temp_C_mean": res.hatch_temp_C_mean,
+                    "mortality_fraction": res.mortality_fraction,
+                    "success": bool(res.success),
+                }
+            )
 
         if not rows:
             return None
@@ -520,15 +530,13 @@ class Case:
             csv_path = self._resolve(forcing["csv"])
             try:
                 df = pd.read_csv(csv_path)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 warnings.append(f"drift-egg temperature CSV load failed: {e}")
                 return None
             scol = forcing.get("station_column", "station_m")
             tcol = forcing.get("temp_column", "temp_C")
             if scol not in df.columns or tcol not in df.columns:
-                warnings.append(
-                    f"drift-egg temperature CSV missing columns {scol!r} or {tcol!r}"
-                )
+                warnings.append(f"drift-egg temperature CSV missing columns {scol!r} or {tcol!r}")
                 return None
             xs = df[scol].to_numpy(dtype=float)
             ts = df[tcol].to_numpy(dtype=float)
@@ -583,22 +591,23 @@ class Case:
             try:
                 if export_kind == "CN-SL712":
                     from openlimno.habitat.regulatory_export import cn_sl712
+
                     res = cn_sl712.compute_sl712(Q, wua_q, species, stage)
                     res.to_csv(out_dir / "sl712.csv")
                 elif export_kind == "US-FERC-4e":
                     from openlimno.habitat.regulatory_export import us_ferc_4e
+
                     res = us_ferc_4e.compute_ferc_4e(Q, wua_q, species, stage)
                     res.to_csv(out_dir / "ferc_4e.csv")
                 elif export_kind == "EU-WFD":
                     from openlimno.habitat.regulatory_export import eu_wfd
+
                     res = eu_wfd.compute_wfd(Q, wua_q, species, stage)
                     res.to_csv(out_dir / "eu_wfd.csv")
                 else:
                     warnings.append(f"Unknown regulatory_export kind: {export_kind}")
-            except Exception as e:  # noqa: BLE001
-                warnings.append(
-                    f"regulatory_export[{export_kind}] failed: {e}"
-                )
+            except Exception as e:
+                warnings.append(f"regulatory_export[{export_kind}] failed: {e}")
 
     def _wua_csv_header(self, quality_grade: str) -> str | None:
         """Build a comment-prefix header line for WUA CSV outputs.
@@ -618,9 +627,7 @@ class Case:
         )
 
     @staticmethod
-    def _write_csv_with_header(
-        df: pd.DataFrame, path: Path, header_line: str | None
-    ) -> None:
+    def _write_csv_with_header(df: pd.DataFrame, path: Path, header_line: str | None) -> None:
         if header_line:
             with path.open("w", encoding="utf-8") as f:
                 f.write(header_line)
@@ -630,7 +637,7 @@ class Case:
 
     def _compute_wua_quality(
         self,
-        hsi_curves: dict[tuple[str, str, str], "HSICurve"],
+        hsi_curves: dict[tuple[str, str, str], HSICurve],
         species_list: list[str],
         stage_list: list[str],
         warnings: list[str],
@@ -673,9 +680,7 @@ class Case:
                 curve = hsi_curves[key]
                 suits[var] = curve.evaluate(vals)
             else:
-                warnings.append(
-                    f"No HSI curve for ({species}, {stage}, {var}); skipped variable"
-                )
+                warnings.append(f"No HSI curve for ({species}, {stage}, {var}); skipped variable")
 
         if not suits:
             warnings.append(f"No HSI vars resolved for ({species}, {stage})")
@@ -705,22 +710,38 @@ class Case:
 
         ds = xr.Dataset(
             data_vars={
-                "water_depth": (("discharge", "station"), depth, {
-                    "standard_name": "water_depth",
-                    "units": "m",
-                }),
-                "velocity_magnitude": (("discharge", "station"), velocity, {
-                    "long_name": "section-averaged velocity magnitude",
-                    "units": "m s-1",
-                }),
-                "water_surface": (("discharge", "station"), wse, {
-                    "long_name": "water surface elevation",
-                    "units": "m",
-                }),
-                "wetted_area": (("discharge", "station"), area, {
-                    "long_name": "cross-section wetted area",
-                    "units": "m2",
-                }),
+                "water_depth": (
+                    ("discharge", "station"),
+                    depth,
+                    {
+                        "standard_name": "water_depth",
+                        "units": "m",
+                    },
+                ),
+                "velocity_magnitude": (
+                    ("discharge", "station"),
+                    velocity,
+                    {
+                        "long_name": "section-averaged velocity magnitude",
+                        "units": "m s-1",
+                    },
+                ),
+                "water_surface": (
+                    ("discharge", "station"),
+                    wse,
+                    {
+                        "long_name": "water surface elevation",
+                        "units": "m",
+                    },
+                ),
+                "wetted_area": (
+                    ("discharge", "station"),
+                    area,
+                    {
+                        "long_name": "cross-section wetted area",
+                        "units": "m2",
+                    },
+                ),
             },
             coords={
                 "discharge": ("discharge", Qs, {"units": "m3 s-1"}),
@@ -750,10 +771,15 @@ class Case:
         case_sha = hashlib.sha256(case_yaml_text).hexdigest()
 
         try:
-            git_sha = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL,
-                cwd=self.case_yaml_path.parent,
-            ).decode().strip()
+            git_sha = (
+                subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"],
+                    stderr=subprocess.DEVNULL,
+                    cwd=self.case_yaml_path.parent,
+                )
+                .decode()
+                .strip()
+            )
         except (subprocess.CalledProcessError, FileNotFoundError):
             git_sha = "unknown"
 
@@ -761,9 +787,7 @@ class Case:
         input_data_sha: dict[str, str] = {}
         for label, p in (data_paths or {}).items():
             try:
-                input_data_sha[label] = hashlib.sha256(
-                    Path(p).read_bytes()
-                ).hexdigest()
+                input_data_sha[label] = hashlib.sha256(Path(p).read_bytes()).hexdigest()
             except OSError:
                 input_data_sha[label] = "unreadable"
 
@@ -781,9 +805,8 @@ class Case:
         param_blob = case_yaml_text + b"\n"
         if studyplan is not None and hasattr(studyplan, "config"):
             import json as _json
-            param_blob += _json.dumps(
-                studyplan.config, sort_keys=True
-            ).encode("utf-8")
+
+            param_blob += _json.dumps(studyplan.config, sort_keys=True).encode("utf-8")
         param_blob += repr(sorted(discharges)).encode("utf-8")
         parameter_fingerprint = hashlib.sha256(param_blob).hexdigest()
 
@@ -791,7 +814,7 @@ class Case:
             "openlimno_version": __version__,
             "wedm_version": "0.1",
             "schema": "openlimno-provenance/0.1",
-            "run_at": datetime.now(timezone.utc).isoformat(),
+            "run_at": datetime.now(UTC).isoformat(),
             "case": {
                 "name": self.name,
                 "yaml_path": str(self.case_yaml_path),

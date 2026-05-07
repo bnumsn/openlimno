@@ -23,10 +23,10 @@ class MeshValidationReport:
 
     path: Path
     is_valid: bool
-    topology_dim: int           # 1 or 2; 0 if undetermined
+    topology_dim: int  # 1 or 2; 0 if undetermined
     n_nodes: int
-    n_faces: int                # 0 for 1D meshes
-    n_edges: int                # 0 if not present
+    n_faces: int  # 0 for 1D meshes
+    n_edges: int  # 0 if not present
     has_bottom_elevation: bool
     errors: list[str]
     warnings: list[str]
@@ -45,8 +45,12 @@ class MeshValidationReport:
 _NODE_X_NAMES = ("mesh2d_node_x", "mesh1d_node_x", "node_x", "x")
 _NODE_Y_NAMES = ("mesh2d_node_y", "mesh1d_node_y", "node_y", "y")
 _FACE_NODES_NAMES = ("mesh2d_face_nodes", "face_nodes")
-_EDGE_NODES_NAMES = ("mesh2d_edge_nodes", "mesh1d_edge_nodes",
-                     "edge_nodes", "edge_node_connectivity")
+_EDGE_NODES_NAMES = (
+    "mesh2d_edge_nodes",
+    "mesh1d_edge_nodes",
+    "edge_nodes",
+    "edge_node_connectivity",
+)
 _DEPTH_NAMES = ("bottom_elevation", "depth", "node_z", "elevation")
 
 
@@ -62,8 +66,12 @@ def validate_ugrid_mesh(path: str | Path) -> MeshValidationReport:
 
     if not p.exists():
         return MeshValidationReport(
-            path=p, is_valid=False, topology_dim=0,
-            n_nodes=0, n_faces=0, n_edges=0,
+            path=p,
+            is_valid=False,
+            topology_dim=0,
+            n_nodes=0,
+            n_faces=0,
+            n_edges=0,
             has_bottom_elevation=False,
             errors=[f"Mesh file does not exist: {p}"],
             warnings=[],
@@ -73,8 +81,12 @@ def validate_ugrid_mesh(path: str | Path) -> MeshValidationReport:
         import xarray as xr
     except ImportError:  # pragma: no cover
         return MeshValidationReport(
-            path=p, is_valid=False, topology_dim=0,
-            n_nodes=0, n_faces=0, n_edges=0,
+            path=p,
+            is_valid=False,
+            topology_dim=0,
+            n_nodes=0,
+            n_faces=0,
+            n_edges=0,
             has_bottom_elevation=False,
             errors=["xarray not available — cannot validate UGRID"],
             warnings=[],
@@ -82,10 +94,14 @@ def validate_ugrid_mesh(path: str | Path) -> MeshValidationReport:
 
     try:
         ds = xr.open_dataset(p)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return MeshValidationReport(
-            path=p, is_valid=False, topology_dim=0,
-            n_nodes=0, n_faces=0, n_edges=0,
+            path=p,
+            is_valid=False,
+            topology_dim=0,
+            n_nodes=0,
+            n_faces=0,
+            n_edges=0,
             has_bottom_elevation=False,
             errors=[f"Failed to open NetCDF: {e}"],
             warnings=[],
@@ -108,16 +124,11 @@ def validate_ugrid_mesh(path: str | Path) -> MeshValidationReport:
         if y_var is None:
             errors.append("Missing node-y variable (mesh2d_node_y / node_y / y)")
         elif x_var is not None and ds[y_var].size != ds[x_var].size:
-            errors.append(
-                f"Node x/y length mismatch: "
-                f"{ds[x_var].size} vs {ds[y_var].size}"
-            )
+            errors.append(f"Node x/y length mismatch: {ds[x_var].size} vs {ds[y_var].size}")
         if face_var is not None:
             arr = ds[face_var]
             if arr.ndim != 2:
-                errors.append(
-                    f"face_nodes must be 2D (face × vertex); got ndim={arr.ndim}"
-                )
+                errors.append(f"face_nodes must be 2D (face × vertex); got ndim={arr.ndim}")
             else:
                 n_faces = int(arr.shape[0])
                 topology_dim = 2
@@ -128,31 +139,23 @@ def validate_ugrid_mesh(path: str | Path) -> MeshValidationReport:
         if edge_var is not None:
             arr = ds[edge_var]
             if arr.ndim != 2 or arr.shape[1] != 2:
-                warnings.append(
-                    f"edge_nodes shape={arr.shape} (expected (n_edges, 2))"
-                )
+                warnings.append(f"edge_nodes shape={arr.shape} (expected (n_edges, 2))")
             else:
                 n_edges = int(arr.shape[0])
                 if topology_dim == 0:
                     topology_dim = 1
 
         if face_var is None and edge_var is None:
-            errors.append(
-                "Missing connectivity variable: need face_nodes (2D) "
-                "or edge_nodes (1D)"
-            )
+            errors.append("Missing connectivity variable: need face_nodes (2D) or edge_nodes (1D)")
 
         if depth_var is None:
             warnings.append(
-                "No bottom_elevation/depth variable; "
-                "downstream solvers will get z=0 nodes"
+                "No bottom_elevation/depth variable; downstream solvers will get z=0 nodes"
             )
 
         conv = ds.attrs.get("Conventions", "")
         if "UGRID" not in str(conv):
-            warnings.append(
-                f"Conventions attribute does not declare UGRID (got {conv!r})"
-            )
+            warnings.append(f"Conventions attribute does not declare UGRID (got {conv!r})")
     finally:
         ds.close()
 

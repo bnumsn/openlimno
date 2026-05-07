@@ -12,6 +12,8 @@ Enforces SPEC §4.2.2.2 acknowledge_independence for geom/arith composites.
 
 from __future__ import annotations
 
+from . import regulatory_export
+from .drifting_egg import DriftingEggResult, evaluate_drifting_egg, load_drifting_egg_params
 from .hmu import (
     HMUThresholds,
     HMUType,
@@ -20,8 +22,6 @@ from .hmu import (
     classify_hmu,
     classify_reach,
 )
-from . import regulatory_export
-from .drifting_egg import DriftingEggResult, evaluate_drifting_egg, load_drifting_egg_params
 from .hsi import HSICurve, composite_csi, load_hsi_from_parquet, require_independence_ack
 from .wua import cell_wua, wua_q_curve
 

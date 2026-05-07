@@ -14,7 +14,6 @@ from jsonschema import Draft202012Validator
 
 from openlimno.wedm import _schema_dir, load_schema, validate_case
 
-
 SCHEMAS = sorted(_schema_dir().glob("*.schema.json"))
 
 

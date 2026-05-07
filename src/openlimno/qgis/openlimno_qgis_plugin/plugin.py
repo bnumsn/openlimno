@@ -28,7 +28,7 @@ from typing import Any
 class OpenLimnoPlugin:
     """Plugin object instantiated by QGIS at startup."""
 
-    def __init__(self, iface):  # noqa: ANN001
+    def __init__(self, iface):
         self.iface = iface
         self.actions: list[Any] = []
         self.menu = "&OpenLimno"
@@ -44,15 +44,13 @@ class OpenLimnoPlugin:
             return  # outside QGIS env (e.g. unit-test import)
 
         icon = QIcon()  # placeholder; real icon at resources/openlimno_icon.svg
-        a_open_results = QAction(icon, "Open OpenLimno hydraulic results…",
-                                  self.iface.mainWindow())
+        a_open_results = QAction(icon, "Open OpenLimno hydraulic results…", self.iface.mainWindow())
         a_open_results.triggered.connect(self.open_hydraulic_nc)
         self.iface.addPluginToMenu(self.menu, a_open_results)
         self.iface.addToolBarIcon(a_open_results)
         self.actions.append(a_open_results)
 
-        a_open_wua = QAction(icon, "Open WUA-Q curve…",
-                             self.iface.mainWindow())
+        a_open_wua = QAction(icon, "Open WUA-Q curve…", self.iface.mainWindow())
         a_open_wua.triggered.connect(self.open_wua_q)
         self.iface.addPluginToMenu(self.menu, a_open_wua)
         self.actions.append(a_open_wua)
@@ -96,22 +94,26 @@ class OpenLimnoPlugin:
 
         # Raster fallback (e.g. for water_depth / velocity_magnitude variables)
         # Each NetCDF var becomes a sub-dataset
-        rast = QgsRasterLayer(f'NETCDF:"{path}":water_depth',
-                              f"{layer_name}:water_depth")
+        rast = QgsRasterLayer(f'NETCDF:"{path}":water_depth', f"{layer_name}:water_depth")
         if rast.isValid():
             QgsProject.instance().addMapLayer(rast)
         else:
             QMessageBox.warning(
-                self.iface.mainWindow(), "OpenLimno",
+                self.iface.mainWindow(),
+                "OpenLimno",
                 f"Could not load {path} as mesh or raster. "
-                "If this is a non-UGRID NetCDF, try the 'Add Mesh Layer' tool."
+                "If this is a non-UGRID NetCDF, try the 'Add Mesh Layer' tool.",
             )
 
     def open_wua_q(self) -> None:
         """File picker for WUA-Q CSV/Parquet → show table + chart."""
         try:
             from qgis.PyQt.QtWidgets import (
-                QDialog, QFileDialog, QTableWidget, QTableWidgetItem, QVBoxLayout,
+                QDialog,
+                QFileDialog,
+                QTableWidget,
+                QTableWidgetItem,
+                QVBoxLayout,
             )
         except ImportError:
             return
@@ -125,8 +127,7 @@ class OpenLimnoPlugin:
         if not path:
             return
 
-        rows = self._read_wua_csv(path) if path.endswith(".csv") else \
-            self._read_wua_parquet(path)
+        rows = self._read_wua_csv(path) if path.endswith(".csv") else self._read_wua_parquet(path)
         if not rows:
             return
 
@@ -164,20 +165,26 @@ class OpenLimnoPlugin:
         # Try pyarrow (often available in QGIS Python on Linux/macOS)
         try:
             import pyarrow.parquet as pq
+
             t = pq.read_table(path)
-            return [dict(zip(t.column_names, row, strict=False))
-                    for row in zip(*[c.to_pylist() for c in t.columns], strict=False)]
+            return [
+                dict(zip(t.column_names, row, strict=False))
+                for row in zip(*[c.to_pylist() for c in t.columns], strict=False)
+            ]
         except Exception:
             pass
         # If not available, gdal/ogr can read Parquet via the Apache Arrow driver
         try:
             from osgeo import ogr
+
             ds = ogr.Open(path)
             if ds is None:
                 return []
             layer = ds.GetLayer(0)
-            field_names = [layer.GetLayerDefn().GetFieldDefn(i).GetName()
-                            for i in range(layer.GetLayerDefn().GetFieldCount())]
+            field_names = [
+                layer.GetLayerDefn().GetFieldDefn(i).GetName()
+                for i in range(layer.GetLayerDefn().GetFieldCount())
+            ]
             rows = []
             for feat in layer:
                 rows.append({fn: feat.GetField(fn) for fn in field_names})

@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-import pyarrow.parquet as pq
 import pytest
 import xarray as xr
 from jsonschema import Draft202012Validator
@@ -54,11 +53,7 @@ def _validate_rows(df: pd.DataFrame, schema: dict[str, Any]) -> list[str]:
     validator = _row_validator(schema)
     errs: list[str] = []
     for i, row in df.iterrows():
-        record = {
-            k: _coerce_value(v)
-            for k, v in row.to_dict().items()
-            if not _is_missing(v)
-        }
+        record = {k: _coerce_value(v) for k, v in row.to_dict().items() if not _is_missing(v)}
         for err in validator.iter_errors(record):
             errs.append(f"row {i}: {'/'.join(str(x) for x in err.absolute_path)}: {err.message}")
     return errs
@@ -72,7 +67,9 @@ def schemas() -> dict[str, dict[str, Any]]:
     }
 
 
-@pytest.mark.skipif(not DATA_DIR.exists(), reason="Lemhi data not built; run tools/build_lemhi_dataset.py")
+@pytest.mark.skipif(
+    not DATA_DIR.exists(), reason="Lemhi data not built; run tools/build_lemhi_dataset.py"
+)
 def test_manifest_present() -> None:
     manifest = json.loads((DATA_DIR / "manifest.json").read_text())
     assert manifest["wedm_version"] == "0.1"
@@ -119,12 +116,21 @@ def test_mesh_netcdf_ugrid_compliant() -> None:
 
 
 @pytest.mark.skipif(not DATA_DIR.exists(), reason="Lemhi data not built")
-@pytest.mark.parametrize("filename", [
-    "rating_curve.parquet", "species.parquet", "life_stage.parquet",
-    "hsi_curve.parquet", "hsi_evidence.parquet", "swimming_performance.parquet",
-    "passage_criteria.parquet", "survey_campaign.parquet",
-    "cross_section.parquet", "redd_count.parquet",
-])
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "rating_curve.parquet",
+        "species.parquet",
+        "life_stage.parquet",
+        "hsi_curve.parquet",
+        "hsi_evidence.parquet",
+        "swimming_performance.parquet",
+        "passage_criteria.parquet",
+        "survey_campaign.parquet",
+        "cross_section.parquet",
+        "redd_count.parquet",
+    ],
+)
 def test_parquet_loads(filename: str) -> None:
     df = pd.read_parquet(DATA_DIR / filename)
     assert len(df) > 0, f"{filename} is empty"

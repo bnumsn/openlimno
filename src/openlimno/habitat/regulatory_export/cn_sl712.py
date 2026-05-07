@@ -132,14 +132,16 @@ def compute_sl712(
             monthly_avg = float(sub.mean())
             # 90% guarantee = the 10th-percentile flow (90% of values exceed it)
             p90 = float(np.quantile(sub, 0.10))
-        rows.append({
-            "month": m,
-            "monthly_avg_q_m3s": monthly_avg,
-            "min_eco_flow_m3s": Q_min,
-            "suitable_eco_flow_m3s": Q_suitable,
-            "multi_year_avg_pct": (Q_suitable / annual_avg * 100) if annual_avg > 0 else 0.0,
-            "min_eco_flow_p90_m3s": p90,
-        })
+        rows.append(
+            {
+                "month": m,
+                "monthly_avg_q_m3s": monthly_avg,
+                "min_eco_flow_m3s": Q_min,
+                "suitable_eco_flow_m3s": Q_suitable,
+                "multi_year_avg_pct": (Q_suitable / annual_avg * 100) if annual_avg > 0 else 0.0,
+                "min_eco_flow_p90_m3s": p90,
+            }
+        )
 
     monthly = pd.DataFrame(rows)
     return SL712Result(

@@ -110,13 +110,15 @@ def compute_wfd(
         wua_at_q = float(np.interp(q_mean, Qs, Ws))
         eqr_m = wua_at_q / reference_wua
         monthly_wuas.append(wua_at_q)
-        rows.append({
-            "month": m,
-            "observed_q_m3s": q_mean,
-            "observed_wua_m2": wua_at_q,
-            "eqr_monthly": eqr_m,
-            "status": _classify(eqr_m),
-        })
+        rows.append(
+            {
+                "month": m,
+                "observed_q_m3s": q_mean,
+                "observed_wua_m2": wua_at_q,
+                "eqr_monthly": eqr_m,
+                "status": _classify(eqr_m),
+            }
+        )
 
     monthly_df = pd.DataFrame(rows)
     overall_eqr = float(np.mean(monthly_wuas) / reference_wua) if monthly_wuas else 0.0

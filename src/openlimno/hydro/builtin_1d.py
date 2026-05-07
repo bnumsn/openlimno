@@ -10,7 +10,7 @@ References:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -18,8 +18,7 @@ import numpy as np
 from scipy.optimize import brentq
 
 if TYPE_CHECKING:
-    import pandas as pd
-    import xarray as xr
+    pass
 
 
 @dataclass
@@ -98,7 +97,7 @@ class CrossSection:
         A, _, _, R = self.hydraulic_props(water_surface_m)
         if A <= 0 or R <= 0 or slope <= 0:
             return 0.0
-        return (1.0 / self.manning_n) * A * R ** (2.0 / 3.0) * slope ** 0.5
+        return (1.0 / self.manning_n) * A * R ** (2.0 / 3.0) * slope**0.5
 
 
 @dataclass
@@ -251,22 +250,22 @@ class Builtin1D:
                 if A_up <= 0 or R_up <= 0:
                     return 1.0  # infeasible; push solver away
                 V_up = discharge_m3s / A_up
-                Sf_up = (xs_up.manning_n ** 2) * V_up ** 2 / R_up ** (4.0 / 3.0)
-                Sf_dn = (xs_dn.manning_n ** 2) * r_dn.velocity_mean_ms ** 2 / max(
-                    r_dn.hydraulic_radius_m, 1e-9
-                ) ** (4.0 / 3.0)
+                Sf_up = (xs_up.manning_n**2) * V_up**2 / R_up ** (4.0 / 3.0)
+                Sf_dn = (
+                    (xs_dn.manning_n**2)
+                    * r_dn.velocity_mean_ms**2
+                    / max(r_dn.hydraulic_radius_m, 1e-9) ** (4.0 / 3.0)
+                )
                 Sf_avg = 0.5 * (Sf_up + Sf_dn)
-                E_up = wse_up + V_up ** 2 / (2 * g)
-                E_dn = r_dn.water_surface_m + r_dn.velocity_mean_ms ** 2 / (2 * g)
+                E_up = wse_up + V_up**2 / (2 * g)
+                E_dn = r_dn.water_surface_m + r_dn.velocity_mean_ms**2 / (2 * g)
                 return E_up - E_dn - Sf_avg * seg_dx
 
             # Bracket: between thalweg+small and several meters above
             z_min = xs_up.thalweg_elevation_m + 1e-3
             z_max = max(xs_up.elevation_m.max(), wse_guess + 5.0)
             try:
-                wse_up = brentq(
-                    residual, z_min, z_max, xtol=self.tol_m, maxiter=self.max_iter
-                )
+                wse_up = brentq(residual, z_min, z_max, xtol=self.tol_m, maxiter=self.max_iter)
             except ValueError:
                 # Bracket failed — fall back to MANSQ for this section
                 results[i] = self.solve_normal_depth(xs_up, discharge_m3s)
@@ -277,9 +276,7 @@ class Builtin1D:
         return results
 
     @staticmethod
-    def _eval_at_wse(
-        xs: CrossSection, discharge_m3s: float, wse: float
-    ) -> MANSQResult:
+    def _eval_at_wse(xs: CrossSection, discharge_m3s: float, wse: float) -> MANSQResult:
         A, _, T, R = xs.hydraulic_props(wse)
         if A <= 0:
             return MANSQResult(
@@ -326,9 +323,7 @@ class Builtin1D:
         work_dir.mkdir(parents=True, exist_ok=True)
 
         if sections is None or discharges_m3s is None:
-            raise ValueError(
-                "Builtin1D.prepare requires sections= and discharges_m3s="
-            )
+            raise ValueError("Builtin1D.prepare requires sections= and discharges_m3s=")
 
         # Pickle the geometry (cheap, small) + JSON metadata
         with (work_dir / "sections.pkl").open("wb") as f:
@@ -344,7 +339,7 @@ class Builtin1D:
         (work_dir / ".openlimno_prepared").write_text("builtin-1d")
         return work_dir
 
-    def run(self, work_dir: str | Path) -> "BuiltinRunResult":
+    def run(self, work_dir: str | Path) -> BuiltinRunResult:
         """Solve the prepared case and pickle results to work_dir."""
         import json
         import pickle
@@ -352,9 +347,7 @@ class Builtin1D:
         work_dir = Path(work_dir).resolve()
         marker = work_dir / ".openlimno_prepared"
         if not marker.exists() or marker.read_text().strip() != "builtin-1d":
-            raise RuntimeError(
-                f"work_dir {work_dir} not prepared by Builtin1D"
-            )
+            raise RuntimeError(f"work_dir {work_dir} not prepared by Builtin1D")
         meta = json.loads((work_dir / "config.json").read_text())
         with (work_dir / "sections.pkl").open("rb") as f:
             sections = pickle.load(f)
@@ -363,12 +356,12 @@ class Builtin1D:
         for Q in meta["discharges_m3s"]:
             if meta.get("downstream_wse_m") is not None:
                 results[Q] = self.solve_standard_step(
-                    sections, float(Q),
+                    sections,
+                    float(Q),
                     downstream_wse_m=float(meta["downstream_wse_m"]),
                 )
             else:
-                results[Q] = self.solve_reach(sections, float(Q),
-                                              slope=meta["slope"])
+                results[Q] = self.solve_reach(sections, float(Q), slope=meta["slope"])
 
         with (work_dir / "results.pkl").open("wb") as f:
             pickle.dump(results, f)
@@ -381,9 +374,7 @@ class Builtin1D:
         work_dir = Path(work_dir).resolve()
         results_path = work_dir / "results.pkl"
         if not results_path.exists():
-            raise FileNotFoundError(
-                f"No results.pkl in {work_dir}; was run() called?"
-            )
+            raise FileNotFoundError(f"No results.pkl in {work_dir}; was run() called?")
         with results_path.open("rb") as f:
             return pickle.load(f)
 
@@ -391,6 +382,7 @@ class Builtin1D:
 @dataclass
 class BuiltinRunResult:
     """Marker result type returned by Builtin1D.run()."""
+
     work_dir: Path
     n_discharges: int
 

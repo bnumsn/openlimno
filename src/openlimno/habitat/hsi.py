@@ -62,11 +62,7 @@ class HSICurve:
 
     def transferability_warning(self, case_basin: str | None) -> str | None:
         """Return a warning string if score < 0.5 and basin differs, else None."""
-        if (
-            self.transferability_score < 0.5
-            and case_basin
-            and case_basin != self.geographic_origin
-        ):
+        if self.transferability_score < 0.5 and case_basin and case_basin != self.geographic_origin:
             return (
                 f"HSI {self.species}/{self.life_stage}/{self.variable} has "
                 f"transferability_score={self.transferability_score:.2f} from "

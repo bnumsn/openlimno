@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import pytest
 import xarray as xr
 
 from openlimno.hydro.schism import (
@@ -24,16 +23,23 @@ def make_synthetic_ugrid_2d(path: Path) -> None:
 
     ds = xr.Dataset(
         data_vars={
-            "mesh2d": ((), 0, {
-                "cf_role": "mesh_topology",
-                "topology_dimension": 2,
-                "node_coordinates": "mesh2d_node_x mesh2d_node_y",
-                "face_node_connectivity": "mesh2d_face_nodes",
-            }),
+            "mesh2d": (
+                (),
+                0,
+                {
+                    "cf_role": "mesh_topology",
+                    "topology_dimension": 2,
+                    "node_coordinates": "mesh2d_node_x mesh2d_node_y",
+                    "face_node_connectivity": "mesh2d_face_nodes",
+                },
+            ),
             "mesh2d_node_x": (("node",), x, {"standard_name": "longitude"}),
             "mesh2d_node_y": (("node",), y, {"standard_name": "latitude"}),
-            "mesh2d_face_nodes": (("face", "vertex"), face_nodes,
-                                   {"_FillValue": -1, "start_index": 0}),
+            "mesh2d_face_nodes": (
+                ("face", "vertex"),
+                face_nodes,
+                {"_FillValue": -1, "start_index": 0},
+            ),
             "bottom_elevation": (("node",), z, {"units": "m"}),
         },
         attrs={"Conventions": "UGRID-1.0"},
@@ -93,6 +99,7 @@ def test_adapter_prepare_with_real_mesh(tmp_path: Path) -> None:
     assert "&CORE" in param
 
     import json
+
     marker = json.loads((work / ".openlimno_prepared").read_text())
     assert marker["real_mesh"] is True
 
@@ -108,5 +115,6 @@ def test_adapter_prepare_falls_back_without_mesh(tmp_path: Path) -> None:
     assert "placeholder" in hgrid
 
     import json
+
     marker = json.loads((work / ".openlimno_prepared").read_text())
     assert marker["real_mesh"] is False

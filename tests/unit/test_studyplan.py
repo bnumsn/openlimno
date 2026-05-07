@@ -8,10 +8,7 @@ import pytest
 
 from openlimno.studyplan import StudyPlan, TUFOverride, merge_tuf
 
-
-LEMHI_STUDYPLAN = (
-    Path(__file__).resolve().parents[2] / "examples" / "lemhi" / "studyplan.yaml"
-)
+LEMHI_STUDYPLAN = Path(__file__).resolve().parents[2] / "examples" / "lemhi" / "studyplan.yaml"
 
 
 def test_tuf_override_invalid_length() -> None:

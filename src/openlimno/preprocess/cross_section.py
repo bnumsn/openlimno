@@ -59,20 +59,20 @@ def read_cross_sections(
         )
 
     cid = campaign_id or str(uuid.uuid4())
-    out = pd.DataFrame({
-        "campaign_id": cid,
-        "station_m": df["station_m"].astype(float),
-        "distance_m": df["distance_m"].astype(float),
-        "elevation_m": df["elevation_m"].astype(float),
-    })
+    out = pd.DataFrame(
+        {
+            "campaign_id": cid,
+            "station_m": df["station_m"].astype(float),
+            "distance_m": df["distance_m"].astype(float),
+            "elevation_m": df["elevation_m"].astype(float),
+        }
+    )
     # Optional fields
     if "point_index" in df.columns:
         out["point_index"] = df["point_index"].astype(int)
     else:
         # Auto-assign point_index per station based on row order
-        out["point_index"] = (
-            out.groupby("station_m").cumcount().astype(int)
-        )
+        out["point_index"] = out.groupby("station_m").cumcount().astype(int)
     if "substrate" in df.columns:
         out["substrate"] = df["substrate"].astype(str)
     if "cover" in df.columns:
@@ -82,9 +82,7 @@ def read_cross_sections(
 
     # Sanity: each (station_m, distance_m) pair must be unique
     if out.duplicated(subset=["station_m", "distance_m"]).any():
-        raise ValueError(
-            "Duplicate (station_m, distance_m) pair detected in cross-section input"
-        )
+        raise ValueError("Duplicate (station_m, distance_m) pair detected in cross-section input")
     return out
 
 
@@ -100,10 +98,12 @@ def write_cross_sections_to_parquet(
     }
     if source_note:
         metadata[b"openlimno.source"] = source_note.encode("utf-8")
-    table = table.replace_schema_metadata({
-        **(table.schema.metadata or {}),
-        **metadata,
-    })
+    table = table.replace_schema_metadata(
+        {
+            **(table.schema.metadata or {}),
+            **metadata,
+        }
+    )
     pq.write_table(table, path)
     return path
 

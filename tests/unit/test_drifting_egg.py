@@ -13,14 +13,16 @@ from openlimno.habitat import (
 )
 
 
-def make_velocity_field(n: int = 50, u_const: float = 1.0,
-                       reach_length_m: float = 100_000.0) -> dict[float, float]:
+def make_velocity_field(
+    n: int = 50, u_const: float = 1.0, reach_length_m: float = 100_000.0
+) -> dict[float, float]:
     stations = np.linspace(0, reach_length_m, n)
     return {float(s): u_const for s in stations}
 
 
-def make_temperature_field(n: int = 50, T_const: float = 22.0,
-                            reach_length_m: float = 100_000.0) -> dict[float, float]:
+def make_temperature_field(
+    n: int = 50, T_const: float = 22.0, reach_length_m: float = 100_000.0
+) -> dict[float, float]:
     stations = np.linspace(0, reach_length_m, n)
     return {float(s): T_const for s in stations}
 

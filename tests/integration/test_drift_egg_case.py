@@ -6,7 +6,6 @@ SPEC §4.2.6. Triggered by ``habitat.metric: drifting-egg`` plus a
 
 from __future__ import annotations
 
-import textwrap
 from pathlib import Path
 
 import pandas as pd
@@ -26,32 +25,17 @@ def _write_case(tmp_path: Path, *, with_drift: bool, with_csv_temp: bool = False
     if with_drift:
         if with_csv_temp:
             csv_path = case_dir / "temperature.csv"
-            csv_path.write_text(
-                "station_m,temp_C\n"
-                "0,28\n"
-                "5000,28\n"
-                "20000,27\n"
-                "200000,26\n"
-            )
-            tforce = (
-                "    temperature_forcing:\n"
-                "      type: csv\n"
-                "      csv: ./temperature.csv\n"
-            )
+            csv_path.write_text("station_m,temp_C\n0,28\n5000,28\n20000,27\n200000,26\n")
+            tforce = "    temperature_forcing:\n      type: csv\n      csv: ./temperature.csv\n"
         else:
-            tforce = (
-                "    temperature_forcing:\n"
-                "      type: constant\n"
-                "      value_C: 28.0\n"
-            )
+            tforce = "    temperature_forcing:\n      type: constant\n      value_C: 28.0\n"
         drift_block = (
             "  drifting_egg:\n"
             "    species: ctenopharyngodon_idella\n"
             f"    params: {DATA_DIR / 'drifting_egg_params.parquet'}\n"
             "    spawning_station_m: 0\n"
             "    max_drift_km: 200\n"
-            "    dt_s: 600\n"
-            + tforce
+            "    dt_s: 600\n" + tforce
         )
 
     metric = "drifting-egg" if with_drift else "wua-q"
@@ -71,9 +55,7 @@ def _write_case(tmp_path: Path, *, with_drift: bool, with_csv_temp: bool = False
         "  species: [oncorhynchus_mykiss]\n"
         "  stages: [spawning]\n"
         f"  metric: {metric}\n"
-        "  composite: min\n"
-        + drift_block
-        + "output:\n"
+        "  composite: min\n" + drift_block + "output:\n"
         f"  dir: {out_dir}\n"
         "  formats: [csv]\n"
     )
@@ -89,9 +71,7 @@ def lemhi_present() -> bool:
     ).exists()
 
 
-def test_drift_egg_runs_with_constant_temperature(
-    tmp_path: Path, lemhi_present: bool
-) -> None:
+def test_drift_egg_runs_with_constant_temperature(tmp_path: Path, lemhi_present: bool) -> None:
     if not lemhi_present:
         pytest.skip("Lemhi data not built; run tools/build_lemhi_dataset.py")
     case_yaml = _write_case(tmp_path, with_drift=True)
@@ -117,9 +97,7 @@ def test_drift_egg_runs_with_constant_temperature(
     assert df_sorted["drift_distance_km"].iloc[-1] >= df_sorted["drift_distance_km"].iloc[0]
 
 
-def test_drift_egg_csv_temperature_forcing(
-    tmp_path: Path, lemhi_present: bool
-) -> None:
+def test_drift_egg_csv_temperature_forcing(tmp_path: Path, lemhi_present: bool) -> None:
     if not lemhi_present:
         pytest.skip("Lemhi data not built")
     case_yaml = _write_case(tmp_path, with_drift=True, with_csv_temp=True)
@@ -130,9 +108,7 @@ def test_drift_egg_csv_temperature_forcing(
     assert 25.5 <= df["hatch_temp_C_mean"].iloc[0] <= 28.5
 
 
-def test_drift_egg_skipped_when_metric_is_wua_q(
-    tmp_path: Path, lemhi_present: bool
-) -> None:
+def test_drift_egg_skipped_when_metric_is_wua_q(tmp_path: Path, lemhi_present: bool) -> None:
     if not lemhi_present:
         pytest.skip("Lemhi data not built")
     case_yaml = _write_case(tmp_path, with_drift=False)

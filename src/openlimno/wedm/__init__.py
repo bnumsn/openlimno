@@ -45,9 +45,7 @@ def _registry() -> Registry:
         # Register under both the absolute $id and the local relative filename
         if "$id" in schema:
             registry = registry.with_resource(uri=schema["$id"], resource=resource)
-        registry = registry.with_resource(
-            uri=f"./{schema_path.name}", resource=resource
-        )
+        registry = registry.with_resource(uri=f"./{schema_path.name}", resource=resource)
     return registry
 
 
