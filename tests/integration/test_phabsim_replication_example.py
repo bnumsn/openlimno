@@ -17,10 +17,15 @@ EXAMPLE = REPO / "examples" / "phabsim_replication"
 def test_build_data_then_case_matches_analytic(tmp_path: Path) -> None:
     """Run build_data.py + Case.run and assert analytic agreement (≤1e-2)."""
     # Build data in-place (idempotent under examples/)
+    import os as _os
     proc = subprocess.run(
         [sys.executable, str(EXAMPLE / "build_data.py")],
-        capture_output=True, text=True, env={"PYTHONPATH": str(REPO / "src"),
-                                              "PATH": "/usr/bin:/bin"},
+        capture_output=True, text=True,
+        env={
+            "PYTHONPATH": str(REPO / "src"),
+            "PATH": _os.environ.get("PATH", "/usr/bin:/bin"),
+            "PYTHONNOUSERSITE": "1",
+        },
         cwd=REPO,
     )
     assert proc.returncode == 0, proc.stderr

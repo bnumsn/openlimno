@@ -1,14 +1,14 @@
-[project]
+[workspace]
 name = "openlimno"
 version = "0.1.0-dev"
 description = "Open-source water ecology modeling platform"
 authors = ["OpenLimno Contributors <hello@openlimno.org>"]
 channels = ["conda-forge"]
-platforms = ["linux-64", "linux-aarch64", "osx-arm64", "osx-64", "win-64"]
+platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
 license = "Apache-2.0"
 license-file = "LICENSE"
 homepage = "https://openlimno.org"
-repository = "https://github.com/openlimno/openlimno"
+repository = "https://github.com/bnumsn/openlimno"
 
 # ---------------------------------------------------------------
 # Core runtime dependencies (1.0 minimal)
@@ -30,6 +30,7 @@ pyyaml = ">=6"
 jsonschema = ">=4.21"
 click = ">=8.1"
 rich = ">=13"
+openpyxl = ">=3.1"        # for read_cross_sections / read_fish_sampling Excel input
 
 # Mesh tooling
 gmsh = ">=4.12"
@@ -39,16 +40,24 @@ triangle = "*"            # Conda recipe; for non-conda fallbacks see ADR-0003
 scipy = ">=1.12"
 
 # Workflow + calibration
-snakemake-minimal = ">=8"
-pestpp = "*"              # M2+; pin in M0 environment audit
+# snakemake-minimal: moved to [feature.workflow] (osx-arm64 wheels missing
+# from conda-forge as of 2026-Q2; users who need Snakefile execution opt in
+# via `pixi install -e workflow`). Core OpenLimno does not import snakemake.
+# pestpp: out-of-scope for 1.0 (PEST++ multi-parameter calibration is 1.x;
+# ADR-0011); reinstate when 1.x branches.
 
 # ---------------------------------------------------------------
 # Optional integrations (1.0 wraps these via subprocess)
 # ---------------------------------------------------------------
+# SCHISM feature: the Fortran binary is NOT distributed via conda-forge
+# (ADR-0002) — OpenLimno calls SCHISM via the
+# `ghcr.io/bnumsn/schism:5.11.0` OCI container. No additional Python
+# packages are required; the SCHISMAdapter is a pure subprocess wrapper.
+# (pyschism on PyPI depends on pygeos which is EOL; users can install
+# pyschism manually if they need its convenience helpers.)
 [feature.schism.dependencies]
-# Pinned LTS in ADR-0002. M0 must select a version.
-schism = "*"               # Placeholder; real pin in M0
-pyschism = "*"             # SCHISM team's helper
+# Intentionally empty — SCHISM is a subprocess/container dependency, not
+# a Python dependency.
 
 [feature.qgis.dependencies]
 # QGIS plugin runs in QGIS's own Python; this feature is for development testing only.
@@ -72,6 +81,22 @@ mkdocs-material = ">=9.5"
 mkdocstrings = ">=0.25"
 mkdocstrings-python = ">=1.10"
 
+# Snakemake feature — installed via PyPI (snakemake is on bioconda for conda
+# users but PyPI is universal). Use `pixi install -e workflow` to opt in.
+# Tests skip cleanly when snakemake isn't installed.
+[feature.workflow.pypi-dependencies]
+snakemake = ">=8"
+
+# OpenLimno itself, installed in editable mode so src/openlimno is importable
+# inside the pixi env (CI uses `pixi run -- pytest`, which expects this).
+[pypi-dependencies]
+openlimno = { path = ".", editable = true }
+
+# Activation env: isolate from the host's `~/.local/lib/python*/site-packages`
+# so a user's stale pip-installed packages don't leak into the pixi env.
+[activation.env]
+PYTHONNOUSERSITE = "1"
+
 # ---------------------------------------------------------------
 # Environments
 # ---------------------------------------------------------------
@@ -80,6 +105,7 @@ default = { features = ["dev"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "default" }
 schism = { features = ["dev", "schism"], solve-group = "schism" }
 qgis = { features = ["dev", "qgis"], solve-group = "qgis" }
+workflow = { features = ["dev", "workflow"], solve-group = "workflow" }
 all = { features = ["dev", "docs", "schism"], solve-group = "all" }
 
 # ---------------------------------------------------------------
