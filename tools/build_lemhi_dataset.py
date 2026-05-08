@@ -403,21 +403,23 @@ def make_cross_sections(campaign_id: str, n_xs: int = 11) -> pd.DataFrame:
     rows = []
     for i in range(n_xs):
         station_m = i * 100.0  # 100 m spacing, 1 km reach
-        # Trapezoidal channel with mild noise
+        # Parabolic channel (deepest at thalweg / centre; shallows at banks)
+        # Bed-depth-below-bank: 0 at the banks (offsets=±5), thalweg_depth at centre.
         n_pts = 21
         offsets = np.linspace(-5, 5, n_pts)
         thalweg_depth = 1.0 + 0.2 * rng.standard_normal()
-        bed = thalweg_depth - thalweg_depth * (1 - (offsets / 5) ** 2)
-        bed = np.clip(bed, 0, thalweg_depth)
-        elev_base = 1500.0 - 0.002 * station_m  # 0.2% slope downstream
-        for j, (off, b) in enumerate(zip(offsets, bed, strict=False)):
+        # depth profile: 0 at banks, max at centre  →  bed elevation = bank - depth
+        depth_profile = thalweg_depth * (1 - (offsets / 5) ** 2)
+        depth_profile = np.clip(depth_profile, 0, thalweg_depth)
+        elev_base = 1500.0 - 0.002 * station_m  # bank elevation; 0.2% slope downstream
+        for j, (off, depth) in enumerate(zip(offsets, depth_profile, strict=False)):
             rows.append({
                 "campaign_id": campaign_id,
                 "station_m": station_m,
                 "point_index": j,
                 "distance_m": float(off),
-                "elevation_m": float(elev_base - b),
-                "depth_m": float(b),
+                "elevation_m": float(elev_base - depth),  # banks at elev_base, thalweg at elev_base-thalweg_depth
+                "depth_m": float(depth),  # depth-below-bank at this point (used for plotting)
                 "substrate": "gravel-cobble",
                 "cover": "none" if abs(off) < 3 else "boulder",
             })
