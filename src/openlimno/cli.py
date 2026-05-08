@@ -566,5 +566,72 @@ def preprocess_dem_info(dem_path: str) -> None:
     console.print(f"  elev range: {dem.elevation.min():.2f} – {dem.elevation.max():.2f}")
 
 
+@main.command("init-from-osm")
+@click.option("--river", default=None, help="Waterway 'name' tag in OSM (optional if --bbox or --polyline given).")
+@click.option("--region", default="Idaho", help="Admin area to scope the OSM query (used only without --bbox).")
+@click.option("--bbox", default=None,
+                help="Spatial bbox 'lon_min,lat_min,lon_max,lat_max' (overrides region).")
+@click.option("--polyline", "polyline_path", type=click.Path(exists=True), default=None,
+                help="Path to a LineString GeoJSON (skips Overpass entirely).")
+@click.option("--output", "output_dir", type=click.Path(), required=True,
+                help="Target directory (created if missing).")
+@click.option("--n-sections", default=11, type=int, help="Number of mesh nodes / cross-sections.")
+@click.option("--reach-km", default=1.0, type=float, help="Length of modelled reach (km).")
+@click.option("--valley-width", default=10.0, type=float, help="Cross-section bank-to-bank width (m).")
+@click.option("--thalweg-depth", default=1.0, type=float, help="Thalweg depth below banks (m).")
+@click.option("--bank-elev", default=1500.0, type=float, help="Upstream bank elevation (m).")
+@click.option("--slope", default=0.002, type=float, help="Bed slope along reach.")
+@click.option("--species", default="oncorhynchus_mykiss", help="Default target species.")
+def init_from_osm(
+    river: str | None, region: str, bbox: str | None, polyline_path: str | None,
+    output_dir: str, n_sections: int, reach_km: float, valley_width: float,
+    thalweg_depth: float, bank_elev: float, slope: float, species: str,
+) -> None:
+    """Build a complete OpenLimno case from OSM data (SPEC §4.0).
+
+    Reach can be located three ways (priority order):
+      1. --polyline path/to/line.geojson  (user-drawn LineString, most precise)
+      2. --bbox lon_min,lat_min,lon_max,lat_max  (queries all waterways in box)
+      3. --river NAME --region AREA  (fallback, may pick wrong segment)
+    """
+    from openlimno.preprocess.osm_builder import OSMCaseSpec, build_case
+
+    bbox_tuple = None
+    if bbox:
+        try:
+            parts = [float(x.strip()) for x in bbox.split(",")]
+            if len(parts) != 4:
+                raise ValueError
+            bbox_tuple = tuple(parts)
+        except (ValueError, IndexError):
+            raise click.BadParameter("--bbox must be 'lon_min,lat_min,lon_max,lat_max'")
+
+    if not (river or bbox_tuple or polyline_path):
+        raise click.UsageError("Provide --river, --bbox, or --polyline")
+
+    spec = OSMCaseSpec(
+        river_name=river, region_name=region,
+        bbox=bbox_tuple, polyline_geojson=polyline_path,
+        n_sections=n_sections,
+        reach_length_m=reach_km * 1000.0,
+        valley_width_m=valley_width,
+        thalweg_depth_m=thalweg_depth,
+        bank_elevation_m=bank_elev,
+        slope=slope,
+        species_id=species,
+    )
+    descriptor = (polyline_path if polyline_path
+                    else f"bbox {bbox}" if bbox
+                    else f"'{river}' in {region}")
+    console.print(f"[bold]Fetching geometry from {descriptor}...[/]")
+    paths = build_case(spec, output_dir)
+    console.print()
+    console.print(f"[green]✓[/] case built in {output_dir}")
+    for k, v in paths.items():
+        console.print(f"  {k:14s}: {v}")
+    console.print()
+    console.print(f"Run:  [bold]openlimno run {paths['case_yaml']}[/]")
+
+
 if __name__ == "__main__":
     main()
