@@ -49,16 +49,13 @@ Type=Application
 Categories=Science;Geography;
 EOF
 
-# Placeholder icon — replace with real artwork later
-if [ ! -f "$APPDIR/openlimno-studio.png" ]; then
-    # 256x256 transparent PNG (valid placeholder appimagetool will accept)
-    python3 -c "
-from PIL import Image
-img = Image.new('RGBA', (256, 256), (30, 100, 200, 255))
-img.save('$APPDIR/openlimno-studio.png')
-" 2>/dev/null || \
-    cp /usr/share/icons/hicolor/256x256/apps/qgis.png "$APPDIR/openlimno-studio.png" 2>/dev/null || \
-    echo "WARN: no icon placed; appimagetool may complain"
+# Brand icon (256x256 PNG)
+ICON_SRC="$REPO/packaging/icons/openlimno-studio.png"
+if [ -f "$ICON_SRC" ]; then
+    cp "$ICON_SRC" "$APPDIR/openlimno-studio.png"
+else
+    echo "ERROR: $ICON_SRC missing"
+    exit 1
 fi
 
 # Build

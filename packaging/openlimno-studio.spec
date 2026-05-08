@@ -46,6 +46,9 @@ datas = [
     ("/usr/share/qgis", "qgis_root/share/qgis"),
     ("/usr/share/proj", "proj"),
     ("/usr/share/gdal", "gdal"),
+    # Brand icon (loaded by MainWindow._set_window_icon at runtime)
+    (str(REPO_ROOT / "packaging/icons/openlimno-studio.png"), "icons"),
+    (str(REPO_ROOT / "packaging/icons/openlimno-studio.svg"), "icons"),
 ]
 # QGIS Python bindings (.py + .pyi); .so files come via binaries below
 for f in glob.glob(f"{SYS_DIST}/qgis/**/*.py", recursive=True):

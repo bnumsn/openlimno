@@ -66,3 +66,4 @@ tmp/
 !examples/**/*.parquet
 !benchmarks/**/*.nc
 !benchmarks/**/*.parquet
+*.AppImage

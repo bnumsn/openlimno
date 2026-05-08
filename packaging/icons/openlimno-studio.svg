@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- OpenLimno Studio icon: stylised sine-wave river with a fish silhouette
+       and an upstream gradient (cool teal → warm amber, evoking discharge
+       sweep). 2026-05-08 placeholder; replace with real artwork before
+       public release. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d4f6a"/>
+      <stop offset="100%" stop-color="#1565c0"/>
+    </linearGradient>
+    <linearGradient id="river" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#4dd0e1"/>
+      <stop offset="100%" stop-color="#ffb74d"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect width="256" height="256" rx="44" fill="url(#bg)"/>
+
+  <!-- Three sinuous river bands (bottom to top: deep / mid / surface) -->
+  <path d="M 16 168 C 64 128, 96 208, 128 168 S 192 128, 240 168"
+        fill="none" stroke="url(#river)" stroke-width="14" stroke-linecap="round"
+        opacity="0.55"/>
+  <path d="M 16 140 C 64 100, 96 180, 128 140 S 192 100, 240 140"
+        fill="none" stroke="url(#river)" stroke-width="14" stroke-linecap="round"
+        opacity="0.85"/>
+  <path d="M 16 112 C 64 72, 96 152, 128 112 S 192 72, 240 112"
+        fill="none" stroke="url(#river)" stroke-width="14" stroke-linecap="round"/>
+
+  <!-- Fish silhouette (centred, swimming upstream/right) -->
+  <g transform="translate(112, 88)" fill="#ffffff" opacity="0.92">
+    <ellipse cx="22" cy="0" rx="22" ry="9"/>
+    <polygon points="-2,0 -16,-12 -16,12"/>
+    <circle cx="32" cy="-2" r="1.8" fill="#0d4f6a"/>
+  </g>
+
+  <!-- Cross-section trace (subtle bottom band): a parabolic V dashed line -->
+  <path d="M 36 220 Q 128 196 220 220"
+        fill="none" stroke="#ffffff" stroke-width="2" stroke-dasharray="4 6"
+        opacity="0.5"/>
+
+  <!-- Wordmark dot (small) -->
+  <circle cx="128" cy="234" r="3" fill="#ffffff" opacity="0.7"/>
+</svg>

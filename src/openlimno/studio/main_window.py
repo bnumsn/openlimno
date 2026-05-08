@@ -11,6 +11,7 @@ Wires gui_core.Controller to a standalone PyQt5 window:
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 from qgis.core import (
@@ -71,6 +72,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("OpenLimno Studio")
         self.resize(1280, 800)
+        self._set_window_icon()
 
         # ---- Project CRS (default to Web Mercator so OSM basemap aligns)
         QgsProject.instance().setCrs(QgsCoordinateReferenceSystem("EPSG:3857"))
@@ -332,6 +334,18 @@ class MainWindow(QMainWindow):
         return added
 
     # ------------------------------------------------------------------
+    def _set_window_icon(self) -> None:
+        """Find and apply the bundled brand icon. Looks in the PyInstaller
+        bundle's _internal/ first, then falls back to the dev repo path."""
+        candidates = [
+            Path(getattr(sys, "_MEIPASS", "")) / "icons/openlimno-studio.png",
+            Path(__file__).resolve().parents[3] / "packaging/icons/openlimno-studio.png",
+        ]
+        for cand in candidates:
+            if cand.is_file():
+                self.setWindowIcon(QIcon(str(cand)))
+                return
+
     def _add_osm_basemap(self) -> None:
         """Load OSM XYZ tiles as a default basemap if not already present."""
         from qgis.core import QgsApplication, QgsProviderRegistry
