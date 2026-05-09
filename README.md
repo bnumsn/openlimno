@@ -45,6 +45,12 @@ pixi run openlimno run examples/lemhi/case.yaml
 - [`SPEC.md`](./SPEC.md) — frozen technical specification (v0.5)
 - [`docs/governance/`](./docs/governance/) — governance, code of conduct, release process
 - [`docs/decisions/`](./docs/decisions/) — Architecture Decision Records (ADRs)
+- [`docs/triple_review.md`](./docs/triple_review.md) — three-AI code review
+  process (Codex + Gemini + Claude). Every release runs all three; the
+  audit trail is attached to each GitHub Release. See
+  [`docs/reviews/v0.1.0-alpha.4/`](./docs/reviews/v0.1.0-alpha.4/) for
+  the canonical worked example where Claude found a TOCTOU bug Codex
+  and Gemini both approved.
 - [`docs/user_guide/`](./docs/user_guide/) — user guide (M2+)
 - [`tools/m0_checklist/`](./tools/m0_checklist/) — M0 deliverables tracker
 
