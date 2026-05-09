@@ -148,19 +148,67 @@ def test_stat_failure_serves_stale_cache(subject, parquet_file):
     mock.assert_not_called()
 
 
-def test_vanished_during_read_with_no_prior_cache_raises(subject, parquet_file):
-    """Round-5 fix (Gemini P0): when the file vanishes mid-read AND
-    we have no prior cache, raise FileNotFoundError rather than
-    returning the torn rows (which the caller would silently plot
-    as corrupt data)."""
+def test_vanished_during_read_retries_then_raises(subject, parquet_file):
+    """Round-6 fix (Codex P0): a vanished file on attempt 0 should
+    re-enter the retry loop (a transient ``mv -f`` may complete
+    before retries exhaust). Only when ALL retries fail do we raise.
+    Previously we raised immediately, defeating the backoff design."""
     def fake_read_then_delete(p):
         Path(p).unlink()
-        return [{"row": "TORN_BECAUSE_DELETED"}]
+        return [{"row": "TORN"}]
 
     with patch("openlimno.gui_core.controller._read_wua_parquet",
-                 side_effect=fake_read_then_delete):
-        with pytest.raises(FileNotFoundError):
-            subject._read_xs_rows_cached(str(parquet_file))
+                 side_effect=fake_read_then_delete), \
+         patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
+        # Either FileNotFoundError (post-stat None) or its parent OSError
+        # (subsequent pre-stat None) is acceptable — both signal the same
+        # condition.
+        with pytest.raises(OSError):
+            subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
+    # Backoff must have run for retries 1 and 2.
+    assert mock_sleep.call_count == 2, (
+        f"vanished-during-read must retry, got {mock_sleep.call_count} sleeps"
+    )
+
+
+def test_parquet_read_exception_triggers_retry(subject, parquet_file):
+    """Round-6 fix (Gemini P0): if `_read_wua_parquet` raises (e.g.,
+    pyarrow's ArrowInvalid on a torn footer, or OSError on a locked
+    file), the retry loop must catch and retry instead of propagating
+    immediately."""
+    state = {"calls": 0}
+
+    def flaky_read(p):
+        state["calls"] += 1
+        if state["calls"] < 3:
+            raise OSError("torn read - file locked by writer")
+        return [{"row": "OK_AT_ATTEMPT_3"}]
+
+    with patch("openlimno.gui_core.controller._read_wua_parquet",
+                 side_effect=flaky_read), \
+         patch("openlimno.gui_core.controller.time.sleep"):
+        rows = subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
+    assert rows == [{"row": "OK_AT_ATTEMPT_3"}]
+    assert state["calls"] == 3
+
+
+def test_empty_rows_treated_as_valid_cache(subject, parquet_file):
+    """Round-6 fix (Claude P1): an empty parquet (legitimate WUA
+    with no observations yet) must produce a cacheable empty list.
+    Previous ``cache.get("rows")`` truthy-check treated [] as
+    no-cache, forcing re-read every click."""
+    calls = []
+
+    def fake_read(p):
+        calls.append(p)
+        return []
+
+    with patch("openlimno.gui_core.controller._read_wua_parquet",
+                 side_effect=fake_read):
+        rows1 = subject._read_xs_rows_cached(str(parquet_file))
+        rows2 = subject._read_xs_rows_cached(str(parquet_file))
+    assert rows1 == [] and rows2 == []
+    assert len(calls) == 1, "empty rows must still be cached"
 
 
 def test_vanished_during_read_serves_prior_cache(subject, parquet_file):

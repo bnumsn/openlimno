@@ -843,41 +843,48 @@ class Controller:
         # Stat failed — keep stale cache rather than crash
         if cur is None and cache.get("path") == path and cache.get("rows"):
             return cache["rows"]
-        # Cache miss: read with TOCTOU guard.
-        # Round-5 review (Gemini P0): when the file vanishes mid-read,
-        # the rows we just produced are partial / torn / corrupt. The
-        # round-4 fix returned them anyway under "graceful degradation",
-        # but the caller plots them — i.e. silently visualises corrupt
-        # data. Now we prefer the previously-cached rows (which were
-        # read against a quiescent file), and only raise if no stale
-        # cache is available.
+        # Cache miss: read with TOCTOU guard. Each transient failure
+        # mode (stat-fails, parquet-read-raises, post-stat-None, pre/post
+        # disagree) records last_error and continues into the next
+        # attempt — only when retries are exhausted do we fall back to
+        # the prior cache or raise. Round-6 fixes:
+        #   - Codex P2 / Claude P1: ``post is None`` was raising on
+        #     attempt 0, defeating the retry budget for `mv -f`-style
+        #     transient unlinks. Now it `continue`s.
+        #   - Gemini P0: parquet readers raise on torn input
+        #     (ArrowInvalid, EOFError, OSError). The previous code
+        #     let those propagate out, bypassing retry. Wrap.
+        #   - Claude P1: ``cache.get("rows")`` was falsy on empty
+        #     rows; an empty parquet would be treated as no-cache.
+        #     Use ``"rows" in cache`` instead.
         last_error = None
         for attempt in range(max_retries):
             if attempt > 0:
-                # Linear backoff — gives writer a chance to finish.
                 time.sleep(0.05 * attempt)
             pre = _stat(path)
             if pre is None:
                 last_error = OSError(f"cannot stat {path}")
-                break
-            rows = _read_wua_parquet(path)
+                continue
+            try:
+                rows = _read_wua_parquet(path)
+            except Exception as e:  # parquet libs raise diverse types
+                last_error = e
+                continue
             post = _stat(path)
             if post is None:
-                # File vanished during read. Round-5: don't return the
-                # torn rows; serve previously-cached if possible, else
-                # raise. Caller (Studio) will surface the error.
-                if cache.get("path") == path and cache.get("rows"):
-                    return cache["rows"]
-                raise FileNotFoundError(
-                    f"{path} vanished during read and no prior cache"
-                )
+                last_error = FileNotFoundError(
+                    f"{path} vanished during read")
+                continue
             if pre == post:
-                # File quiescent during read — safe to cache.
                 self._xs_rows_cache = {"path": path, "stat": pre, "rows": rows}
                 return rows
-            # File was rewritten during read; retry against new state.
             last_error = RuntimeError(f"{path} changed during read")
-        # All retries exhausted.
+        # Retries exhausted. Prefer prior cache (from a clean read)
+        # over raising — caller's downstream logic handles "rows looks
+        # familiar" better than "file disappeared". Use ``"rows" in
+        # cache`` so an empty list (legitimate) still hits.
+        if cache.get("path") == path and "rows" in cache:
+            return cache["rows"]
         raise last_error or RuntimeError(f"unable to read {path} stably")
 
     def _plot_at_station(self, station: float) -> None:
