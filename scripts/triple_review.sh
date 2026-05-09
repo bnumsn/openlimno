@@ -36,17 +36,22 @@ BASE="${1:-${BASE:-origin/main}}"
 # 40-char SHAs in addition since ``check-ref-format`` rejects bare
 # hex strings. Refnames containing slashes (e.g. ``origin/main``) need
 # ``--allow-onelevel``.
-# Round-7 review (Codex+Gemini): the previous check rejected ALL hex
-# strings under 8 chars, including legitimate branches named "cafe",
-# "dead", "beef" (4 chars). It also missed UPPERCASE 7-char SHAs
-# like 'A72350F' since the regex was lowercase-only. Now reject
-# ONLY the git-default 7-char short SHA length, case-insensitive.
-# Branches with hex-shaped names of other lengths still allowed,
-# 8+ char SHAs allowed.
-base_lower="$(echo "$BASE" | tr 'A-F' 'a-f')"
-if [[ "$base_lower" =~ ^[0-9a-f]{7}$ ]]; then
-    echo "ERROR: 7-char short SHAs are collision-prone — pass full SHA or 8+ chars" >&2
-    exit 2
+# Round-1 review (Codex P2 + Gemini + Claude consensus, post-alpha.10):
+# the previous "reject only 7-char hex" rule still let 4-6 char
+# abbreviated SHAs (e.g. ``git rev-parse --short=6``) bypass collision
+# protection — they pass ``check-ref-format --allow-onelevel`` as
+# valid one-level refnames. Disambiguate by checking whether the
+# hex-shaped value is *actually* a real branch/tag in this repo. If
+# it is, allow (legit ``cafe`` branch). If it's not, reject as an
+# abbreviated SHA. Round-7's case-insensitive lowercasing preserved.
+# 8+ char SHAs and refnames-with-slashes unchanged.
+base_lower="$(printf '%s' "$BASE" | tr 'A-F' 'a-f')"
+if [[ "$base_lower" =~ ^[0-9a-f]{4,7}$ ]]; then
+    if ! git show-ref --verify --quiet "refs/heads/$BASE" \
+            && ! git show-ref --verify --quiet "refs/tags/$BASE"; then
+        echo "ERROR: '$BASE' looks like an abbreviated SHA (collision-prone). Pass the full 40-char SHA or use the actual ref name." >&2
+        exit 2
+    fi
 fi
 if ! [[ "$base_lower" =~ ^[0-9a-f]{8,40}$ ]] \
         && ! git check-ref-format --allow-onelevel "$BASE" 2>/dev/null; then

@@ -130,7 +130,8 @@ class Controller:
 
     def open_wua_q(self) -> None:
         from qgis.PyQt.QtWidgets import (
-            QDialog, QFileDialog, QTableWidget, QTableWidgetItem, QVBoxLayout,
+            QDialog, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem,
+            QVBoxLayout,
         )
 
         path, _ = QFileDialog.getOpenFileName(
@@ -141,7 +142,16 @@ class Controller:
         )
         if not path:
             return
-        rows = _read_wua_csv(path) if path.endswith(".csv") else _read_wua_parquet(path)
+        # Round-1 review (Codex P2 + Claude): _read_wua_parquet now raises
+        # on torn parquet (alpha.10 round-7 change); without this guard,
+        # selecting a corrupt file in the dialog crashes the GUI thread
+        # via the unhandled exception path.
+        try:
+            rows = _read_wua_csv(path) if path.endswith(".csv") else _read_wua_parquet(path)
+        except (OSError, ValueError, RuntimeError) as e:
+            QMessageBox.warning(self.host.main_window(), "OpenLimno",
+                                f"Could not read {path}:\n{e}")
+            return
         if not rows:
             return
         dlg = QDialog(self.host.main_window())
@@ -171,7 +181,16 @@ class Controller:
         )
         if not xs_path:
             return
-        rows = _read_wua_parquet(xs_path)
+        # Round-1 review: _read_wua_parquet raises on torn parquet
+        # (alpha.10 round-7); collapse exception + empty-rows into one
+        # error UX path so corrupt files don't escape into Qt's default
+        # exception handler.
+        try:
+            rows = _read_wua_parquet(xs_path)
+        except (OSError, ValueError, RuntimeError) as e:
+            QMessageBox.warning(self.host.main_window(), "OpenLimno",
+                                f"Could not read {xs_path}:\n{e}")
+            return
         if not rows:
             QMessageBox.warning(self.host.main_window(), "OpenLimno",
                                   f"Could not read {xs_path}")
