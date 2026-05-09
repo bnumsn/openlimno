@@ -33,16 +33,19 @@ BASE="${1:-${BASE:-origin/main}}"
 # 40-char SHAs in addition since ``check-ref-format`` rejects bare
 # hex strings. Refnames containing slashes (e.g. ``origin/main``) need
 # ``--allow-onelevel``.
-# Round-6 review (Codex P1): a 7-char hex string like 'e990c00' is
-# rejected by the SHA regex (>=8 chars) but ACCEPTED by
-# check-ref-format as a one-level ref name — so the 8-char minimum
-# we documented as "collision protection" wasn't enforced. Reject
-# short hex BEFORE falling back to ref-format validation.
-if [[ "$BASE" =~ ^[0-9a-f]+$ ]] && [ "${#BASE}" -lt 8 ]; then
-    echo "ERROR: short SHAs (<8 chars) rejected — collision risk on busy repos" >&2
+# Round-7 review (Codex+Gemini): the previous check rejected ALL hex
+# strings under 8 chars, including legitimate branches named "cafe",
+# "dead", "beef" (4 chars). It also missed UPPERCASE 7-char SHAs
+# like 'A72350F' since the regex was lowercase-only. Now reject
+# ONLY the git-default 7-char short SHA length, case-insensitive.
+# Branches with hex-shaped names of other lengths still allowed,
+# 8+ char SHAs allowed.
+base_lower="$(echo "$BASE" | tr 'A-F' 'a-f')"
+if [[ "$base_lower" =~ ^[0-9a-f]{7}$ ]]; then
+    echo "ERROR: 7-char short SHAs are collision-prone — pass full SHA or 8+ chars" >&2
     exit 2
 fi
-if ! [[ "$BASE" =~ ^[0-9a-f]{8,40}$ ]] \
+if ! [[ "$base_lower" =~ ^[0-9a-f]{8,40}$ ]] \
         && ! git check-ref-format --allow-onelevel "$BASE" 2>/dev/null; then
     echo "ERROR: '$BASE' is not a valid ref name or SHA" >&2
     exit 2

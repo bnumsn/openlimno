@@ -293,6 +293,29 @@ def test_retry_exhaustion_raises(subject, parquet_file):
     assert state["call_count"] >= 2, "should have retried at least once"
 
 
+def test_typeerror_propagates_does_not_retry(subject, parquet_file):
+    """Round-7 fix (all 3 reviewers): narrow ``except`` so programmer
+    bugs (TypeError, AttributeError) propagate immediately rather than
+    being misdiagnosed as transient I/O issues that burn the retry
+    budget."""
+    state = {"calls": 0}
+
+    def fake_read_typeerror(p):
+        state["calls"] += 1
+        raise TypeError("simulated programmer bug in parquet reader")
+
+    with patch("openlimno.gui_core.controller._read_wua_parquet",
+                 side_effect=fake_read_typeerror), \
+         patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
+        with pytest.raises(TypeError):
+            subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
+    # Should NOT retry on TypeError.
+    assert state["calls"] == 1, (
+        f"TypeError should not trigger retry, but read was called {state['calls']}×"
+    )
+    assert mock_sleep.call_count == 0
+
+
 def test_realpath_normalises_cache_key(subject, parquet_file, tmp_path):
     """Qt file dialogs sometimes change cwd; cache keys must not be
     sensitive to relative-vs-absolute spelling."""

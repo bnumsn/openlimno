@@ -39,29 +39,40 @@ def _read_wua_csv(path: str) -> list[dict[str, str]]:
 
 
 def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
-    """Best-effort Parquet read using whatever's bundled (pyarrow / GDAL)."""
+    """Read parquet via pyarrow (preferred) with GDAL/OGR fallback.
+
+    Round-7 review (Codex P1): the previous implementation caught
+    ``Exception`` at both backends and returned ``[]`` on failure.
+    That made ``Controller._read_xs_rows_cached``'s retry-on-exception
+    code unreachable in production — torn reads silently produced
+    empty rows that got cached. Now only ``ImportError`` falls through
+    between backends; read failures propagate so the cache layer can
+    act on them.
+    """
     try:
         import pyarrow.parquet as pq
-
-        t = pq.read_table(path)
+    except ImportError:
+        pq = None
+    if pq is not None:
+        t = pq.read_table(path)  # raises ArrowInvalid on torn footer, etc.
         return [
             dict(zip(t.column_names, row, strict=False))
             for row in zip(*[c.to_pylist() for c in t.columns], strict=False)
         ]
-    except Exception:
-        pass
+    # No pyarrow: try GDAL OGR.
     try:
         from osgeo import ogr
-
-        ds = ogr.Open(path)
-        if ds is None:
-            return []
-        layer = ds.GetLayer(0)
-        defn = layer.GetLayerDefn()
-        field_names = [defn.GetFieldDefn(i).GetName() for i in range(defn.GetFieldCount())]
-        return [{fn: feat.GetField(fn) for fn in field_names} for feat in layer]
-    except Exception:
-        return []
+    except ImportError as e:
+        raise RuntimeError(
+            "neither pyarrow nor GDAL available to read parquet"
+        ) from e
+    ds = ogr.Open(path)
+    if ds is None:
+        raise OSError(f"GDAL/OGR failed to open {path}")
+    layer = ds.GetLayer(0)
+    defn = layer.GetLayerDefn()
+    field_names = [defn.GetFieldDefn(i).GetName() for i in range(defn.GetFieldCount())]
+    return [{fn: feat.GetField(fn) for fn in field_names} for feat in layer]
 
 
 
@@ -867,7 +878,18 @@ class Controller:
                 continue
             try:
                 rows = _read_wua_parquet(path)
-            except Exception as e:  # parquet libs raise diverse types
+            except (OSError, EOFError, RuntimeError) as e:
+                # Round-7 review (all 3): narrow from `except Exception`
+                # to the transient I/O / read-failure family. Don't
+                # swallow programmer bugs (TypeError, AttributeError,
+                # KeyError) under the retry banner. ArrowInvalid is a
+                # subclass of OSError in newer pyarrow, ValueError in
+                # older — we add ValueError as a safety net below.
+                last_error = e
+                continue
+            except ValueError as e:
+                # pyarrow.lib.ArrowInvalid on torn footers used to be
+                # ValueError. Treat as transient.
                 last_error = e
                 continue
             post = _stat(path)
