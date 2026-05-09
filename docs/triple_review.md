@@ -21,8 +21,31 @@ A single AI reviewer is structurally insufficient:
   consistently correlated. Two reviewers with similar blind spots produce
   false-positive consensus.
 
-See [docs/reviews/v0.1.0-alpha.4/](reviews/v0.1.0-alpha.4/) for a worked
-example where the three diverged sharply on a 92-line diff.
+See [docs/reviews/v0.1.0-alpha.4/](reviews/v0.1.0-alpha.4/) for the worked
+example where the three diverged sharply on a 92-line diff, and
+[docs/reviews/v0.1.0-alpha.10/](reviews/v0.1.0-alpha.10/) for the
+8-round audit trail and convergence proof.
+
+## Why CLI subscription, not API
+
+Each reviewer is invoked through its **CLI's own logged-in subscription**
+(ChatGPT for Codex, Google AI for Gemini, Anthropic Console for Claude
+Code). API keys (`OPENAI_API_KEY` / `GEMINI_API_KEY` / `ANTHROPIC_API_KEY`)
+are **not used** anywhere — not in the orchestrator, not in CI.
+
+Reasons:
+
+- The maintainer already pays for the three subscriptions; per-call API
+  billing on top of that is double-pay.
+- Subscription auth has higher rate limits and saner quota behaviour than
+  API tier.
+- It removes a class of secrets-management risk: no keys to rotate,
+  leak, or expire.
+
+The trade-off is that the review is **maintainer-local**: it cannot run on
+a headless CI runner, since CLI auth requires interactive OAuth login that
+GitHub-hosted runners can't perform. This is intentional; see
+[When to invoke](#when-to-invoke).
 
 ## When to invoke
 
@@ -30,7 +53,12 @@ example where the three diverged sharply on a 92-line diff.
 |---|---|---|
 | **Pre-commit on a non-trivial PR** | `bash scripts/triple_review.sh origin/main` | `reviews/<sha>.*.md` (gitignored) |
 | **Pre-tag locally** | `bash scripts/triple_review.sh <previous-tag>` | `reviews/<sha>.*.md` |
-| **Tag push (any v* tag)** | GitHub Action `triple-review.yml` (auto) | release assets + 90-day artefact |
+| **Post-tag manual upload** | `gh release create <tag> reviews/<sha>.*.md ...` | release assets |
+
+There is **no GitHub Action** for this — it was tried in alpha.5..alpha.9
+and removed in alpha.10 once the API-vs-CLI trade-off was resolved
+(see [`feedback_review_cli_only`](#why-cli-subscription-not-api) above
+for the rationale).
 
 ## Local invocation
 
@@ -48,24 +76,32 @@ BASE=v0.1.0-alpha.3 bash scripts/triple_review.sh
 Outputs land in `reviews/<sha>.codex.md`, `reviews/<sha>.gemini.md`,
 `reviews/<sha>.claude.md`, plus a `<sha>.summary.md` index. The `reviews/`
 directory is gitignored — outputs are per-build artefacts, attached to
-GitHub Releases by the Action rather than committed to history.
+GitHub Releases manually via `gh release create` rather than committed
+to history.
 
-## CI invocation (GitHub Actions)
+## Prerequisites
 
-`.github/workflows/triple-review.yml` triggers on every `v*` tag push.
-Required secrets:
+The maintainer's local environment must have all three CLIs installed and
+each logged into its own subscription account:
 
-- `CODEX_API_KEY` — OpenAI API key with Codex access
-- `GEMINI_API_KEY` — Google AI Studio key
-- `ANTHROPIC_API_KEY` — Anthropic API key (for `claude -p --bare`)
+```bash
+# One-time setup, done once per machine:
+codex auth login    # uses ChatGPT subscription
+gemini auth         # uses Google account
+claude              # interactive setup with Anthropic Console
+```
 
-The workflow:
+Verify:
 
-1. Identifies the previous tag (chronological).
-2. Installs the three CLIs via npm.
-3. Runs `scripts/triple_review.sh <prev-tag>`.
-4. Attaches every `reviews/*.md` to the just-published GitHub Release.
-5. Uploads the same files as a 90-day workflow artefact.
+```bash
+codex --version
+gemini --version
+claude --version
+```
+
+If any of the three are missing, the orchestrator script will refuse to
+run that reviewer and exit non-zero. Don't paper over by skipping; the
+whole point is the three-way coverage.
 
 ## How to read the output
 
@@ -78,6 +114,11 @@ matters is the *intersection* and *symmetric difference* of findings:
   round, OR could be a false positive. Read closely. Don't dismiss.
 - **No concerns from any** → suspicious. Either the diff is genuinely
   trivial, or the prompt scope was too narrow.
+
+Round 8 (alpha.9..alpha.10) provides the canonical false-positive example:
+Claude confidently asserted that `pyarrow.lib.ArrowInvalid` does not
+subclass `ValueError`, prescribing a fix that would have been merged in
+isolation. Codex's runtime probe (`ArrowInvalid.__mro__`) overruled it.
 
 The summary file (`reviews/<sha>.summary.md`) lists which files each
 reviewer touched, but does NOT consolidate findings. That's deliberate:
@@ -107,6 +148,20 @@ The release commit message should call out each fixed concern by reviewer
 This makes the audit trail readable to future maintainers (and to the
 next round of reviewers).
 
+## Convergence criterion
+
+A release converges when **Codex reports zero P0 and zero P1** by its
+explicit P-tag taxonomy. Gemini and Claude do not use P-tags consistently;
+their content-level concerns are documented as known limitations rather
+than triggering further fix-rounds.
+
+The pre-committed budget is **3 fix-rounds maximum** between any two
+adjacent releases. If round 4+ would be needed, ship with documented
+residuals instead. This protects against the failure mode of iterating
+reviewer feedback indefinitely — where each round's fix introduces enough
+new surface for the next round to find another concern, with no
+convergence proof.
+
 ## What this process is NOT
 
 - **Not a substitute for human review.** The triple-review surfaces
@@ -115,22 +170,8 @@ next round of reviewers).
 - **Not a substitute for tests.** Reviewers can identify missing test
   coverage but can't write the tests for you (or rather, they can, but
   the tests they suggest still need human-judged correctness).
-- **Not free.** Each review uses paid LLM API tokens. Budget accordingly;
-  the GitHub Action is rate-limited to one run per tag push.
-
-## Cost back-of-envelope
-
-A 3000-line diff review costs approximately:
-
-| reviewer | tokens in | tokens out | cost |
-|---|---|---|---|
-| Codex | ~30k | ~3k | $0.50 |
-| Gemini | ~30k | ~3k | $0.10 |
-| Claude | ~30k | ~3k | $0.45 |
-| total / tag | | | **~$1.05** |
-
-Acceptable for the audit-trail value. Cheaper than fixing alpha.2 in
-production after beta users found the broken AppImage.
+- **Not free** — but cheap, since it runs on existing subscriptions
+  rather than per-call API billing.
 
 ## Origin
 
@@ -141,4 +182,6 @@ in one paragraph. Gemini-then-Codex-then-Claude rounds since have each
 caught what the others missed.
 
 The first triple-review was on v0.1.0-alpha.4 — see
-[docs/reviews/v0.1.0-alpha.4/](reviews/v0.1.0-alpha.4/).
+[docs/reviews/v0.1.0-alpha.4/](reviews/v0.1.0-alpha.4/). The convergence
+proof and 8-round audit trail are in
+[docs/reviews/v0.1.0-alpha.10/](reviews/v0.1.0-alpha.10/).
