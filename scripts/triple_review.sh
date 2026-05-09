@@ -27,6 +27,14 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 BASE="${1:-${BASE:-origin/main}}"
+# Reject shell-injection-shaped refs (Gemini round-3). git accepts a wide
+# range of refs; we only need tags / branches / SHAs.
+case "$BASE" in
+    -*|*\;*|*\|*|*\&*|*\>*|*\<*|*\$*|*\`*)
+        echo "ERROR: refusing suspicious-looking BASE='$BASE'" >&2
+        exit 2
+        ;;
+esac
 HEAD_SHA="$(git rev-parse --short HEAD)"
 HEAD_REF="$(git rev-parse --abbrev-ref HEAD)"
 REVIEWS_DIR="reviews"
@@ -42,8 +50,21 @@ trap 'rm -f "$DIFF_FILE"' EXIT
 
 # --- Generate the diff ---------------------------------------------------
 echo "==> Generating diff: $BASE..HEAD ($HEAD_SHA on $HEAD_REF)"
-git diff "$BASE..HEAD" -- 'src/' 'packaging/' 'tests/' 'tools/' \
-    > "$DIFF_FILE" || true
+# Resolve $BASE to a SHA so we fail loudly on misspelled refs (rather
+# than silently producing an empty diff). Round-3 review caught the
+# `git diff || true` swallowing this exact failure.
+if ! BASE_SHA="$(git rev-parse --verify "${BASE}^{commit}" 2>/dev/null)"; then
+    echo "ERROR: can't resolve BASE='$BASE' — fetch it or pass a valid ref" >&2
+    exit 2
+fi
+# No path filter: every changed file gets reviewed, including
+# scripts/, .github/workflows/, docs/, pyproject.toml. Round-3 review
+# caught the original filter excluding the very files of the orchestrator
+# itself.
+# Triple-dot semantics: diff against the merge-base, not the raw range.
+# Codex round-3 caught that on a feature branch behind main, the
+# two-dot form would include the *inverse* of unrelated main commits.
+git diff "$BASE_SHA...HEAD" > "$DIFF_FILE"
 DIFF_LINES=$(wc -l < "$DIFF_FILE")
 echo "    diff: $DIFF_LINES lines"
 if [ "$DIFF_LINES" -eq 0 ]; then
@@ -138,15 +159,61 @@ PID_GEMINI=$!
 ) &
 PID_CLAUDE=$!
 
-# Wait for all three (don't fail-fast — we want partial results)
-wait $PID_CODEX || echo "    codex returned non-zero (ok if review still wrote)"
-wait $PID_GEMINI || echo "    gemini returned non-zero (ok if review still wrote)"
-wait $PID_CLAUDE || echo "    claude returned non-zero (ok if review still wrote)"
+# Wait for all three; record exit codes. Round-3 review (Codex) caught
+# that with `set -e` active, a non-zero `wait` immediately terminates
+# the script — so the prior aggregation logic was DEAD CODE that never
+# ran when any reviewer failed. Now we explicitly disable errexit
+# around the waits (the `|| true` form is too easy to mis-edit), then
+# re-enable below for the rest of the script.
+set +e
+wait $PID_CODEX; CODEX_RC=$?
+wait $PID_GEMINI; GEMINI_RC=$?
+wait $PID_CLAUDE; CLAUDE_RC=$?
+set -e
+
+# Detect content-level failures too: a review file containing only the
+# script-side header (no actual review body) is a failure even if the
+# CLI returned 0. We use a simple heuristic — body must be > N lines.
+HEADER_LINES=4   # script writes 4 header lines per file
+declare -A REVIEW_BODY
+for f in "$OUT_CODEX" "$OUT_GEMINI" "$OUT_CLAUDE"; do
+    if [ -s "$f" ]; then
+        body=$(($(wc -l < "$f") - HEADER_LINES))
+        REVIEW_BODY[$f]=$body
+    else
+        REVIEW_BODY[$f]=0
+    fi
+done
+
+# Aggregate failures across exit-code AND body-length checks. Use
+# `(... || true)` on each test so `set -u` doesn't trip when an entry
+# is absent; ${FAILURES[@]:-} below provides the same safety on read.
+EXIT_CODE=0
+FAILURES=()
+[ "$CODEX_RC" -ne 0 ] && FAILURES+=("codex(rc=$CODEX_RC)") || true
+[ "$GEMINI_RC" -ne 0 ] && FAILURES+=("gemini(rc=$GEMINI_RC)") || true
+[ "$CLAUDE_RC" -ne 0 ] && FAILURES+=("claude(rc=$CLAUDE_RC)") || true
+for f in "$OUT_CODEX" "$OUT_GEMINI" "$OUT_CLAUDE"; do
+    if [ "${REVIEW_BODY[$f]}" -le 1 ]; then
+        FAILURES+=("$(basename "$f")(empty-body)")
+    fi
+done
 
 echo "==> Reviews written:"
 for f in "$OUT_CODEX" "$OUT_GEMINI" "$OUT_CLAUDE"; do
-    [ -s "$f" ] && echo "    ✓ $f ($(wc -l < "$f") lines)" || echo "    ✗ $f (empty)"
+    if [ -s "$f" ] && [ "${REVIEW_BODY[$f]}" -gt 1 ]; then
+        echo "    ✓ $f ($(wc -l < "$f") lines)"
+    elif [ -s "$f" ]; then
+        echo "    ⚠ $f (header-only — reviewer didn't produce content)"
+    else
+        echo "    ✗ $f (empty)"
+    fi
 done
+
+if [ "${#FAILURES[@]:-0}" -gt 0 ]; then
+    echo "==> FAILED reviewers: ${FAILURES[*]:-}"
+    EXIT_CODE=1
+fi
 
 # --- Summary ------------------------------------------------------------
 {
@@ -189,3 +256,10 @@ done
 echo "==> Summary: $OUT_SUMMARY"
 echo
 echo "Done. Skim: cat $OUT_SUMMARY"
+
+# Exit non-zero if any reviewer failed (so CI fails the workflow rather
+# than uploading auth-error output as a "successful" review). Round-3
+# review caught that swallowing failures here masked exactly the
+# alpha.5 case where all three reviewers got auth errors but the
+# release showed "review attached".
+exit "$EXIT_CODE"

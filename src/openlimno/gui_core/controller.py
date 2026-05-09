@@ -804,6 +804,68 @@ class Controller:
             level=0, duration=10,
         )
 
+    def _read_xs_rows_cached(self, path: str, max_retries: int = 3) -> list:
+        """Read cross_section.parquet rows with a stat→read→stat guard.
+
+        Round-3 review (codex+gemini+claude unanimous) found the previous
+        cache implementation cemented torn rows when the file was rewritten
+        during the read: post-read stat agreed with new on-disk metadata,
+        so subsequent clicks served the corrupt cache forever. The correct
+        pattern is:
+            pre = stat()
+            rows = read()
+            post = stat()
+            if pre == post: cache (rows, pre); return rows
+            else: retry (file was rewritten mid-read)
+
+        On stat failure (file deleted/unmounted), prefer serving the
+        previously-cached rows over crashing — better UX, and the user
+        will see the next legitimate read fail with a real error.
+        """
+        # Normalize so cache keys are stable across cwd changes (Qt file
+        # dialogs sometimes ``chdir``).
+        path = os.path.realpath(path)
+        cache = getattr(self, "_xs_rows_cache", {})
+
+        def _stat(p):
+            try:
+                return (os.path.getmtime(p), os.path.getsize(p))
+            except OSError:
+                return None
+
+        cur = _stat(path)
+        # Cache hit — fast path
+        if (cur is not None
+                and cache.get("path") == path
+                and cache.get("stat") == cur):
+            return cache["rows"]
+        # Stat failed — keep stale cache rather than crash
+        if cur is None and cache.get("path") == path and cache.get("rows"):
+            return cache["rows"]
+        # Cache miss: read with TOCTOU guard
+        last_error = None
+        for _ in range(max_retries):
+            pre = _stat(path)
+            if pre is None:
+                # File missing; let the read raise the real error
+                last_error = OSError(f"cannot stat {path}")
+                break
+            rows = _read_wua_parquet(path)
+            post = _stat(path)
+            if post is None:
+                # Vanished during read — accept what we got, mark with
+                # pre-stat so next call invalidates.
+                self._xs_rows_cache = {"path": path, "stat": pre, "rows": rows}
+                return rows
+            if pre == post:
+                # Quiescent during read — safe to cache.
+                self._xs_rows_cache = {"path": path, "stat": pre, "rows": rows}
+                return rows
+            # File was rewritten during read; retry against the new state
+            last_error = RuntimeError(f"{path} changed during read")
+        # All retries exhausted — file is being rewritten in a tight loop
+        raise last_error or RuntimeError(f"unable to read {path} stably")
+
     def _plot_at_station(self, station: float) -> None:
         from qgis.PyQt.QtWidgets import (
             QComboBox, QDialog, QDialogButtonBox, QFormLayout, QMessageBox,
@@ -813,37 +875,8 @@ class Controller:
             QMessageBox.warning(self.host.main_window(), "OpenLimno",
                                   "No cross_section.parquet selected.")
             return
-        # Cache parsed rows by (path, mtime, size) so re-clicks don't re-parse
-        # large parquets. We stat AFTER reading to close the TOCTOU between
-        # mtime check and file read — otherwise a rewrite mid-read would
-        # cache the fresh rows under the old mtime and the next click
-        # wouldn't trigger a refresh. Adding size guards against the FAT /
-        # SMB case where mtime resolution is 1-2 s (a sub-second rewrite
-        # would tie on mtime but disagree on size).
         cache_key = self._xs_parquet
-        cache = getattr(self, "_xs_rows_cache", {})
-        try:
-            cur_mtime = os.path.getmtime(cache_key)
-            cur_size = os.path.getsize(cache_key)
-        except OSError:
-            cur_mtime = cur_size = None
-        if (cache.get("path") != cache_key
-                or cache.get("mtime") != cur_mtime
-                or cache.get("size") != cur_size):
-            rows = _read_wua_parquet(cache_key)
-            try:
-                post_mtime = os.path.getmtime(cache_key)
-                post_size = os.path.getsize(cache_key)
-            except OSError:
-                post_mtime = post_size = None
-            cache = {
-                "path": cache_key,
-                "mtime": post_mtime,
-                "size": post_size,
-                "rows": rows,
-            }
-            self._xs_rows_cache = cache
-        rows = cache["rows"]
+        rows = self._read_xs_rows_cached(cache_key)
         stations = sorted({float(r["station_m"]) for r in rows})
         station = min(stations, key=lambda s: abs(s - station))
 

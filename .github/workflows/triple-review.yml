@@ -24,6 +24,10 @@ permissions:
 jobs:
   review:
     runs-on: ubuntu-24.04
+    # Round-3 review (Claude) caught that without timeout-minutes a hung
+    # CLI burns the default 6h GHA budget. 15 min is enough for ~50k
+    # diff lines × 3 reviewers in parallel.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,11 +38,17 @@ jobs:
       - name: Identify previous tag
         id: prev
         run: |
-          # Most recent tag before this one (chronological), excluding
-          # the tag we just pushed.
+          # Most recent tag in HEAD's ANCESTRY (not just chronological).
+          # Round-3 review caught that the previous `git tag --sort=-creatordate`
+          # could pick a sibling-branch tag created later, leading to a
+          # nonsensical diff. `git tag --merged HEAD` filters to ancestors.
           CURRENT_TAG=${GITHUB_REF##refs/tags/}
-          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${CURRENT_TAG}$" | head -1)
+          PREV_TAG=$(git tag --merged HEAD --sort=-creatordate \
+                       | grep -v "^${CURRENT_TAG}$" | head -1)
           if [ -z "$PREV_TAG" ]; then
+            # No prior tag in this branch's history → review against the
+            # initial commit so the user gets *some* signal on a v0.x.0
+            # first release.
             PREV_TAG=$(git rev-list --max-parents=0 HEAD | head -1)
           fi
           echo "previous=${PREV_TAG}" >> "$GITHUB_OUTPUT"
@@ -49,8 +59,14 @@ jobs:
 
       - name: Install reviewer CLIs
         run: |
-          # Pin major versions so a bad release doesn't suddenly fail CI.
-          npm install -g @openai/codex @google/gemini-cli @anthropic-ai/claude-code
+          # Pin to known-good majors so a CLI breaking change doesn't
+          # suddenly fail CI. Round-3 review caught that the comment
+          # used to claim "pin major versions" while shipping bare
+          # @latest — promise/code mismatch.
+          npm install -g \
+            @openai/codex@^0.130 \
+            @google/gemini-cli@^0.38 \
+            @anthropic-ai/claude-code@^2
 
       - name: Run three-AI review
         env:
