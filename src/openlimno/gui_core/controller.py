@@ -813,22 +813,34 @@ class Controller:
             QMessageBox.warning(self.host.main_window(), "OpenLimno",
                                   "No cross_section.parquet selected.")
             return
-        # Cache the parsed rows by (path, mtime) so re-clicks don't re-parse
-        # the entire parquet (typical reach has 10-200k rows). The mtime
-        # component invalidates the cache when the user re-runs preprocess
-        # in another shell and the parquet on disk is fresher than what
-        # we cached.
+        # Cache parsed rows by (path, mtime, size) so re-clicks don't re-parse
+        # large parquets. We stat AFTER reading to close the TOCTOU between
+        # mtime check and file read — otherwise a rewrite mid-read would
+        # cache the fresh rows under the old mtime and the next click
+        # wouldn't trigger a refresh. Adding size guards against the FAT /
+        # SMB case where mtime resolution is 1-2 s (a sub-second rewrite
+        # would tie on mtime but disagree on size).
         cache_key = self._xs_parquet
-        try:
-            mtime = os.path.getmtime(cache_key)
-        except OSError:
-            mtime = None
         cache = getattr(self, "_xs_rows_cache", {})
-        if cache.get("path") != cache_key or cache.get("mtime") != mtime:
+        try:
+            cur_mtime = os.path.getmtime(cache_key)
+            cur_size = os.path.getsize(cache_key)
+        except OSError:
+            cur_mtime = cur_size = None
+        if (cache.get("path") != cache_key
+                or cache.get("mtime") != cur_mtime
+                or cache.get("size") != cur_size):
+            rows = _read_wua_parquet(cache_key)
+            try:
+                post_mtime = os.path.getmtime(cache_key)
+                post_size = os.path.getsize(cache_key)
+            except OSError:
+                post_mtime = post_size = None
             cache = {
                 "path": cache_key,
-                "mtime": mtime,
-                "rows": _read_wua_parquet(cache_key),
+                "mtime": post_mtime,
+                "size": post_size,
+                "rows": rows,
             }
             self._xs_rows_cache = cache
         rows = cache["rows"]

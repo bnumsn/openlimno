@@ -1,0 +1,83 @@
+# Three-AI code review on tag push.
+#
+# Runs Codex / Gemini / Claude against the diff between the new tag and
+# the previous matching tag, attaches the four review files (codex,
+# gemini, claude, summary) to the GitHub Release.
+#
+# Why three? Each reviewer has different blind spots — see
+# scripts/triple_review.sh header for the audit trail of past misses.
+#
+# Required secrets (Settings → Secrets → Actions):
+#   CODEX_API_KEY     OpenAI API key with Codex access
+#   GEMINI_API_KEY    Google AI Studio key
+#   ANTHROPIC_API_KEY Claude API key
+name: triple-review
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # for attaching assets to the release
+
+jobs:
+  review:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # We need the full history so git diff against the previous
+          # tag works.
+          fetch-depth: 0
+
+      - name: Identify previous tag
+        id: prev
+        run: |
+          # Most recent tag before this one (chronological), excluding
+          # the tag we just pushed.
+          CURRENT_TAG=${GITHUB_REF##refs/tags/}
+          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${CURRENT_TAG}$" | head -1)
+          if [ -z "$PREV_TAG" ]; then
+            PREV_TAG=$(git rev-list --max-parents=0 HEAD | head -1)
+          fi
+          echo "previous=${PREV_TAG}" >> "$GITHUB_OUTPUT"
+          echo "current=${CURRENT_TAG}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+
+      - name: Install reviewer CLIs
+        run: |
+          # Pin major versions so a bad release doesn't suddenly fail CI.
+          npm install -g @openai/codex @google/gemini-cli @anthropic-ai/claude-code
+
+      - name: Run three-AI review
+        env:
+          OPENAI_API_KEY: ${{ secrets.CODEX_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          bash scripts/triple_review.sh ${{ steps.prev.outputs.previous }}
+
+      - name: Attach reviews to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Upload every reviews/<sha>.* file to the release matching
+          # the just-pushed tag. --clobber lets re-runs replace prior
+          # uploads.
+          for f in reviews/*.md; do
+            [ -f "$f" ] && gh release upload \
+              "${{ steps.prev.outputs.current }}" \
+              "$f" --clobber
+          done
+
+      - name: Stash reviews as workflow artefact
+        # Independent of release attachment so we keep history even when
+        # someone re-tags / replaces a release.
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviews-${{ steps.prev.outputs.current }}
+          path: reviews/
+          retention-days: 90
