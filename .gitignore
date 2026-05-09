@@ -76,3 +76,4 @@ tmp/
 # docs/reviews/ and ARE committed (the negation below).
 /reviews/
 !docs/reviews/
+.claude/

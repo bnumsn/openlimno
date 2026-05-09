@@ -38,6 +38,19 @@ def _read_wua_csv(path: str) -> list[dict[str, str]]:
     return list(csv.DictReader(data_lines))
 
 
+class MissingParquetBackend(RuntimeError):
+    """Neither pyarrow nor GDAL/OGR is importable.
+
+    Inherits from ``RuntimeError`` so the GUI direct-call sites'
+    existing ``except (..., RuntimeError)`` still surfaces a friendly
+    QMessageBox. The cache retry loop in
+    ``Controller._read_xs_rows_cached`` checks for this subtype
+    *before* the broader RuntimeError clause so it short-circuits
+    instead of burning the retry budget on a permanent install
+    problem (round-2 review — Claude P1 #3 + Gemini).
+    """
+
+
 def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
     """Read parquet via pyarrow (preferred) with GDAL/OGR fallback.
 
@@ -63,16 +76,28 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
     try:
         from osgeo import ogr
     except ImportError as e:
-        raise RuntimeError(
+        raise MissingParquetBackend(
             "neither pyarrow nor GDAL available to read parquet"
         ) from e
     ds = ogr.Open(path)
     if ds is None:
         raise OSError(f"GDAL/OGR failed to open {path}")
-    layer = ds.GetLayer(0)
-    defn = layer.GetLayerDefn()
-    field_names = [defn.GetFieldDefn(i).GetName() for i in range(defn.GetFieldCount())]
-    return [{fn: feat.GetField(fn) for fn in field_names} for feat in layer]
+    try:
+        # Round-2 review (Claude P1 #1): malformed datasets can return
+        # ``None`` from ``GetLayer(0)``; without this guard the next
+        # ``GetLayerDefn()`` raises ``AttributeError`` which the cache
+        # retry loop classifies as a programmer bug and propagates uncaught.
+        layer = ds.GetLayer(0)
+        if layer is None:
+            raise OSError(f"GDAL/OGR returned no layer in {path}")
+        defn = layer.GetLayerDefn()
+        field_names = [defn.GetFieldDefn(i).GetName() for i in range(defn.GetFieldCount())]
+        return [{fn: feat.GetField(fn) for fn in field_names} for feat in layer]
+    finally:
+        # OGR's idiomatic close: assigning ``None`` releases the C++
+        # reference and frees the file handle. Long PyQt sessions
+        # otherwise accumulate open fds across repeated WUA-Q opens.
+        ds = None  # noqa: F841
 
 
 
@@ -148,7 +173,7 @@ class Controller:
         # via the unhandled exception path.
         try:
             rows = _read_wua_csv(path) if path.endswith(".csv") else _read_wua_parquet(path)
-        except (OSError, ValueError, RuntimeError) as e:
+        except (OSError, EOFError, ValueError, RuntimeError) as e:
             QMessageBox.warning(self.host.main_window(), "OpenLimno",
                                 f"Could not read {path}:\n{e}")
             return
@@ -187,7 +212,7 @@ class Controller:
         # exception handler.
         try:
             rows = _read_wua_parquet(xs_path)
-        except (OSError, ValueError, RuntimeError) as e:
+        except (OSError, EOFError, ValueError, RuntimeError) as e:
             QMessageBox.warning(self.host.main_window(), "OpenLimno",
                                 f"Could not read {xs_path}:\n{e}")
             return
@@ -897,6 +922,12 @@ class Controller:
                 continue
             try:
                 rows = _read_wua_parquet(path)
+            except MissingParquetBackend:
+                # Round-2 review (Claude P1 #3 + Gemini): permanent
+                # install failure — no point retrying with backoff.
+                # Propagate immediately so the caller sees a fast,
+                # clear error rather than 150 ms of UI freeze.
+                raise
             except (OSError, EOFError, RuntimeError) as e:
                 # Round-7 review (all 3): narrow from `except Exception`
                 # to the transient I/O / read-failure family. Don't

@@ -47,8 +47,13 @@ BASE="${1:-${BASE:-origin/main}}"
 # 8+ char SHAs and refnames-with-slashes unchanged.
 base_lower="$(printf '%s' "$BASE" | tr 'A-F' 'a-f')"
 if [[ "$base_lower" =~ ^[0-9a-f]{4,7}$ ]]; then
-    if ! git show-ref --verify --quiet "refs/heads/$BASE" \
-            && ! git show-ref --verify --quiet "refs/tags/$BASE"; then
+    # Round-2 review (Claude P1 #4): the previous version checked
+    # ``show-ref --verify`` against the *original-case* $BASE while
+    # the regex tested $base_lower, so a user passing ``CAFE`` for a
+    # real ``cafe`` branch hit the false-reject path. ``rev-parse
+    # --symbolic-full-name`` is case-sensitive (correctly) and covers
+    # heads/tags/remotes/HEAD-relative in one call.
+    if [ -z "$(git rev-parse --symbolic-full-name "$BASE" 2>/dev/null)" ]; then
         echo "ERROR: '$BASE' looks like an abbreviated SHA (collision-prone). Pass the full 40-char SHA or use the actual ref name." >&2
         exit 2
     fi
@@ -164,6 +169,12 @@ PID_GEMINI=$!
         # docs/triple_review.md "Why CLI subscription, not API". Feed
         # prompt + diff via stdin (NOT argv) to dodge ARG_MAX on big
         # diffs.
+        # Round-2 review (Codex P2): `claude -p` silently honors
+        # ANTHROPIC_API_KEY whenever it's set. A stale env var from
+        # an old API-based setup would either fail before reaching
+        # the subscription session, or worse, bill the API silently
+        # despite the "CLI-only" promise. Strip it for this invocation
+        # via `env -u`.
         {
             cat "$PROMPT_FILE"
             echo
@@ -171,7 +182,7 @@ PID_GEMINI=$!
             echo '```diff'
             cat "$DIFF_FILE"
             echo '```'
-        } | claude -p --add-dir "$REPO_ROOT" 2>&1
+        } | env -u ANTHROPIC_API_KEY claude -p --add-dir "$REPO_ROOT" 2>&1
     } > "$OUT_CLAUDE"
 ) &
 PID_CLAUDE=$!
