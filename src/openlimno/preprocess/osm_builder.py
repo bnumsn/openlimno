@@ -148,9 +148,24 @@ def fetch_river_polyline(
     lines = [LineString([(p["lon"], p["lat"]) for p in w["geometry"]])
               for w in ways]
     merged = linemerge(MultiLineString(lines))
-    if isinstance(merged, MultiLineString):
-        # Pick the longest contiguous segment
-        merged = max(merged.geoms, key=lambda g: g.length)
+    # linemerge can return: LineString (all-connected), MultiLineString
+    # (multiple contiguous components), or GeometryCollection (when some
+    # geoms aren't lines). Pick the longest LineString in any case.
+    if isinstance(merged, LineString):
+        chosen = merged
+    else:
+        line_geoms = [
+            g for g in getattr(merged, "geoms", [])
+            if isinstance(g, LineString) and g.length > 0
+        ]
+        if not line_geoms:
+            raise ValueError(
+                f"Overpass returned {len(ways)} ways but linemerge could "
+                f"not stitch any LineString segments — geometry is too "
+                f"disjoint. Use --polyline mode with a hand-drawn GeoJSON.",
+            )
+        chosen = max(line_geoms, key=lambda g: g.length)
+    merged = chosen
     coords = list(merged.coords)
     logger.info("OSM polyline: %d points, %.1f km",
                   len(coords), merged.length * 111000 / 1000)
@@ -317,11 +332,30 @@ def build_case(spec: OSMCaseSpec, output_dir: str | Path) -> dict[str, str]:
     xs_path = data_dir / "cross_section.parquet"
     xs_df.to_parquet(xs_path, index=False)
 
-    # 3. Copy a reasonable HSI curve from the bundled Lemhi sample if available
+    # 3. HSI curve: copy the bundled Lemhi sample but remap the species
+    # column to whatever the user requested. Without this, a case targeting
+    # a non-bundled species (e.g. chinook) would have case.yaml pointing at
+    # one species while the HSI file describes another → 0 WUA.
     hsi_path = data_dir / "hsi_curve.parquet"
     sample_hsi = Path(__file__).resolve().parents[3] / "data/lemhi/hsi_curve.parquet"
     if sample_hsi.is_file():
-        shutil.copy(sample_hsi, hsi_path)
+        try:
+            sample_df = pd.read_parquet(sample_hsi)
+            if "species" in sample_df.columns:
+                sample_df["species"] = spec.species_id
+                # Tag the synthetic origin so downstream tools know this
+                # isn't a peer-reviewed curve for the new species.
+                if "geographic_origin" in sample_df.columns:
+                    sample_df["geographic_origin"] = (
+                        f"transferred from oncorhynchus_mykiss "
+                        f"(Lemhi sample) to {spec.species_id}"
+                    )
+                if "transferability_score" in sample_df.columns:
+                    sample_df["transferability_score"] = 0.3  # low confidence
+            sample_df.to_parquet(hsi_path, index=False)
+        except Exception as e:
+            logger.warning("HSI remap failed (%s); copying as-is", e)
+            shutil.copy(sample_hsi, hsi_path)
     else:
         # Synthesize a minimal HSI curve so the case still validates
         hsi_rows = []

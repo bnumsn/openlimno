@@ -37,7 +37,32 @@ def _ensure_qgis_importable() -> None:
             return
 
 
+def _smoke_run_case_in_bundle(case_yaml: str) -> int:
+    """Headless: load + run a case using whatever solver path the BUNDLE
+    actually has access to. Catches module-exclusion regressions
+    (scipy.optimize, schemas) that don't show up in dev-venv tests."""
+    _ensure_qgis_importable()
+    try:
+        from openlimno.case import Case
+        case = Case.from_yaml(case_yaml)
+        result = case.run()
+        print(f"SMOKE_OK: {result.summary()}", flush=True)
+        return 0
+    except Exception:
+        import traceback
+        print("SMOKE_FAIL:", flush=True)
+        traceback.print_exc()
+        return 1
+
+
 def main() -> int:
+    # Bundle smoke-test mode: run a case headless and exit. Used by the
+    # release-time test that proves the AppImage can actually solve a
+    # case (the way scipy.optimize + WEDM schema bundling regressions
+    # got past v0.1.0-alpha.2).
+    if len(sys.argv) >= 3 and sys.argv[1] == "--smoke-run-case":
+        return _smoke_run_case_in_bundle(sys.argv[2])
+
     _ensure_qgis_importable()
 
     from qgis.core import QgsApplication

@@ -15,14 +15,28 @@ import glob
 import os
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_all
+
 block_cipher = None
 
 # --- repo root + python sys-paths -----------------------------------------
-REPO_ROOT = Path("/mnt/data/openlimno")
+# Resolve relative to this .spec file so the build runs from any checkout
+# (developer machines, CI runners, etc.) — not hardcoded to one path.
+REPO_ROOT = Path(SPEC).resolve().parent.parent  # type: ignore[name-defined]
 SYS_DIST = "/usr/lib/python3/dist-packages"
 
 # --- discover binaries ----------------------------------------------------
 binaries = []
+
+# numpy 2.x bug: PyInstaller's hook misses numpy._core entirely. Without
+# collect_all we ship a numpy/ that ImportError's on `numpy.core` access.
+# Same for scipy — its 2026 layout has nontrivial submodules the default
+# hook can't enumerate from import statements alone.
+for pkg in ("numpy", "scipy", "jsonschema", "matplotlib", "shapely",
+              "pyproj", "netCDF4", "pyarrow", "rfc3987_syntax",
+              "referencing", "jsonschema_specifications"):
+    pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
+    binaries += pkg_binaries
 # QGIS C++ shared libraries
 for so in glob.glob("/usr/lib/libqgis*.so*"):
     binaries.append((so, "."))
@@ -46,10 +60,22 @@ datas = [
     ("/usr/share/qgis", "qgis_root/share/qgis"),
     ("/usr/share/proj", "proj"),
     ("/usr/share/gdal", "gdal"),
+    # WEDM JSON-Schemas — Case.from_yaml validates against these via
+    # importlib.resources, so they MUST land inside the bundle. Without
+    # this, every Run case action fails at validation.
+    (str(REPO_ROOT / "src/openlimno/wedm/schemas"),
+        "openlimno/wedm/schemas"),
     # Brand icon (loaded by MainWindow._set_window_icon at runtime)
     (str(REPO_ROOT / "packaging/icons/openlimno-studio.png"), "icons"),
     (str(REPO_ROOT / "packaging/icons/openlimno-studio.svg"), "icons"),
 ]
+# Bundle the data files for numpy / scipy / jsonschema / etc. that
+# collect_all finds — typestubs, JSON schemas, .pxd / .pyx files.
+for pkg in ("numpy", "scipy", "jsonschema", "matplotlib", "shapely",
+              "pyproj", "netCDF4", "pyarrow", "rfc3987_syntax",
+              "referencing", "jsonschema_specifications"):
+    pkg_datas, _, pkg_hidden = collect_all(pkg)
+    datas += pkg_datas
 # QGIS Python bindings (.py + .pyi); .so files come via binaries below
 for f in glob.glob(f"{SYS_DIST}/qgis/**/*.py", recursive=True):
     rel = Path(f).relative_to(SYS_DIST)
@@ -76,12 +102,22 @@ hiddenimports = [
     "qgis.utils",
     # OpenLimno modules used by Controller
     "openlimno",
+    "openlimno.case",                       # Case.from_yaml + run()
+    "numpy._core",                          # numpy 2.x — hook drops this
+    "numpy._core._multiarray_tests",
+    "numpy._core._multiarray_umath",
+    "openlimno.hydro",
+    "openlimno.hydro.builtin_1d",           # Manning solver (brentq)
+    "openlimno.habitat",
+    "openlimno.wedm",                       # JSON-schema validation
     "openlimno.gui_core",
     "openlimno.gui_core.controller",
     "openlimno.studio",
     "openlimno.studio.main_window",
     "openlimno.preprocess",
     "openlimno.preprocess.osm_builder",
+    # Solver dependency: Case.run() → builtin_1d → scipy.optimize.brentq
+    "scipy.optimize",
     # Heavy science deps
     "matplotlib",
     "matplotlib.backends.backend_qt5agg",
@@ -97,10 +133,22 @@ hiddenimports = [
     "requests",
     "xarray",
 ]
+# Append the long submodule list collect_all discovered for the heavy
+# science deps. Done lazily at the end so the hand-curated list above
+# stays readable and we still get full submodule coverage.
+for _pkg in ("numpy", "scipy", "jsonschema", "matplotlib", "shapely",
+              "pyproj", "netCDF4", "pyarrow", "rfc3987_syntax",
+              "referencing", "jsonschema_specifications"):
+    _, _, _h = collect_all(_pkg)
+    hiddenimports += _h
 
 a = Analysis(
     [str(REPO_ROOT / "src/openlimno/studio/__main__.py")],
-    pathex=[str(REPO_ROOT / "src"), SYS_DIST],
+    # Do NOT include /usr/lib/python3/dist-packages here. It contains the
+    # apt-installed jsonschema 4.10 alongside the venv's 4.26, and
+    # PyInstaller mixes them, producing a bundle whose .py and _utils
+    # don't agree. We get qgis bindings via the runtime hook instead.
+    pathex=[str(REPO_ROOT / "src")],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -108,14 +156,18 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[str(REPO_ROOT / "packaging/runtime_hook.py")],
     excludes=[
-        # Standard-library noise
-        "tkinter", "test", "unittest", "pydoc_data",
+        # Standard-library noise — keep unittest (numpy.testing imports it)
+        "tkinter", "pydoc_data",
         # Big unused packages found in system Python by accident
         "wx", "PyQt6", "PySide2", "PySide6",
         "boto3", "botocore", "s3fs", "fsspec", "aiohttp", "aiohttp_retry",
         "zstandard", "uvloop", "fastavro", "numcodecs",
-        "rasterio", "scipy.io", "scipy.optimize", "scipy.signal",
-        "scipy.sparse.linalg", "scipy.spatial",
+        # NOTE: do NOT exclude any scipy submodule — scipy uses lazy
+        # __getattr__ that pulls in unexpected siblings (e.g. scipy.spatial
+        # via _ckdtree gets imported through scipy.optimize internals on
+        # some builds). One bad exclude → AppImage can't even reach the
+        # solver. The full scipy is ~30 MB; not worth the fragility.
+        "rasterio",
         "black", "blib2to3", "mypy", "isort", "ruff",
         "jupyter", "jupyterlab", "ipython", "IPython", "notebook",
         "sphinx", "docutils", "alabaster",

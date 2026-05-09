@@ -282,11 +282,17 @@ class Controller:
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
 
-        # Compute slug
+        # Compute slug — sanitise to drop ../ and shell-special chars so
+        # the user can't direct the case dir to /etc, ~/.ssh, etc. by
+        # putting path traversal in the river-name field.
+        import re as _re
+        def _safe_slug(s: str) -> str:
+            return _re.sub(r"[^a-z0-9_\-]", "_", s.lower())[:64] or "case"
+
         if rb_name.isChecked() and e_river.text().strip():
-            slug = e_river.text().strip().lower().replace(" ", "_")
+            slug = _safe_slug(e_river.text().strip().replace(" ", "_"))
         elif rb_polyline.isChecked() and e_polyline.text().strip():
-            slug = Path(e_polyline.text()).stem.lower().replace(" ", "_")
+            slug = _safe_slug(Path(e_polyline.text()).stem.replace(" ", "_"))
         elif rb_bbox.isChecked():
             try:
                 lon0, lat0, lon1, lat1 = (float(x) for x in e_bbox.text().split(","))
@@ -395,6 +401,18 @@ class Controller:
     def run_case(self) -> None:
         from qgis.PyQt.QtCore import QThread, pyqtSignal
         from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox
+
+        # Re-entry guard. Without this, a second click while the first
+        # solver is still running spawns a competing QThread that races
+        # for the same hydraulics.nc file lock.
+        existing = getattr(self, "_run_case_worker", None)
+        if existing is not None and existing.isRunning():
+            self.host.message_bar().pushMessage(
+                "OpenLimno",
+                "A run is already in progress — wait for it to finish.",
+                level=1, duration=4,
+            )
+            return
 
         case_yaml = self._discover_case_yaml()
         if not case_yaml:
@@ -667,7 +685,8 @@ class Controller:
 
     def activate_pick_tool(self, checked: bool) -> None:
         from qgis.core import (
-            QgsFeatureRequest, QgsGeometry, QgsProject, QgsRectangle, QgsVectorLayer,
+            QgsCoordinateTransform, QgsFeatureRequest, QgsGeometry,
+            QgsPointXY, QgsProject, QgsRectangle, QgsVectorLayer,
         )
         from qgis.gui import QgsMapTool
         from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox
@@ -717,16 +736,39 @@ class Controller:
                     )
                     return
                 tol = controller.host.map_canvas().mapUnitsPerPixel() * 18
-                bb = QgsRectangle(pt.x() - tol, pt.y() - tol,
-                                    pt.x() + tol, pt.y() + tol)
+                canvas_crs = controller.host.map_canvas().mapSettings().destinationCrs()
                 station = None
                 hit_layer = None
                 for layer in cands:
+                    # Click pt is in canvas CRS; layer.getFeatures expects
+                    # layer CRS. Mesh / cross-section memory layers are
+                    # EPSG:4326 while canvas is EPSG:3857 → without this
+                    # transform the rect filters out everything.
+                    layer_crs = layer.crs()
+                    if layer_crs.isValid() and canvas_crs.isValid() and layer_crs != canvas_crs:
+                        xform = QgsCoordinateTransform(canvas_crs, layer_crs,
+                                                          QgsProject.instance())
+                        try:
+                            pt_l = xform.transform(pt)
+                        except Exception:
+                            continue
+                        # Approximate tolerance in layer units by transforming
+                        # a small offset point and taking the resulting delta.
+                        try:
+                            offset = xform.transform(QgsPointXY(pt.x() + tol, pt.y()))
+                            tol_l = abs(offset.x() - pt_l.x()) or tol
+                        except Exception:
+                            tol_l = tol
+                    else:
+                        pt_l = pt
+                        tol_l = tol
+                    bb = QgsRectangle(pt_l.x() - tol_l, pt_l.y() - tol_l,
+                                        pt_l.x() + tol_l, pt_l.y() + tol_l)
                     req = QgsFeatureRequest().setFilterRect(bb)
                     feats = list(layer.getFeatures(req))
                     if not feats:
                         continue
-                    pt_geom = QgsGeometry.fromPointXY(pt)
+                    pt_geom = QgsGeometry.fromPointXY(pt_l)
                     f = min(feats, key=lambda ff: ff.geometry().distance(pt_geom))
                     fields = [fd.name() for fd in layer.fields()]
                     if "station_m" in fields:
@@ -771,7 +813,14 @@ class Controller:
             QMessageBox.warning(self.host.main_window(), "OpenLimno",
                                   "No cross_section.parquet selected.")
             return
-        rows = _read_wua_parquet(self._xs_parquet)
+        # Cache the parsed rows by file path so re-clicks don't re-parse
+        # the entire parquet (typical reach has 10-200k rows).
+        cache_key = self._xs_parquet
+        cache = getattr(self, "_xs_rows_cache", {})
+        if cache.get("path") != cache_key:
+            cache = {"path": cache_key, "rows": _read_wua_parquet(cache_key)}
+            self._xs_rows_cache = cache
+        rows = cache["rows"]
         stations = sorted({float(r["station_m"]) for r in rows})
         station = min(stations, key=lambda s: abs(s - station))
 

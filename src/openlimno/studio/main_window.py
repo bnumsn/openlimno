@@ -320,11 +320,27 @@ class MainWindow(QMainWindow):
             )
 
     def _zoom_full_extent(self) -> None:
+        # Combine each layer's extent in canvas CRS (transform first if
+        # needed). Mixing 4326 + 3857 extents into one rect produces
+        # garbage when not transformed.
+        from qgis.core import QgsCoordinateTransform
+
+        canvas_crs = self.canvas.mapSettings().destinationCrs()
         extent = QgsRectangle()
         extent.setMinimal()
         for lyr in QgsProject.instance().mapLayers().values():
-            if not lyr.extent().isEmpty():
-                extent.combineExtentWith(lyr.extent())
+            le = lyr.extent()
+            if le.isEmpty():
+                continue
+            try:
+                src_crs = lyr.crs()
+                if src_crs != canvas_crs and src_crs.isValid() and canvas_crs.isValid():
+                    le = QgsCoordinateTransform(
+                        src_crs, canvas_crs, QgsProject.instance(),
+                    ).transformBoundingBox(le)
+            except Exception:
+                continue
+            extent.combineExtentWith(le)
         if not extent.isEmpty():
             self.canvas.setExtent(extent)
             self.canvas.refresh()
@@ -341,8 +357,10 @@ class MainWindow(QMainWindow):
             return
         if lyr is None or lyr.extent().isEmpty():
             return
-        self.canvas.setExtent(lyr.extent())
-        self.canvas.refresh()
+        # Reuse Controller._zoom_canvas_to_layer's CRS-aware logic — passing
+        # layer.extent() directly to canvas.setExtent treats EPSG:4326
+        # degree coords as EPSG:3857 metres → wrong place on the map.
+        self.ctl._zoom_canvas_to_layer(lyr)
 
     def open_geopackage(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
