@@ -67,3 +67,6 @@ tmp/
 !benchmarks/**/*.nc
 !benchmarks/**/*.parquet
 *.AppImage
+
+# Test fixtures: small frozen cases — never re-built by CI
+!tests/integration/fixtures/**

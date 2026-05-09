@@ -813,12 +813,23 @@ class Controller:
             QMessageBox.warning(self.host.main_window(), "OpenLimno",
                                   "No cross_section.parquet selected.")
             return
-        # Cache the parsed rows by file path so re-clicks don't re-parse
-        # the entire parquet (typical reach has 10-200k rows).
+        # Cache the parsed rows by (path, mtime) so re-clicks don't re-parse
+        # the entire parquet (typical reach has 10-200k rows). The mtime
+        # component invalidates the cache when the user re-runs preprocess
+        # in another shell and the parquet on disk is fresher than what
+        # we cached.
         cache_key = self._xs_parquet
+        try:
+            mtime = os.path.getmtime(cache_key)
+        except OSError:
+            mtime = None
         cache = getattr(self, "_xs_rows_cache", {})
-        if cache.get("path") != cache_key:
-            cache = {"path": cache_key, "rows": _read_wua_parquet(cache_key)}
+        if cache.get("path") != cache_key or cache.get("mtime") != mtime:
+            cache = {
+                "path": cache_key,
+                "mtime": mtime,
+                "rows": _read_wua_parquet(cache_key),
+            }
             self._xs_rows_cache = cache
         rows = cache["rows"]
         stations = sorted({float(r["station_m"]) for r in rows})

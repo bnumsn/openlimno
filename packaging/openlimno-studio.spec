@@ -10,6 +10,24 @@ Bundles:
 
 Build:    pyinstaller packaging/openlimno-studio.spec
 Run:      dist/openlimno-studio/openlimno-studio
+
+BUILD-ENVIRONMENT REQUIREMENTS
+==============================
+This spec assumes the build host has:
+  * QGIS apt package (provides /usr/lib/python3/dist-packages/qgis,
+    /usr/lib/libqgis_*.so*, /usr/lib/qgis/plugins/, /usr/share/qgis/);
+  * Qt5 system packages (PyQt5, qtbase5-dev with platform plugins);
+  * a Python venv with editable openlimno install + pyinstaller +
+    matching versions of jsonschema 4.18+, numpy 2.x, scipy.
+
+We deliberately keep ``/usr/lib/python3/dist-packages`` OFF ``pathex``
+to prevent PyInstaller from collecting an outdated jsonschema 4.10
+alongside the venv's modern 4.26 (the two have incompatible internal
+APIs and the bundle ends up with a broken hybrid).
+
+PyQt5 is still resolved transitively through openlimno.studio's
+``from qgis.PyQt.QtWidgets import ...`` imports, which PyInstaller
+analyses normally because openlimno is on pathex.
 """
 import glob
 import os

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openlimno"
-version = "0.1.0a3"
+version = "0.1.0a4"
 description = "Open-source water ecology modeling platform — PHABSIM/IFIM modernization with SCHISM 2D wrapping"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"

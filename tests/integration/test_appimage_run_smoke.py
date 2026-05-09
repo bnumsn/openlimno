@@ -18,21 +18,24 @@ APPIMAGE = REPO / "OpenLimnoStudio-x86_64.AppImage"
 DIST_BIN = REPO / "dist/openlimno-studio/openlimno-studio"
 
 
+FIXTURE = Path(__file__).resolve().parent / "fixtures/lemhi-tiny"
+
+
 @pytest.fixture(scope="module")
 def built_case(tmp_path_factory):
-    """Build a tiny Lemhi-area case via the dev path; reused for all
-    bundle-execution tests below."""
-    pytest.importorskip("openlimno.preprocess.osm_builder")
-    from openlimno.preprocess.osm_builder import OSMCaseSpec, build_case
+    """Use a frozen 5-node Lemhi reach checked into the repo. Frozen
+    rather than rebuilt each run because (a) Overpass downtime / rate
+    limits would make CI flaky, (b) the fixture is 52 KB so caching
+    doesn't matter, (c) we need the test to be hermetic when network
+    is unavailable.
 
+    The fixture is a copy because Case.run() writes to <case>/out/.
+    """
+    if not (FIXTURE / "case.yaml").is_file():
+        pytest.skip(f"fixture missing at {FIXTURE} — run setup script")
     out = tmp_path_factory.mktemp("appimage-smoke")
-    spec = OSMCaseSpec(
-        bbox=(-113.95, 44.92, -113.85, 44.98),
-        n_sections=11, reach_length_m=1000,
-    )
-    build_case(spec, out)
+    shutil.copytree(FIXTURE, out, dirs_exist_ok=True)
     yield out
-    shutil.rmtree(out, ignore_errors=True)
 
 
 def _run_smoke(executable: Path, case_yaml: Path) -> str:

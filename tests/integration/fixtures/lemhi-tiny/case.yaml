@@ -1,0 +1,29 @@
+openlimno: '0.1'
+case:
+  name: reach_44p9500_n113p9000
+  description: OpenLimno case built from OSM polyline within bbox (-113.95, 44.92,
+    -113.85, 44.98)
+  crs: EPSG:4326
+mesh:
+  uri: data/mesh.ugrid.nc
+data:
+  cross_section: data/cross_section.parquet
+  hsi_curve: data/hsi_curve.parquet
+hydrodynamics:
+  backend: builtin-1d
+habitat:
+  species:
+  - oncorhynchus_mykiss
+  stages:
+  - spawning
+  - fry
+  metric: wua-q
+  composite: min
+  scale: cell
+output:
+  dir: ./out/
+  formats:
+  - csv
+  - netcdf
+provenance:
+  emit: true
