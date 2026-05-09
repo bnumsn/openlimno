@@ -509,6 +509,15 @@ class Controller:
         mesh_nc = case_dir / "data" / "mesh.ugrid.nc"
         xs_pq = case_dir / "data" / "cross_section.parquet"
 
+        # Stash these so the click-to-profile tool can find them without
+        # the GeoPackage-source heuristic — memory layers added below
+        # have no on-disk source for the heuristic to grep.
+        if xs_pq.is_file():
+            self._xs_parquet = str(xs_pq)
+        out_nc = case_dir / "out" / "hydraulics.nc"
+        if out_nc.is_file():
+            self._hyd_nc = str(out_nc)
+
         if mesh_nc.is_file():
             try:
                 ds = Dataset(str(mesh_nc))
