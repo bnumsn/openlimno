@@ -27,14 +27,17 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 BASE="${1:-${BASE:-origin/main}}"
-# Reject shell-injection-shaped refs (Gemini round-3). git accepts a wide
-# range of refs; we only need tags / branches / SHAs.
-case "$BASE" in
-    -*|*\;*|*\|*|*\&*|*\>*|*\<*|*\$*|*\`*)
-        echo "ERROR: refusing suspicious-looking BASE='$BASE'" >&2
-        exit 2
-        ;;
-esac
+# Round-4 review (Gemini) caught that the previous `case` blacklist
+# missed parens, braces, newlines. ``git check-ref-format`` is git's
+# own canonical validator — strictly stricter and standard. We allow
+# 40-char SHAs in addition since ``check-ref-format`` rejects bare
+# hex strings. Refnames containing slashes (e.g. ``origin/main``) need
+# ``--allow-onelevel``.
+if ! [[ "$BASE" =~ ^[0-9a-f]{7,40}$ ]] \
+        && ! git check-ref-format --allow-onelevel "$BASE" 2>/dev/null; then
+    echo "ERROR: '$BASE' is not a valid ref name or SHA" >&2
+    exit 2
+fi
 HEAD_SHA="$(git rev-parse --short HEAD)"
 HEAD_REF="$(git rev-parse --abbrev-ref HEAD)"
 REVIEWS_DIR="reviews"
@@ -210,8 +213,9 @@ for f in "$OUT_CODEX" "$OUT_GEMINI" "$OUT_CLAUDE"; do
     fi
 done
 
-if [ "${#FAILURES[@]:-0}" -gt 0 ]; then
-    echo "==> FAILED reviewers: ${FAILURES[*]:-}"
+if [ "${#FAILURES[@]}" -gt 0 ]; then
+    # `${FAILURES[*]}` is safe here — we already gated on length.
+    echo "==> FAILED reviewers: ${FAILURES[*]}"
     EXIT_CODE=1
 fi
 
@@ -241,7 +245,11 @@ fi
     echo "- Range: \`$BASE..$HEAD_SHA\`"
     echo "- Lines: $DIFF_LINES"
     echo "- Files touched:"
-    git diff --name-only "$BASE..HEAD" -- 'src/' 'packaging/' 'tests/' 'tools/' \
+    # Round-4 review (Codex) caught the summary previously used a
+    # path-filtered two-dot diff, while reviewers see triple-dot
+    # unfiltered. Use the same revspec/scope so the artifact lists
+    # exactly what was reviewed.
+    git diff --name-only "$BASE_SHA...HEAD" \
         | sed 's/^/  - /'
     echo
     echo "## Reading order"

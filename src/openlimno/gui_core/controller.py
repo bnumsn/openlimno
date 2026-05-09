@@ -842,28 +842,42 @@ class Controller:
         # Stat failed — keep stale cache rather than crash
         if cur is None and cache.get("path") == path and cache.get("rows"):
             return cache["rows"]
-        # Cache miss: read with TOCTOU guard
+        # Cache miss: read with TOCTOU guard.
+        # Round-4 review (Claude+Gemini) caught two bugs in the previous
+        # implementation:
+        # (a) On post-stat None (file vanished during read), the code
+        #     cached torn rows under the pre-stat → next call's
+        #     `cur is None` fallback returned them indefinitely. Fix:
+        #     don't cache reads taken across a stat failure; return
+        #     them once and leave the cache untouched.
+        # (b) Three back-to-back retries on a fast writer all lose the
+        #     race in microseconds. Fix: short backoff between retries.
+        import time as _time
+
         last_error = None
-        for _ in range(max_retries):
+        for attempt in range(max_retries):
+            if attempt > 0:
+                # Linear backoff — give writer a chance to finish.
+                _time.sleep(0.05 * attempt)
             pre = _stat(path)
             if pre is None:
-                # File missing; let the read raise the real error
                 last_error = OSError(f"cannot stat {path}")
                 break
             rows = _read_wua_parquet(path)
             post = _stat(path)
             if post is None:
-                # Vanished during read — accept what we got, mark with
-                # pre-stat so next call invalidates.
-                self._xs_rows_cache = {"path": path, "stat": pre, "rows": rows}
+                # File vanished during read — return what we got but
+                # DON'T cache it. The next call will see cur=None and
+                # serve the previously-cached rows (or raise) rather
+                # than entrenching the torn read.
                 return rows
             if pre == post:
-                # Quiescent during read — safe to cache.
+                # File quiescent during read — safe to cache.
                 self._xs_rows_cache = {"path": path, "stat": pre, "rows": rows}
                 return rows
-            # File was rewritten during read; retry against the new state
+            # File was rewritten during read; retry against new state.
             last_error = RuntimeError(f"{path} changed during read")
-        # All retries exhausted — file is being rewritten in a tight loop
+        # All retries exhausted.
         raise last_error or RuntimeError(f"unable to read {path} stably")
 
     def _plot_at_station(self, station: float) -> None:

@@ -148,6 +148,55 @@ def test_stat_failure_serves_stale_cache(subject, parquet_file):
     mock.assert_not_called()
 
 
+def test_vanished_during_read_does_not_cache_torn_rows(subject, parquet_file):
+    """Round-4 fix: if the file is deleted mid-read (post-stat returns
+    None), we must NOT cache the (potentially torn) rows. Otherwise
+    the post-call ``cur is None`` fallback would serve the corrupt
+    rows forever (Claude P0 + Gemini P0)."""
+    state = {"call_count": 0}
+
+    def fake_read_then_delete(p):
+        state["call_count"] += 1
+        # Delete the file during the read so post-stat fails
+        Path(p).unlink()
+        return [{"row": "TORN_BECAUSE_DELETED"}]
+
+    with patch("openlimno.gui_core.controller._read_wua_parquet",
+                 side_effect=fake_read_then_delete):
+        rows = subject._read_xs_rows_cached(str(parquet_file))
+    # First call returns what we got (graceful)
+    assert rows == [{"row": "TORN_BECAUSE_DELETED"}]
+    # But the cache should NOT have been entrenched. The lazy attr
+    # `_xs_rows_cache` either doesn't exist yet (no successful cache)
+    # or exists but doesn't reference this path.
+    cache = getattr(subject, "_xs_rows_cache", {})
+    assert cache.get("path") != os.path.realpath(parquet_file), (
+        "torn rows must not be cached across a vanished post-stat"
+    )
+
+
+def test_retry_exhaustion_raises(subject, parquet_file):
+    """Round-4 fix: a writer rewriting on every read attempt must
+    eventually trigger a clear error rather than silently returning
+    the last torn read (Claude P1 + Gemini P1)."""
+    state = {"call_count": 0}
+
+    def always_rewrite(p):
+        state["call_count"] += 1
+        # Bump mtime forward by a different amount each time so pre/post
+        # stats always disagree
+        future = time.time() + 100 + state["call_count"]
+        Path(p).write_text("x" * (10 + state["call_count"]))
+        os.utime(p, (future, future))
+        return [{"row": f"torn_{state['call_count']}"}]
+
+    with patch("openlimno.gui_core.controller._read_wua_parquet",
+                 side_effect=always_rewrite):
+        with pytest.raises((RuntimeError, OSError)):
+            subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
+    assert state["call_count"] >= 2, "should have retried at least once"
+
+
 def test_realpath_normalises_cache_key(subject, parquet_file, tmp_path):
     """Qt file dialogs sometimes change cwd; cache keys must not be
     sensitive to relative-vs-absolute spelling."""
