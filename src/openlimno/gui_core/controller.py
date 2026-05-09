@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import math
 import os
+import time
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -843,22 +844,18 @@ class Controller:
         if cur is None and cache.get("path") == path and cache.get("rows"):
             return cache["rows"]
         # Cache miss: read with TOCTOU guard.
-        # Round-4 review (Claude+Gemini) caught two bugs in the previous
-        # implementation:
-        # (a) On post-stat None (file vanished during read), the code
-        #     cached torn rows under the pre-stat → next call's
-        #     `cur is None` fallback returned them indefinitely. Fix:
-        #     don't cache reads taken across a stat failure; return
-        #     them once and leave the cache untouched.
-        # (b) Three back-to-back retries on a fast writer all lose the
-        #     race in microseconds. Fix: short backoff between retries.
-        import time as _time
-
+        # Round-5 review (Gemini P0): when the file vanishes mid-read,
+        # the rows we just produced are partial / torn / corrupt. The
+        # round-4 fix returned them anyway under "graceful degradation",
+        # but the caller plots them — i.e. silently visualises corrupt
+        # data. Now we prefer the previously-cached rows (which were
+        # read against a quiescent file), and only raise if no stale
+        # cache is available.
         last_error = None
         for attempt in range(max_retries):
             if attempt > 0:
-                # Linear backoff — give writer a chance to finish.
-                _time.sleep(0.05 * attempt)
+                # Linear backoff — gives writer a chance to finish.
+                time.sleep(0.05 * attempt)
             pre = _stat(path)
             if pre is None:
                 last_error = OSError(f"cannot stat {path}")
@@ -866,11 +863,14 @@ class Controller:
             rows = _read_wua_parquet(path)
             post = _stat(path)
             if post is None:
-                # File vanished during read — return what we got but
-                # DON'T cache it. The next call will see cur=None and
-                # serve the previously-cached rows (or raise) rather
-                # than entrenching the torn read.
-                return rows
+                # File vanished during read. Round-5: don't return the
+                # torn rows; serve previously-cached if possible, else
+                # raise. Caller (Studio) will surface the error.
+                if cache.get("path") == path and cache.get("rows"):
+                    return cache["rows"]
+                raise FileNotFoundError(
+                    f"{path} vanished during read and no prior cache"
+                )
             if pre == post:
                 # File quiescent during read — safe to cache.
                 self._xs_rows_cache = {"path": path, "stat": pre, "rows": rows}

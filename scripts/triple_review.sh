@@ -33,7 +33,10 @@ BASE="${1:-${BASE:-origin/main}}"
 # 40-char SHAs in addition since ``check-ref-format`` rejects bare
 # hex strings. Refnames containing slashes (e.g. ``origin/main``) need
 # ``--allow-onelevel``.
-if ! [[ "$BASE" =~ ^[0-9a-f]{7,40}$ ]] \
+# 8 chars minimum: round-5 review (Claude) noted 7-char short SHAs
+# can collide on busy repos. Always resolve through git rev-parse
+# below so we work with the full hash.
+if ! [[ "$BASE" =~ ^[0-9a-f]{8,40}$ ]] \
         && ! git check-ref-format --allow-onelevel "$BASE" 2>/dev/null; then
     echo "ERROR: '$BASE' is not a valid ref name or SHA" >&2
     exit 2

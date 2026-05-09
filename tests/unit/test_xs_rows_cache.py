@@ -148,30 +148,78 @@ def test_stat_failure_serves_stale_cache(subject, parquet_file):
     mock.assert_not_called()
 
 
-def test_vanished_during_read_does_not_cache_torn_rows(subject, parquet_file):
-    """Round-4 fix: if the file is deleted mid-read (post-stat returns
-    None), we must NOT cache the (potentially torn) rows. Otherwise
-    the post-call ``cur is None`` fallback would serve the corrupt
-    rows forever (Claude P0 + Gemini P0)."""
-    state = {"call_count": 0}
-
+def test_vanished_during_read_with_no_prior_cache_raises(subject, parquet_file):
+    """Round-5 fix (Gemini P0): when the file vanishes mid-read AND
+    we have no prior cache, raise FileNotFoundError rather than
+    returning the torn rows (which the caller would silently plot
+    as corrupt data)."""
     def fake_read_then_delete(p):
-        state["call_count"] += 1
-        # Delete the file during the read so post-stat fails
         Path(p).unlink()
         return [{"row": "TORN_BECAUSE_DELETED"}]
 
     with patch("openlimno.gui_core.controller._read_wua_parquet",
                  side_effect=fake_read_then_delete):
-        rows = subject._read_xs_rows_cached(str(parquet_file))
-    # First call returns what we got (graceful)
-    assert rows == [{"row": "TORN_BECAUSE_DELETED"}]
-    # But the cache should NOT have been entrenched. The lazy attr
-    # `_xs_rows_cache` either doesn't exist yet (no successful cache)
-    # or exists but doesn't reference this path.
-    cache = getattr(subject, "_xs_rows_cache", {})
-    assert cache.get("path") != os.path.realpath(parquet_file), (
-        "torn rows must not be cached across a vanished post-stat"
+        with pytest.raises(FileNotFoundError):
+            subject._read_xs_rows_cached(str(parquet_file))
+
+
+def test_vanished_during_read_serves_prior_cache(subject, parquet_file):
+    """Round-5 fix (Gemini P0): if a prior good cache exists and the
+    file vanishes mid-read on a subsequent call, serve the prior
+    cached rows (which were read from a quiescent file) rather than
+    the torn read."""
+    state = {"reads": 0, "should_delete": False}
+
+    def fake_read(p):
+        state["reads"] += 1
+        if state["should_delete"]:
+            Path(p).unlink()
+            return [{"row": "TORN"}]
+        return [{"row": "GOOD"}]
+
+    with patch("openlimno.gui_core.controller._read_wua_parquet",
+                 side_effect=fake_read):
+        # First call: clean read, populates cache.
+        rows1 = subject._read_xs_rows_cached(str(parquet_file))
+        assert rows1 == [{"row": "GOOD"}]
+
+        # Force cache miss by making the cache see a different stat.
+        future = time.time() + 100
+        os.utime(parquet_file, (future, future))
+        # Second call: rewrite triggers cache miss; mid-read file vanishes.
+        state["should_delete"] = True
+        rows2 = subject._read_xs_rows_cached(str(parquet_file))
+    # Must serve the prior good cache, NOT the torn read.
+    assert rows2 == [{"row": "GOOD"}], (
+        "must prefer prior cache over torn rows when file vanishes mid-read"
+    )
+
+
+def test_backoff_called_with_correct_durations(subject, parquet_file):
+    """Round-5 fix (Claude P1): the `time.sleep` calls in the retry
+    loop must use linear backoff. A regression that drops the sleep
+    or uses a fixed duration must fail."""
+    state = {"call_count": 0}
+
+    def always_rewrite(p):
+        state["call_count"] += 1
+        future = time.time() + 100 + state["call_count"]
+        Path(p).write_text("x" * (10 + state["call_count"]))
+        os.utime(p, (future, future))
+        return [{"row": f"torn_{state['call_count']}"}]
+
+    with patch("openlimno.gui_core.controller._read_wua_parquet",
+                 side_effect=always_rewrite), \
+         patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
+        with pytest.raises((RuntimeError, OSError)):
+            subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
+    # First attempt: no sleep. Subsequent attempts: 0.05*1, 0.05*2.
+    assert mock_sleep.call_count == 2, (
+        f"expected 2 backoff sleeps for max_retries=3, got {mock_sleep.call_count}"
+    )
+    durations = [c.args[0] for c in mock_sleep.call_args_list]
+    assert durations == [0.05, 0.10], (
+        f"expected linear backoff [0.05, 0.10], got {durations}"
     )
 
 
