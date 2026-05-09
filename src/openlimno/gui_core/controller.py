@@ -64,10 +64,21 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
     """
     try:
         import pyarrow.parquet as pq
+        from pyarrow.lib import ArrowException
     except ImportError:
         pq = None
+        ArrowException = None
     if pq is not None:
-        t = pq.read_table(path)  # raises ArrowInvalid on torn footer, etc.
+        try:
+            t = pq.read_table(path)
+        except ArrowException as e:
+            # Round-3 review (Claude): only ArrowInvalid subclasses
+            # ``ValueError`` and only ArrowIOError subclasses ``OSError``;
+            # ArrowCapacityError / ArrowKeyError / ArrowNotImplemented
+            # would escape the cache wrapper's exception tuple and crash
+            # the GUI. Normalise the whole family to ``OSError`` so
+            # callers don't need to track pyarrow's MRO.
+            raise OSError(f"parquet read failed: {e}") from e
         return [
             dict(zip(t.column_names, row, strict=False))
             for row in zip(*[c.to_pylist() for c in t.columns], strict=False)

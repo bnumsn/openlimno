@@ -30,6 +30,18 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 BASE="${1:-${BASE:-origin/main}}"
+# Round-3 review (Claude): defend against ``-``-prefixed BASE values
+# being interpreted as flags by downstream git commands. (``--``
+# after ``--verify`` doesn't work — it makes git treat the arg as a
+# pathspec — and ``--end-of-options`` isn't honored uniformly across
+# rev-parse modes. A simple upfront pattern check is the most
+# portable form of belt-and-suspenders.)
+case "$BASE" in
+    -*)
+        echo "ERROR: refnames starting with '-' are not allowed (flag-injection risk)" >&2
+        exit 2
+        ;;
+esac
 # Round-4 review (Gemini) caught that the previous `case` blacklist
 # missed parens, braces, newlines. ``git check-ref-format`` is git's
 # own canonical validator — strictly stricter and standard. We allow
@@ -175,6 +187,10 @@ PID_GEMINI=$!
         # the subscription session, or worse, bill the API silently
         # despite the "CLI-only" promise. Strip it for this invocation
         # via `env -u`.
+        # Round-3 review (Claude): also strip ANTHROPIC_AUTH_TOKEN
+        # and ANTHROPIC_BASE_URL — claude-code honors the whole
+        # family. Stripping only one of the three would still let
+        # API auth sneak in.
         {
             cat "$PROMPT_FILE"
             echo
@@ -182,7 +198,8 @@ PID_GEMINI=$!
             echo '```diff'
             cat "$DIFF_FILE"
             echo '```'
-        } | env -u ANTHROPIC_API_KEY claude -p --add-dir "$REPO_ROOT" 2>&1
+        } | env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL \
+                claude -p --add-dir "$REPO_ROOT" 2>&1
     } > "$OUT_CLAUDE"
 ) &
 PID_CLAUDE=$!
