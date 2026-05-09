@@ -48,6 +48,15 @@ from qgis.PyQt.QtWidgets import (
 from openlimno.gui_core import Controller
 
 
+def _studio_version() -> str:
+    """Single source of truth for the Studio version string."""
+    try:
+        from importlib.metadata import version
+        return version("openlimno")
+    except Exception:
+        return "0.1.0-dev"
+
+
 class _StatusBarIfaceShim:
     """Adapts QStatusBar.showMessage / clearMessage to the iface-shaped API.
 
@@ -245,6 +254,9 @@ class MainWindow(QMainWindow):
 
         # --- Help ---
         m_help = mb.addMenu("&Help")
+        a_check_updates = QAction("Check for updates…", self)
+        a_check_updates.triggered.connect(self._check_for_updates)
+        m_help.addAction(a_check_updates)
         a_about = QAction("About OpenLimno Studio", self)
         a_about.triggered.connect(self._show_about)
         m_help.addAction(a_about)
@@ -255,11 +267,57 @@ class MainWindow(QMainWindow):
     def _show_about(self) -> None:
         QMessageBox.about(
             self, "OpenLimno Studio",
-            "<b>OpenLimno Studio</b><br>"
+            f"<b>OpenLimno Studio</b> v{_studio_version()}<br>"
             "Open-source aquatic ecosystem modeling — successor to "
             "PHABSIM / River2D / FishXing.<br><br>"
-            "Built on PyQGIS. Source: https://github.com/openlimno/openlimno",
+            "Built on PyQGIS. Source: "
+            "<a href='https://github.com/bnumsn/openlimno'>"
+            "github.com/bnumsn/openlimno</a>",
         )
+
+    def _check_for_updates(self) -> None:
+        """Compare bundled version against the latest GitHub Release.
+
+        Doesn't auto-download — just shows a dialog with a link if a
+        newer prerelease/stable is available.
+        """
+        cur = _studio_version()
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                "https://api.github.com/repos/bnumsn/openlimno/releases",
+                headers={"User-Agent": f"OpenLimno-Studio/{cur}"},
+            )
+            with urllib.request.urlopen(req, timeout=8) as r:
+                import json as _json
+                releases = _json.load(r)
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Check for updates",
+                f"Couldn't reach GitHub: {e}",
+            )
+            return
+        if not releases:
+            QMessageBox.information(self, "Check for updates",
+                                      f"No releases yet (current: {cur}).")
+            return
+        latest = releases[0]
+        latest_tag = latest.get("tag_name", "").lstrip("v")
+        url = latest.get("html_url", "https://github.com/bnumsn/openlimno/releases")
+        is_pre = latest.get("prerelease", False)
+        kind = "prerelease" if is_pre else "release"
+        if latest_tag == cur:
+            QMessageBox.information(
+                self, "Check for updates",
+                f"You're on the latest {kind}: <b>v{cur}</b>.",
+            )
+        else:
+            QMessageBox.information(
+                self, "Update available",
+                f"Current: <b>v{cur}</b><br>"
+                f"Latest {kind}: <b>v{latest_tag}</b><br><br>"
+                f'Download: <a href="{url}">{url}</a>',
+            )
 
     def _zoom_full_extent(self) -> None:
         extent = QgsRectangle()

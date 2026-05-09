@@ -110,8 +110,32 @@ def fetch_river_polyline(
         out geom;
         """
 
-    resp = requests.get(OVERPASS_URL, params={"data": query},
-                          headers={"User-Agent": USER_AGENT}, timeout=timeout)
+    # Split timeout into connect (fail fast if Overpass / DNS unreachable)
+    # vs read (give the server time to do the spatial query). Without a
+    # short connect timeout, an offline user waits the full 60 s.
+    try:
+        resp = requests.get(
+            OVERPASS_URL, params={"data": query},
+            headers={"User-Agent": USER_AGENT},
+            timeout=(5.0, timeout),  # (connect, read)
+        )
+    except requests.exceptions.ConnectionError as e:
+        raise ConnectionError(
+            f"Cannot reach the Overpass API ({OVERPASS_URL}). "
+            f"Network down? Tip: use --polyline mode with a GeoJSON "
+            f"LineString to skip Overpass entirely.\n\nDetail: {e}"
+        ) from e
+    except requests.exceptions.Timeout as e:
+        raise TimeoutError(
+            f"Overpass took longer than {timeout}s — server may be rate-"
+            f"limiting (50 req/min anonymous). Wait and retry, or use "
+            f"--polyline mode.\n\nDetail: {e}"
+        ) from e
+    if resp.status_code == 429:
+        raise RuntimeError(
+            "Overpass rate-limited (HTTP 429). Anonymous quota is 50 "
+            "queries / minute. Wait ~60 s and retry, or use --polyline mode."
+        )
     resp.raise_for_status()
     data = resp.json()
     ways = [e for e in data.get("elements", []) if e["type"] == "way"]

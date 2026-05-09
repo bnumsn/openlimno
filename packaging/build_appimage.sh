@@ -27,10 +27,33 @@ rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin"
 cp -r "$DIST"/* "$APPDIR/usr/bin/"
 
-# AppRun: the AppImage entry point
+# AppRun: the AppImage entry point. Runs a glibc preflight check so
+# users on too-old distros get a friendly error instead of cryptic
+# "GLIBC_2.38 not found" link errors.
 cat > "$APPDIR/AppRun" <<'EOF'
 #!/bin/bash
 HERE="$(dirname "$(readlink -f "$0")")"
+
+# Preflight: glibc minimum (set by build host's libc — 2.38 for Ubuntu 24.04)
+NEED_GLIBC="2.38"
+have_glibc="$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+' | tail -1)"
+if [ -n "$have_glibc" ]; then
+    # POSIX-shell version comparison via awk
+    cmp=$(awk -v a="$have_glibc" -v b="$NEED_GLIBC" 'BEGIN {
+        split(a, x, "."); split(b, y, ".");
+        if (x[1]+0 < y[1]+0) print "lt";
+        else if (x[1]+0 > y[1]+0) print "gt";
+        else if (x[2]+0 < y[2]+0) print "lt";
+        else print "ok";
+    }')
+    if [ "$cmp" = "lt" ]; then
+        echo "OpenLimno Studio requires glibc >= $NEED_GLIBC; this system has $have_glibc." >&2
+        echo "Compatible distros: Ubuntu 24.04+, Fedora 39+, Debian 13+, Arch, OpenSUSE Tumbleweed." >&2
+        echo "On older distros, install the QGIS plugin instead (see README)." >&2
+        exit 1
+    fi
+fi
+
 export PATH="$HERE/usr/bin:$PATH"
 export LD_LIBRARY_PATH="$HERE/usr/bin/_internal:$LD_LIBRARY_PATH"
 exec "$HERE/usr/bin/openlimno-studio" "$@"
