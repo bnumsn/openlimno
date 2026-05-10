@@ -87,11 +87,13 @@ def _build_arrow_catch_tuples() -> tuple[tuple[type, ...], tuple[type, ...]]:
     transient = _resolve(
         "ArrowInvalid",       # corrupt footer / bad data: retry-eligible
         "ArrowIOError",       # I/O underflow: retry-eligible
-        # Post-v0.1.1 round-2 review (Claude #1): memory pressure can
-        # be transient — a competing process briefly consuming RAM
-        # is exactly the kind of failure where the 50/100 ms backoff
-        # helps. Was incorrectly classified as permanent in v0.1.1.
-        "ArrowMemoryError",
+        # Post-v0.1.1 round-3 review (Claude + Gemini consensus):
+        # ``ArrowMemoryError`` was briefly moved here in round-2, but
+        # 50/100 ms backoff is far too short for an OS to free
+        # meaningful RAM. If pyarrow's allocation failed once, a
+        # 50 ms retry will almost certainly fail again — exactly
+        # the burn-the-budget pattern transient-vs-permanent was
+        # introduced to fix. Reverted to permanent below.
     )
     # All 8 currently-known permanent Arrow* classes plus the
     # ``ArrowException`` parent as a forward-compat fallback. Order
@@ -112,6 +114,7 @@ def _build_arrow_catch_tuples() -> tuple[tuple[type, ...], tuple[type, ...]]:
         "ArrowNotImplementedError", # unsupported encoding
         "ArrowTypeError",           # type coercion failure
         "ArrowCapacityError",       # >2 GB column
+        "ArrowMemoryError",         # alloc failure (50 ms backoff won't help)
         "ArrowSerializationError",  # cannot serialize
         "ArrowCancelled",           # operation cancelled (user-driven)
         "ArrowIndexError",          # out-of-bounds
@@ -186,6 +189,19 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
         # (post-v0.1.0 round-3 — Claude #1).
         try:
             t = pq.read_table(path)
+            # Post-v0.1.1 round-3 review (Gemini): the conversion
+            # ``c.to_pylist() + zip`` was previously OUTSIDE the try
+            # block. ``ArrowMemoryError``, ``ArrowTypeError``,
+            # ``ArrowCapacityError`` are all equally likely to fire
+            # during column materialization as during read_table —
+            # leaving conversion uncovered meant those exceptions
+            # bypassed our classification and propagated raw into the
+            # cache wrapper. Wrap conversion in the same try.
+            rows = [
+                dict(zip(t.column_names, row, strict=False))
+                for row in zip(*[c.to_pylist() for c in t.columns], strict=False)
+            ]
+            return rows
         except _ARROW_TRANSIENT as e:
             # Order matters: TRANSIENT first because _ARROW_PERMANENT
             # below contains the ``ArrowException`` parent as a
@@ -212,10 +228,6 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
             raise ParquetSchemaError(
                 f"parquet read failed permanently ({type(e).__name__}): {e}"
             ) from e
-        return [
-            dict(zip(t.column_names, row, strict=False))
-            for row in zip(*[c.to_pylist() for c in t.columns], strict=False)
-        ]
     # No pyarrow: try GDAL OGR.
     try:
         from osgeo import ogr

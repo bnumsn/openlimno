@@ -647,10 +647,11 @@ def test_arrow_catch_tuples_include_known_pyarrow_classes():
         "still get retried, burning the retry budget"
     )
 
-    # Transient family: ArrowInvalid / ArrowIOError + ArrowMemoryError
-    # (post-v0.1.1 round-2 — Claude #1: memory pressure can be
-    # transient, retry-eligible).
-    for name in ("ArrowInvalid", "ArrowIOError", "ArrowMemoryError"):
+    # Transient family: ArrowInvalid / ArrowIOError. Post-v0.1.1
+    # round-2 briefly added ArrowMemoryError; round-3 reverted it
+    # (50/100ms backoff doesn't help OS reclaim RAM; consensus
+    # Claude+Gemini).
+    for name in ("ArrowInvalid", "ArrowIOError"):
         cls = getattr(pa_lib, name, None)
         if cls is not None:
             assert cls in _ARROW_TRANSIENT, (
@@ -663,12 +664,13 @@ def test_arrow_catch_tuples_include_known_pyarrow_classes():
                 f"on what's actually a torn read"
             )
 
-    # Permanent family: post-v0.1.0 round-2 widened to 8 classes +
-    # ArrowException parent. Post-v0.1.1 round-2 (Claude #1) moved
-    # ArrowMemoryError back to transient (memory pressure can be
-    # transient). Permanent now: 7 specific + parent fallback.
+    # Permanent family: 8 specific + ArrowException parent fallback.
+    # Post-v0.1.1 round-3 (Claude+Gemini) restored ArrowMemoryError to
+    # permanent — 50/100ms backoff is too short for OS RAM reclamation,
+    # so retrying allocation failures just burns the budget.
     for name in ("ArrowKeyError", "ArrowTypeError",
                  "ArrowNotImplementedError", "ArrowCapacityError",
+                 "ArrowMemoryError",
                  "ArrowSerializationError",
                  "ArrowCancelled", "ArrowIndexError",
                  "ArrowException"):  # parent as fallback
@@ -689,6 +691,41 @@ def test_arrow_catch_tuples_include_known_pyarrow_classes():
                     f"retry semantics would apply to a guaranteed-"
                     f"permanent error"
                 )
+
+
+def test_forward_compat_unknown_arrow_subclass_routes_to_permanent():
+    """Post-v0.1.1 round-3 review (Claude min-coverage #4): the
+    forward-compat fallback is the ``ArrowException`` parent at the
+    end of ``_ARROW_PERMANENT``. An untested invariant: any future
+    pyarrow exception subclass that we haven't classified explicitly
+    MUST route to ``ParquetSchemaError`` (default-permanent).
+
+    Verify by raising a synthetic ``ArrowException`` subclass that
+    couldn't possibly be in our explicit list, and asserting it gets
+    permanent classification rather than escaping uncaught.
+    """
+    pytest.importorskip("pyarrow")
+    pa_lib = pytest.importorskip("pyarrow.lib")
+    arrow_exception = getattr(pa_lib, "ArrowException", None)
+    if arrow_exception is None:
+        pytest.skip("pyarrow.lib lacks ArrowException — vendor build")
+
+    class _FakeArrowSubclass(arrow_exception):  # type: ignore[valid-type, misc]
+        """Synthetic Arrow* subclass to test forward-compat fallback."""
+
+    from openlimno.gui_core import controller as ctl
+    import pyarrow.parquet as pq
+
+    def fake_read_unknown(path, **kwargs):
+        raise _FakeArrowSubclass("simulated future pyarrow error")
+
+    with patch.object(pq, "read_table", side_effect=fake_read_unknown):
+        with pytest.raises(ctl.ParquetSchemaError) as exc_info:
+            ctl._read_wua_parquet("/nonexistent/path.parquet")
+    assert isinstance(exc_info.value.__cause__, _FakeArrowSubclass), (
+        "forward-compat fallback regressed: synthetic ArrowException "
+        "subclass was not caught by the parent class in _ARROW_PERMANENT"
+    )
 
 
 def test_no_arrow_exception_sentinel_never_matches():
