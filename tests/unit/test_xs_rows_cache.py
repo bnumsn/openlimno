@@ -368,18 +368,14 @@ def test_except_clause_order_real_arrow_invalid_routes_to_oserror():
         pytest.skip("pyarrow.lib lacks ArrowInvalid on this build")
 
     from openlimno.gui_core import controller as ctl
+    import pyarrow.parquet as pq
 
     def fake_read_arrow_invalid(path, **kwargs):
         raise pa_lib.ArrowInvalid("simulated torn parquet footer")
 
-    with patch.object(ctl, "_read_wua_parquet",
-                        wraps=ctl._read_wua_parquet):
-        # Patch only ``pq.read_table`` inside the helper's scope by
-        # mocking the import. Cleanest: mock pyarrow.parquet.read_table.
-        import pyarrow.parquet as pq
-        with patch.object(pq, "read_table", side_effect=fake_read_arrow_invalid):
-            with pytest.raises(OSError) as exc_info:
-                ctl._read_wua_parquet("/nonexistent/path.parquet")
+    with patch.object(pq, "read_table", side_effect=fake_read_arrow_invalid):
+        with pytest.raises(OSError) as exc_info:
+            ctl._read_wua_parquet("/nonexistent/path.parquet")
     # Crucial: must be OSError, NOT ParquetSchemaError (which would
     # mean except-clause order regressed and transient was caught by
     # the permanent ArrowException-parent fallback).
@@ -525,15 +521,25 @@ def test_arrow_exception_normalised_to_oserror(tmp_path):
     # normalization is removed would let ``ArrowInvalid`` (a
     # ValueError + OSError-via-Arrow-MRO?) pass through and the old
     # test would silently green.
+    # Post-v0.1.0 round-4 review (Claude #7): tighten this from
+    # "if-branch on ArrowException availability" to "skip if absent."
+    # The previous form silently degraded the assertion to a vacuous
+    # "OSError raised somewhere" check on builds without ArrowException
+    # — which was much weaker than the test name promised. Skipping
+    # surfaces the under-coverage explicitly.
     import pyarrow.lib as pa_lib
     arrow_exc = getattr(pa_lib, "ArrowException", None)
-    if arrow_exc is not None:
-        assert not isinstance(exc_info.value, arrow_exc), (
-            f"normalisation regressed: exception is still an "
-            f"ArrowException ({type(exc_info.value).__name__}) — "
-            f"the cache wrapper would still see Arrow-typed errors "
-            f"and the asymmetric-MRO classes would escape."
+    if arrow_exc is None:
+        pytest.skip(
+            "pyarrow.lib lacks ArrowException — vendor build, can't "
+            "verify the normalisation invariant on this platform"
         )
+    assert not isinstance(exc_info.value, arrow_exc), (
+        f"normalisation regressed: exception is still an "
+        f"ArrowException ({type(exc_info.value).__name__}) — "
+        f"the cache wrapper would still see Arrow-typed errors "
+        f"and the asymmetric-MRO classes would escape."
+    )
     # Also verify the normalisation message is informative (cause
     # chain preserves the original Arrow exception for debugging).
     assert exc_info.value.__cause__ is not None, (
