@@ -197,9 +197,13 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
             # leaving conversion uncovered meant those exceptions
             # bypassed our classification and propagated raw into the
             # cache wrapper. Wrap conversion in the same try.
+            # Post-v0.1.1 round-4 review (Gemini #3): use
+            # ``strict=True`` for zip — column-length mismatch from a
+            # partial materialization failure should raise, not
+            # silently truncate to the shortest column.
             rows = [
-                dict(zip(t.column_names, row, strict=False))
-                for row in zip(*[c.to_pylist() for c in t.columns], strict=False)
+                dict(zip(t.column_names, row, strict=True))
+                for row in zip(*[c.to_pylist() for c in t.columns], strict=True)
             ]
             return rows
         except _ARROW_TRANSIENT as e:
@@ -227,6 +231,20 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
             # error: cancelled`` (which is wrong text for cancellation).
             raise ParquetSchemaError(
                 f"parquet read failed permanently ({type(e).__name__}): {e}"
+            ) from e
+        except MemoryError as e:
+            # Post-v0.1.1 round-4 review (Claude #5): plain
+            # ``MemoryError`` (not ``ArrowMemoryError``) can fire during
+            # ``to_pylist()`` on a multi-GB column. ``ArrowMemoryError``
+            # IS a ``MemoryError`` subclass and is caught by the
+            # ``_ARROW_PERMANENT`` clause above (preserving its
+            # specific Arrow class name in the message). This clause
+            # catches the *plain* ``MemoryError`` case which would
+            # otherwise escape both Arrow tuples AND the cache
+            # wrapper's ``(OSError, EOFError, RuntimeError)`` clause,
+            # surfacing to the GUI as an unhandled crash.
+            raise ParquetSchemaError(
+                f"parquet read failed permanently (MemoryError): {e}"
             ) from e
     # No pyarrow: try GDAL OGR.
     try:
