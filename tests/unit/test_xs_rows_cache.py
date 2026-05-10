@@ -503,21 +503,33 @@ def test_arrow_catch_tuples_include_known_pyarrow_classes():
                 f"on what's actually a torn read"
             )
 
-    # Permanent family: 4 schema/coercion classes.
+    # Permanent family: post-v0.1.0 round-2 (Codex P2) widened this
+    # from 4 classes to 8 + the ArrowException parent as forward-
+    # compat fallback. ALL of these must short-circuit retry; missing
+    # any one means a regression where (e.g.) ArrowMemoryError on
+    # allocation failure would burn 150 ms × 3 of GUI freeze.
     for name in ("ArrowKeyError", "ArrowTypeError",
-                 "ArrowNotImplementedError", "ArrowCapacityError"):
+                 "ArrowNotImplementedError", "ArrowCapacityError",
+                 "ArrowMemoryError", "ArrowSerializationError",
+                 "ArrowCancelled", "ArrowIndexError",
+                 "ArrowException"):  # parent as fallback
         cls = getattr(pa_lib, name, None)
         if cls is not None:
             assert cls in _ARROW_PERMANENT, (
                 f"_ARROW_PERMANENT must include pyarrow.lib.{name} so "
                 f"the cache retry SHORT-CIRCUITS instead of burning "
-                f"150ms × 3 attempts on a permanent failure"
+                f"150ms × 3 attempts on a permanent failure (or, for "
+                f"ArrowException, escaping uncaught into the GUI)"
             )
-            assert cls not in _ARROW_TRANSIENT, (
-                f"pyarrow.lib.{name} is a permanent failure — it must "
-                f"NOT be in _ARROW_TRANSIENT or torn-read retry "
-                f"semantics would apply to a guaranteed-permanent error"
-            )
+            if name != "ArrowException":
+                # ArrowException (parent) intentionally NOT in transient
+                # — it's the catch-all for forward compat.
+                assert cls not in _ARROW_TRANSIENT, (
+                    f"pyarrow.lib.{name} is a permanent failure — it "
+                    f"must NOT be in _ARROW_TRANSIENT or torn-read "
+                    f"retry semantics would apply to a guaranteed-"
+                    f"permanent error"
+                )
 
 
 def test_no_arrow_exception_sentinel_never_matches():

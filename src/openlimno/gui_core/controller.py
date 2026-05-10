@@ -87,11 +87,30 @@ def _build_arrow_catch_tuples() -> tuple[tuple[type, ...], tuple[type, ...]]:
         "ArrowInvalid",   # corrupt footer / bad data: retry-eligible
         "ArrowIOError",   # I/O underflow: retry-eligible
     )
+    # All 8 currently-known permanent Arrow* classes plus the
+    # ``ArrowException`` parent as a forward-compat fallback. Order
+    # matters: the parent ``ArrowException`` MUST be last so any
+    # explicit transient subclass (handled in the previous except
+    # clause) doesn't get caught here.
+    #
+    # Post-v0.1.0 round-2 review (Codex P2): the previous narrower
+    # list dropped ``ArrowMemoryError``, ``ArrowSerializationError``,
+    # ``ArrowCancelled``, ``ArrowIndexError``, and any future
+    # subclass — those would escape both this function AND the cache
+    # wrapper's ``except (OSError, EOFError, RuntimeError, ValueError)``
+    # tuple, crashing the GUI. Including ``ArrowException`` last
+    # gives forward-compatible coverage; new pyarrow exception types
+    # default to "permanent" (don't waste retry budget on unknown).
     permanent = _resolve(
         "ArrowKeyError",            # missing column lookup
         "ArrowNotImplementedError", # unsupported encoding
         "ArrowTypeError",           # type coercion failure
         "ArrowCapacityError",       # >2 GB column
+        "ArrowMemoryError",         # allocation failure
+        "ArrowSerializationError",  # cannot serialize
+        "ArrowCancelled",           # operation cancelled
+        "ArrowIndexError",          # out-of-bounds
+        "ArrowException",           # forward-compat fallback (parent)
     )
     return transient, permanent
 
@@ -152,18 +171,26 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
     if pq is not None:
         try:
             t = pq.read_table(path)
-        except _ARROW_PERMANENT as e:
-            # Permanent failures: missing column, unsupported encoding,
-            # type coercion fail, oversized column. No amount of retry
-            # will fix these — surface immediately so the caller sees a
-            # fast, actionable error instead of 150 ms of UI freeze.
-            raise ParquetSchemaError(f"parquet schema/capacity error: {e}") from e
         except _ARROW_TRANSIENT as e:
+            # Order matters: TRANSIENT first because _ARROW_PERMANENT
+            # below contains the ``ArrowException`` parent as a
+            # forward-compat fallback, which would otherwise match
+            # ``ArrowInvalid`` (a transient subclass) and
+            # mis-classify it as permanent.
+            #
             # Round-3 review (Claude): ArrowInvalid is a ValueError
             # subclass, ArrowIOError is an OSError subclass. Normalise
             # both to OSError so the cache wrapper's exception tuple
             # treats them uniformly as transient (retry-eligible).
             raise OSError(f"parquet read failed: {e}") from e
+        except _ARROW_PERMANENT as e:
+            # Permanent failures: missing column, unsupported encoding,
+            # type coercion fail, oversized column, allocation, etc.
+            # The ``ArrowException`` parent at the end of
+            # ``_ARROW_PERMANENT`` catches any future subclass we
+            # haven't classified yet — conservative default is "don't
+            # retry on unknown."
+            raise ParquetSchemaError(f"parquet schema/capacity error: {e}") from e
         return [
             dict(zip(t.column_names, row, strict=False))
             for row in zip(*[c.to_pylist() for c in t.columns], strict=False)
