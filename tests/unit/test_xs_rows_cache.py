@@ -422,7 +422,7 @@ def test_real_arrow_keyerror_routes_to_parquet_schema_error():
     assert not isinstance(exc_info.value, OSError), (
         "REGRESSION: ArrowKeyError was caught by the _ARROW_TRANSIENT "
         "clause (classified as transient) — would cause cache retry "
-        "to burn 150ms × 3 attempts on a permanent missing-column "
+        "to burn ~150ms total backoff (50+100ms across 3 attempts) on a permanent missing-column "
         "failure"
     )
 
@@ -452,16 +452,18 @@ def test_cache_loop_except_clause_order_pins_short_circuit(subject, parquet_file
     )
 
     for exc_cls in (MissingParquetBackend, ParquetSchemaError):
-        state = {"calls": 0}
+        state = {"calls": 0, "raised": None}
 
         def fake_raise(p, _e=exc_cls):
             state["calls"] += 1
-            raise _e(f"simulated {_e.__name__}")
+            instance = _e(f"simulated {_e.__name__}")
+            state["raised"] = instance
+            raise instance
 
         with patch("openlimno.gui_core.controller._read_wua_parquet",
                      side_effect=fake_raise), \
              patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
-            with pytest.raises(exc_cls):
+            with pytest.raises(exc_cls) as exc_info:
                 subject._read_xs_rows_cached(
                     str(parquet_file), max_retries=3
                 )
@@ -478,12 +480,25 @@ def test_cache_loop_except_clause_order_pins_short_circuit(subject, parquet_file
             f"REGRESSION: {exc_cls.__name__} triggered backoff sleep — "
             f"the short-circuit clause is not running first."
         )
+        # Post-v0.1.1 round-2 review (Claude #4): pin EXCEPTION IDENTITY,
+        # not just type. A regression that converted ``raise`` to
+        # ``raise OSError(str(e))`` in the broader clause would still
+        # raise the right type-name (because the test type is the
+        # original) but lose the original exception object — the
+        # ``raise`` short-circuit MUST propagate the same instance.
+        assert exc_info.value is state["raised"], (
+            f"REGRESSION: {exc_cls.__name__} was caught and re-raised "
+            f"as a NEW instance (not propagated via bare ``raise``). "
+            f"This means the broader clause caught it and either "
+            f"converted to OSError or re-wrapped — short-circuit is "
+            f"broken even though the type happens to match."
+        )
 
 
 def test_parquet_schema_error_short_circuits_retry(subject, parquet_file):
     """Post-v0.1.0 round-1 review (Claude #1): the round-3 ArrowException
     normalisation re-raised the WHOLE Arrow* family as ``OSError``,
-    which made the cache retry burn 150ms × 3 attempts on permanent
+    which made the cache retry burn ~150ms total backoff (50+100ms across 3 attempts) on permanent
     schema failures (``ArrowKeyError`` = missing column,
     ``ArrowNotImplementedError`` = unsupported encoding, etc).
 
@@ -632,8 +647,10 @@ def test_arrow_catch_tuples_include_known_pyarrow_classes():
         "still get retried, burning the retry budget"
     )
 
-    # Transient family: ArrowInvalid / ArrowIOError.
-    for name in ("ArrowInvalid", "ArrowIOError"):
+    # Transient family: ArrowInvalid / ArrowIOError + ArrowMemoryError
+    # (post-v0.1.1 round-2 — Claude #1: memory pressure can be
+    # transient, retry-eligible).
+    for name in ("ArrowInvalid", "ArrowIOError", "ArrowMemoryError"):
         cls = getattr(pa_lib, name, None)
         if cls is not None:
             assert cls in _ARROW_TRANSIENT, (
@@ -646,14 +663,13 @@ def test_arrow_catch_tuples_include_known_pyarrow_classes():
                 f"on what's actually a torn read"
             )
 
-    # Permanent family: post-v0.1.0 round-2 (Codex P2) widened this
-    # from 4 classes to 8 + the ArrowException parent as forward-
-    # compat fallback. ALL of these must short-circuit retry; missing
-    # any one means a regression where (e.g.) ArrowMemoryError on
-    # allocation failure would burn 150 ms × 3 of GUI freeze.
+    # Permanent family: post-v0.1.0 round-2 widened to 8 classes +
+    # ArrowException parent. Post-v0.1.1 round-2 (Claude #1) moved
+    # ArrowMemoryError back to transient (memory pressure can be
+    # transient). Permanent now: 7 specific + parent fallback.
     for name in ("ArrowKeyError", "ArrowTypeError",
                  "ArrowNotImplementedError", "ArrowCapacityError",
-                 "ArrowMemoryError", "ArrowSerializationError",
+                 "ArrowSerializationError",
                  "ArrowCancelled", "ArrowIndexError",
                  "ArrowException"):  # parent as fallback
         cls = getattr(pa_lib, name, None)
@@ -661,7 +677,7 @@ def test_arrow_catch_tuples_include_known_pyarrow_classes():
             assert cls in _ARROW_PERMANENT, (
                 f"_ARROW_PERMANENT must include pyarrow.lib.{name} so "
                 f"the cache retry SHORT-CIRCUITS instead of burning "
-                f"150ms × 3 attempts on a permanent failure (or, for "
+                f"~150ms total backoff (50+100ms across 3 attempts) on a permanent failure (or, for "
                 f"ArrowException, escaping uncaught into the GUI)"
             )
             if name != "ArrowException":

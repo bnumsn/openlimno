@@ -59,7 +59,8 @@ def _build_arrow_catch_tuples() -> tuple[tuple[type, ...], tuple[type, ...]]:
     ``ArrowCapacityError`` = >2 GB column) in with truly transient I/O
     issues (``ArrowInvalid`` = torn footer, ``ArrowIOError`` = read
     underflow). Re-raising both as ``OSError`` made the cache retry
-    burn 150 ms × 3 attempts on guaranteed-permanent failures — same
+    burn ~150 ms total backoff (50 + 100 ms) across 3 attempts on
+    guaranteed-permanent failures — same
     pattern that ``MissingParquetBackend`` was introduced to fix.
 
     Now returns ``(transient, permanent)``. Caller in
@@ -84,8 +85,13 @@ def _build_arrow_catch_tuples() -> tuple[tuple[type, ...], tuple[type, ...]]:
         return tuple(classes) if classes else (_NoArrowExceptionAvailable,)
 
     transient = _resolve(
-        "ArrowInvalid",   # corrupt footer / bad data: retry-eligible
-        "ArrowIOError",   # I/O underflow: retry-eligible
+        "ArrowInvalid",       # corrupt footer / bad data: retry-eligible
+        "ArrowIOError",       # I/O underflow: retry-eligible
+        # Post-v0.1.1 round-2 review (Claude #1): memory pressure can
+        # be transient — a competing process briefly consuming RAM
+        # is exactly the kind of failure where the 50/100 ms backoff
+        # helps. Was incorrectly classified as permanent in v0.1.1.
+        "ArrowMemoryError",
     )
     # All 8 currently-known permanent Arrow* classes plus the
     # ``ArrowException`` parent as a forward-compat fallback. Order
@@ -106,9 +112,8 @@ def _build_arrow_catch_tuples() -> tuple[tuple[type, ...], tuple[type, ...]]:
         "ArrowNotImplementedError", # unsupported encoding
         "ArrowTypeError",           # type coercion failure
         "ArrowCapacityError",       # >2 GB column
-        "ArrowMemoryError",         # allocation failure
         "ArrowSerializationError",  # cannot serialize
-        "ArrowCancelled",           # operation cancelled
+        "ArrowCancelled",           # operation cancelled (user-driven)
         "ArrowIndexError",          # out-of-bounds
         "ArrowException",           # forward-compat fallback (parent)
     )
@@ -144,7 +149,8 @@ class ParquetSchemaError(RuntimeError):
     inherits from ``RuntimeError`` so GUI direct-call sites' existing
     ``except (..., RuntimeError)`` clause continues to surface a
     friendly QMessageBox; the cache retry loop must short-circuit on
-    this subtype to avoid burning 150 ms × 3 on a guaranteed-permanent
+    this subtype to avoid burning ~150 ms total (50+100 ms backoff
+    across 3 attempts) on a guaranteed-permanent
     failure (post-v0.1.0 round-1 — Claude #1).
     """
 
@@ -199,7 +205,13 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
             # ``_ARROW_PERMANENT`` catches any future subclass we
             # haven't classified yet — conservative default is "don't
             # retry on unknown."
-            raise ParquetSchemaError(f"parquet schema/capacity error: {e}") from e
+            # Post-v0.1.1 round-2 review (Claude #2): include the
+            # original Arrow* class name in the message so cases like
+            # ``ArrowCancelled`` don't read as ``parquet schema/capacity
+            # error: cancelled`` (which is wrong text for cancellation).
+            raise ParquetSchemaError(
+                f"parquet read failed permanently ({type(e).__name__}): {e}"
+            ) from e
         return [
             dict(zip(t.column_names, row, strict=False))
             for row in zip(*[c.to_pylist() for c in t.columns], strict=False)
