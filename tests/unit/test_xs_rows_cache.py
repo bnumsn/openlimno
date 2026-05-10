@@ -347,6 +347,90 @@ def test_missing_backend_short_circuits_retry(subject, parquet_file):
     assert mock_sleep.call_count == 0
 
 
+def test_except_clause_order_real_arrow_invalid_routes_to_oserror():
+    """Post-v0.1.0 round-3 review (Claude #1): the except-clause order
+    in ``_read_wua_parquet`` is load-bearing — ``_ARROW_PERMANENT``
+    contains the ``ArrowException`` parent (forward-compat fallback),
+    which is also a superclass of ``ArrowInvalid`` listed in
+    ``_ARROW_TRANSIENT``. Python's except-matching tries clauses in
+    source order; if a refactor swaps TRANSIENT and PERMANENT blocks,
+    every transient ArrowInvalid would silently get re-classified as
+    permanent — killing retry semantics for torn reads.
+
+    This test pins the order: a real ``ArrowInvalid`` raised by
+    ``pq.read_table`` MUST surface as ``OSError`` (transient path),
+    NOT ``ParquetSchemaError`` (permanent path). A swap regression
+    would fail this immediately.
+    """
+    pytest.importorskip("pyarrow")
+    pa_lib = pytest.importorskip("pyarrow.lib")
+    if not hasattr(pa_lib, "ArrowInvalid"):
+        pytest.skip("pyarrow.lib lacks ArrowInvalid on this build")
+
+    from openlimno.gui_core import controller as ctl
+
+    def fake_read_arrow_invalid(path, **kwargs):
+        raise pa_lib.ArrowInvalid("simulated torn parquet footer")
+
+    with patch.object(ctl, "_read_wua_parquet",
+                        wraps=ctl._read_wua_parquet):
+        # Patch only ``pq.read_table`` inside the helper's scope by
+        # mocking the import. Cleanest: mock pyarrow.parquet.read_table.
+        import pyarrow.parquet as pq
+        with patch.object(pq, "read_table", side_effect=fake_read_arrow_invalid):
+            with pytest.raises(OSError) as exc_info:
+                ctl._read_wua_parquet("/nonexistent/path.parquet")
+    # Crucial: must be OSError, NOT ParquetSchemaError (which would
+    # mean except-clause order regressed and transient was caught by
+    # the permanent ArrowException-parent fallback).
+    assert not isinstance(exc_info.value, ctl.ParquetSchemaError), (
+        "REGRESSION: ArrowInvalid (transient) was caught by the "
+        "_ARROW_PERMANENT clause via its ArrowException parent — the "
+        "except blocks were probably reordered. Transient retry "
+        "semantics are now broken for torn parquet reads."
+    )
+
+
+def test_real_arrow_keyerror_routes_to_parquet_schema_error():
+    """Post-v0.1.0 round-3 review (Claude #4): the round-2 fix split
+    ``_ARROW_PERMANENT`` to short-circuit retry on schema errors, but
+    no integration test verified that an actual ``ArrowKeyError``
+    raised by ``pq.read_table`` traverses the normalisation correctly.
+
+    The existing ``test_parquet_schema_error_short_circuits_retry``
+    mocks ``_read_wua_parquet`` itself, bypassing the helper's
+    classification logic. This test mocks one level lower
+    (``pq.read_table``) so the actual ``except _ARROW_PERMANENT``
+    branch fires and re-raises as ``ParquetSchemaError``.
+    """
+    pytest.importorskip("pyarrow")
+    pa_lib = pytest.importorskip("pyarrow.lib")
+    if not hasattr(pa_lib, "ArrowKeyError"):
+        pytest.skip("pyarrow.lib lacks ArrowKeyError on this build")
+
+    from openlimno.gui_core import controller as ctl
+    import pyarrow.parquet as pq
+
+    def fake_read_arrow_keyerror(path, **kwargs):
+        raise pa_lib.ArrowKeyError("simulated missing column 'station_m'")
+
+    with patch.object(pq, "read_table", side_effect=fake_read_arrow_keyerror):
+        with pytest.raises(ctl.ParquetSchemaError) as exc_info:
+            ctl._read_wua_parquet("/nonexistent/path.parquet")
+    # Cause chain must preserve the original ArrowKeyError for
+    # debugging.
+    assert exc_info.value.__cause__ is not None
+    assert isinstance(exc_info.value.__cause__, pa_lib.ArrowKeyError)
+    # Must NOT be re-raised as OSError (which would mean it got
+    # mis-classified as transient and would burn retry budget).
+    assert not isinstance(exc_info.value, OSError), (
+        "REGRESSION: ArrowKeyError was caught by the _ARROW_TRANSIENT "
+        "clause (classified as transient) — would cause cache retry "
+        "to burn 150ms × 3 attempts on a permanent missing-column "
+        "failure"
+    )
+
+
 def test_parquet_schema_error_short_circuits_retry(subject, parquet_file):
     """Post-v0.1.0 round-1 review (Claude #1): the round-3 ArrowException
     normalisation re-raised the WHOLE Arrow* family as ``OSError``,
