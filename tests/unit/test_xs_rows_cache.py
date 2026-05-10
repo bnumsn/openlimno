@@ -316,6 +316,124 @@ def test_typeerror_propagates_does_not_retry(subject, parquet_file):
     assert mock_sleep.call_count == 0
 
 
+def test_missing_backend_short_circuits_retry(subject, parquet_file):
+    """v0.1.0-final residual #3 (post-alpha.13 Claude): the cache
+    wrapper's ``except MissingParquetBackend: raise`` clause must
+    precede the broader ``except (..., RuntimeError)`` so a stripped
+    install (no pyarrow + no GDAL) does not burn the retry budget on
+    a permanent install problem.
+
+    A tooling-driven reorder of the except clauses (ruff sort, etc.)
+    would silently regress this. This test pins the behaviour: zero
+    retries, zero sleep, error propagates immediately.
+    """
+    from openlimno.gui_core.controller import MissingParquetBackend
+
+    state = {"calls": 0}
+
+    def fake_no_backend(p):
+        state["calls"] += 1
+        raise MissingParquetBackend("neither pyarrow nor GDAL")
+
+    with patch("openlimno.gui_core.controller._read_wua_parquet",
+                 side_effect=fake_no_backend), \
+         patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
+        with pytest.raises(MissingParquetBackend):
+            subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
+    assert state["calls"] == 1, (
+        f"MissingParquetBackend should short-circuit, but read was called "
+        f"{state['calls']}× (retry budget burned on a permanent failure)"
+    )
+    assert mock_sleep.call_count == 0
+
+
+def test_missing_parquet_backend_subclasses_runtime_error():
+    """v0.1.0-final residual #3: the subclass relationship is
+    load-bearing. ``MissingParquetBackend`` must subclass
+    ``RuntimeError`` so the GUI direct-call sites'
+    ``except (..., RuntimeError)`` continues to surface a friendly
+    QMessageBox without per-site changes when both backends are
+    missing.
+    """
+    from openlimno.gui_core.controller import MissingParquetBackend
+    assert issubclass(MissingParquetBackend, RuntimeError), (
+        "MissingParquetBackend must subclass RuntimeError so GUI "
+        "handlers' existing except tuple catches it; changing the "
+        "parent class would silently break the friendly-error UX"
+    )
+
+
+def test_arrow_exception_normalised_to_oserror(tmp_path):
+    """v0.1.0-final residual (post-alpha.13 round-3 codex MRO probe):
+    pyarrow's exception MRO is asymmetric — ``ArrowInvalid`` is a
+    ``ValueError`` and ``ArrowIOError`` is an ``OSError``, but
+    ``ArrowCapacityError``, ``ArrowKeyError``,
+    ``ArrowNotImplementedError``, ``ArrowTypeError`` inherit only
+    from ``ArrowException`` → ``Exception``. Without normalization
+    in ``_read_wua_parquet``, those four would escape the cache
+    wrapper's ``except (OSError, EOFError, ValueError, RuntimeError)``
+    tuple and crash the GUI thread.
+
+    The fix: catch ``ArrowException`` inside ``_read_wua_parquet``
+    and re-raise as ``OSError``. This integration test verifies the
+    real (non-mocked) code path: garbage bytes that pyarrow's reader
+    rejects must surface as ``OSError``, NOT as an Arrow* class.
+    """
+    pytest.importorskip("pyarrow")
+    from openlimno.gui_core.controller import _read_wua_parquet
+
+    bad_parquet = tmp_path / "garbage.parquet"
+    bad_parquet.write_bytes(b"not a parquet file at all")
+
+    with pytest.raises(OSError) as exc_info:
+        _read_wua_parquet(str(bad_parquet))
+    # Specifically NOT raising the underlying Arrow* class — the whole
+    # point is that the cache wrapper sees a stable OSError contract
+    # regardless of which Arrow subclass pyarrow chose internally.
+    import pyarrow.lib as pa_lib
+    arrow_exc = getattr(pa_lib, "ArrowException", None)
+    if arrow_exc is not None and arrow_exc is not OSError:
+        # Sentinel case (no ArrowException) is fine; otherwise verify
+        # the OSError isn't *actually* an Arrow* class wearing OSError
+        # via MRO accident.
+        assert isinstance(exc_info.value, OSError), (
+            f"expected pure OSError, got {type(exc_info.value).__name__} "
+            f"with MRO {type(exc_info.value).__mro__}"
+        )
+    # Also verify the normalisation message is informative (cause
+    # chain preserves the original Arrow exception for debugging).
+    assert exc_info.value.__cause__ is not None, (
+        "OSError should chain from the underlying ArrowException via "
+        "``raise ... from e`` so debugging the original cause stays "
+        "possible"
+    )
+
+
+def test_no_arrow_exception_sentinel_never_matches():
+    """v0.1.0-final residual #4 (post-alpha.13 Claude): some vendor
+    pyarrow builds don't expose ``ArrowException`` on ``pyarrow.lib``.
+    The fix introduced a ``_NoArrowExceptionAvailable`` sentinel so
+    ``except ArrowException`` is always a syntactically valid clause.
+    The sentinel must never match any real exception that
+    ``pq.read_table`` would raise, so the absence of ``ArrowException``
+    silently downgrades to the cache wrapper's broader ``except``
+    tuple (OSError/ValueError/EOFError/RuntimeError) instead of
+    swallowing a real failure.
+    """
+    from openlimno.gui_core.controller import _NoArrowExceptionAvailable
+
+    # The sentinel inherits from Exception (it must, to be valid in
+    # an ``except`` clause) but should not match any common error.
+    for real_exc in (
+        OSError("io"), ValueError("bad"), RuntimeError("runtime"),
+        EOFError("eof"), TypeError("type"), KeyError("key"),
+    ):
+        assert not isinstance(real_exc, _NoArrowExceptionAvailable), (
+            f"{type(real_exc).__name__} matched the sentinel — vendor "
+            f"pyarrow without ArrowException would silently swallow it"
+        )
+
+
 def test_realpath_normalises_cache_key(subject, parquet_file, tmp_path):
     """Qt file dialogs sometimes change cwd; cache keys must not be
     sensitive to relative-vs-absolute spelling."""

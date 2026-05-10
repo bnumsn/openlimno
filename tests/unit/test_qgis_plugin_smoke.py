@@ -42,7 +42,11 @@ def test_plugin_metadata_present() -> None:
 
 def test_plugin_csv_helper_handles_openlimno_header(tmp_path: Path) -> None:
     """Helper should skip OpenLimno '#'-prefixed comment lines."""
-    from openlimno.qgis.openlimno_qgis_plugin.plugin import OpenLimnoPlugin
+    # The CSV/parquet readers moved from OpenLimnoPlugin (a thin shim
+    # over the controller) to module-level helpers in
+    # ``openlimno.gui_core.controller`` once the QGIS-plugin and
+    # standalone-Studio paths shared a Controller class.
+    from openlimno.gui_core.controller import _read_wua_csv
 
     csv_path = tmp_path / "wua_q.csv"
     csv_path.write_text(
@@ -52,7 +56,7 @@ def test_plugin_csv_helper_handles_openlimno_header(tmp_path: Path) -> None:
         "1.0,18.0\n"
         "5.0,62.0\n"
     )
-    rows = OpenLimnoPlugin._read_wua_csv(str(csv_path))
+    rows = _read_wua_csv(str(csv_path))
     # Comment-prefix rows skipped, data rows parsed
     assert len(rows) == 2
     assert "discharge_m3s" in rows[0]
@@ -68,8 +72,8 @@ def test_plugin_parquet_helper_returns_list(tmp_path: Path) -> None:
     df = pd.DataFrame({"discharge_m3s": [1.0, 2.0], "wua": [10.0, 20.0]})
     pq.write_table(pa.Table.from_pandas(df, preserve_index=False), str(tmp_path / "wua.parquet"))
 
-    from openlimno.qgis.openlimno_qgis_plugin.plugin import OpenLimnoPlugin
+    from openlimno.gui_core.controller import _read_wua_parquet
 
-    rows = OpenLimnoPlugin._read_wua_parquet(str(tmp_path / "wua.parquet"))
+    rows = _read_wua_parquet(str(tmp_path / "wua.parquet"))
     assert len(rows) == 2
     assert rows[0]["discharge_m3s"] == 1.0

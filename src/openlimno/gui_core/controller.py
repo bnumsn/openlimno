@@ -38,6 +38,15 @@ def _read_wua_csv(path: str) -> list[dict[str, str]]:
     return list(csv.DictReader(data_lines))
 
 
+class _NoArrowExceptionAvailable(Exception):
+    """Sentinel: never matches any real exception.
+
+    Used in ``_read_wua_parquet`` when ``pyarrow.lib.ArrowException``
+    is missing on a vendor pyarrow build. ``except _NoArrowException...``
+    is then a valid statement that simply never fires.
+    """
+
+
 class MissingParquetBackend(RuntimeError):
     """Neither pyarrow nor GDAL/OGR is importable.
 
@@ -62,13 +71,26 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
     between backends; read failures propagate so the cache layer can
     act on them.
     """
+    # v0.1.0-final residual #4 (post-alpha.13 Claude post-ship): some
+    # vendor pyarrow builds don't expose ``ArrowException`` on
+    # ``pyarrow.lib``. The previous combined import would raise
+    # ``ImportError`` on the second line and silently downgrade to the
+    # GDAL backend even when pyarrow is otherwise functional. Split the
+    # imports so a missing ``ArrowException`` symbol is non-fatal.
     try:
         import pyarrow.parquet as pq
-        from pyarrow.lib import ArrowException
     except ImportError:
         pq = None
-        ArrowException = None
+    ArrowException: type = _NoArrowExceptionAvailable
     if pq is not None:
+        try:
+            from pyarrow.lib import ArrowException as _ae
+        except (ImportError, AttributeError):
+            pass  # ArrowException unavailable; ArrowInvalid still
+            # subclasses ValueError and ArrowIOError still subclasses
+            # OSError, both caught by the cache wrapper directly.
+        else:
+            ArrowException = _ae
         try:
             t = pq.read_table(path)
         except ArrowException as e:
