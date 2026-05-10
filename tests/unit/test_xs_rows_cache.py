@@ -409,6 +409,55 @@ def test_arrow_exception_normalised_to_oserror(tmp_path):
     )
 
 
+def test_arrow_catch_tuple_includes_known_pyarrow_classes():
+    """v0.1.0 RC round-3 review (Claude #8): a positive test for the
+    module-level ``_ARROW_CATCH`` tuple, so a vendor-pyarrow regression
+    that drops e.g. ``ArrowInvalid`` would actually fail CI instead of
+    silently downgrading to the sentinel and passing the existing
+    "doesn't crash on garbage bytes" test.
+
+    On a standard pyarrow install the tuple should contain at minimum
+    ``ArrowException`` (the canonical parent that catches all six
+    subclasses transitively).
+    """
+    pyarrow = pytest.importorskip("pyarrow")
+    pa_lib = pytest.importorskip("pyarrow.lib")
+
+    from openlimno.gui_core.controller import (
+        _ARROW_CATCH, _NoArrowExceptionAvailable,
+    )
+
+    assert _ARROW_CATCH != (_NoArrowExceptionAvailable,), (
+        "with pyarrow installed, _ARROW_CATCH must NOT be the sentinel "
+        "fallback — that would mean parquet read failures bypass "
+        "normalization to OSError"
+    )
+
+    arrow_exception = getattr(pa_lib, "ArrowException", None)
+    if arrow_exception is not None:
+        # Standard pyarrow: parent class is sufficient to catch all
+        # subclasses transitively.
+        assert arrow_exception in _ARROW_CATCH, (
+            "_ARROW_CATCH must include pyarrow.lib.ArrowException on "
+            "standard installs; missing it means future Arrow* "
+            "subclasses (e.g. ArrowSerializationError) would escape"
+        )
+    else:
+        # Vendor pyarrow without the parent: tuple must still cover
+        # the asymmetric MRO classes that don't subclass
+        # OSError/ValueError naturally.
+        for name in ("ArrowKeyError", "ArrowTypeError",
+                     "ArrowCapacityError", "ArrowNotImplementedError"):
+            cls = getattr(pa_lib, name, None)
+            if cls is not None:
+                assert cls in _ARROW_CATCH, (
+                    f"vendor pyarrow lacks ArrowException but exposes "
+                    f"{name}; _ARROW_CATCH must include it directly "
+                    f"or the asymmetric-MRO class would escape both "
+                    f"normalization and the cache wrapper's tuple"
+                )
+
+
 def test_no_arrow_exception_sentinel_never_matches():
     """v0.1.0-final residual #4 (post-alpha.13 Claude): some vendor
     pyarrow builds don't expose ``ArrowException`` on ``pyarrow.lib``.

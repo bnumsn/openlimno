@@ -41,10 +41,55 @@ def _read_wua_csv(path: str) -> list[dict[str, str]]:
 class _NoArrowExceptionAvailable(Exception):
     """Sentinel: never matches any real exception.
 
-    Used in ``_read_wua_parquet`` when ``pyarrow.lib.ArrowException``
-    is missing on a vendor pyarrow build. ``except _NoArrowException...``
-    is then a valid statement that simply never fires.
+    Used as a fallback in the module-level ``_ARROW_CATCH`` tuple when
+    pyarrow has no recognisable Arrow* exception classes (no
+    ``ArrowException`` parent, no individual subclasses). ``except
+    _NoArrowExceptionAvailable`` is then a syntactically valid clause
+    that simply never fires.
     """
+
+
+def _build_arrow_catch_tuple() -> tuple[type, ...]:
+    """Build the catch-tuple for ``_read_wua_parquet`` once at module
+    import time.
+
+    v0.1.0 RC round-2 review (Claude): the previous per-call build was
+    O(N) introspection on a hot path (every parquet read), and made
+    it impossible to unit-test what the tuple contained — refactors
+    that drop a class would silently downgrade to the sentinel and
+    existing tests would still pass. Hoisting to module scope fixes
+    both: one introspection at import, plus the resulting tuple is
+    importable and assertable from tests.
+
+    Tries the canonical ``ArrowException`` parent first; falls back to
+    the six known individual ``Arrow*`` subclasses if a vendor build
+    omits the parent symbol. ``pyarrow.lib`` itself is import-guarded
+    too, since some vendor shims expose ``pyarrow.parquet`` without
+    the underlying ``pyarrow.lib`` module.
+    """
+    try:
+        from pyarrow import lib as _pa_lib
+    except ImportError:
+        return (_NoArrowExceptionAvailable,)
+    classes = []
+    for name in (
+        "ArrowException",            # canonical parent
+        "ArrowInvalid",              # corrupt footer / bad data
+        "ArrowIOError",              # I/O underflow
+        "ArrowCapacityError",        # >2 GB column, etc.
+        "ArrowKeyError",             # missing column lookup
+        "ArrowNotImplementedError",  # unsupported encoding
+        "ArrowTypeError",            # type coercion failure
+    ):
+        cls = getattr(_pa_lib, name, None)
+        if isinstance(cls, type) and issubclass(cls, BaseException):
+            classes.append(cls)
+    return tuple(classes) if classes else (_NoArrowExceptionAvailable,)
+
+
+# Module-level: built once at import. Tests assert against this tuple
+# directly to detect vendor-pyarrow downgrades.
+_ARROW_CATCH: tuple[type, ...] = _build_arrow_catch_tuple()
 
 
 class MissingParquetBackend(RuntimeError):
@@ -71,45 +116,19 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
     between backends; read failures propagate so the cache layer can
     act on them.
     """
-    # v0.1.0-final residual #4 (post-alpha.13 Claude post-ship): some
-    # vendor pyarrow builds don't expose ``ArrowException`` on
-    # ``pyarrow.lib``. The previous combined import would raise
-    # ``ImportError`` on the second line and silently downgrade to the
-    # GDAL backend even when pyarrow is otherwise functional. Split the
-    # imports so a missing ``ArrowException`` symbol is non-fatal.
-    #
-    # v0.1.0 RC review (Codex P2): the previous fallback used a
-    # ``_NoArrowExceptionAvailable`` sentinel that never matches, so
-    # ``ArrowTypeError``/``ArrowKeyError`` (which inherit only from
-    # ``TypeError``/``KeyError``, not OSError/EOFError/RuntimeError/
-    # ValueError) would escape both the helper's normalization AND the
-    # cache wrapper's exception tuple. Build a real catch-tuple from
-    # whichever individual ``Arrow*`` classes exist on the vendor
-    # build, fall back to the sentinel only if none do.
+    # v0.1.0 RC round-3 review (Claude): the catch-tuple is built once
+    # at module import (``_ARROW_CATCH``) instead of rebuilt per call
+    # — both for performance on the hot path AND so it can be asserted
+    # against in tests. Vendor-pyarrow detection lives in
+    # ``_build_arrow_catch_tuple`` above.
     try:
         import pyarrow.parquet as pq
     except ImportError:
         pq = None
-    arrow_catch: tuple[type, ...] = (_NoArrowExceptionAvailable,)
     if pq is not None:
-        from pyarrow import lib as _pa_lib
-        _attrs = [
-            getattr(_pa_lib, name, None) for name in (
-                "ArrowException",            # canonical parent
-                "ArrowInvalid",              # corrupt footer/data
-                "ArrowIOError",              # I/O underflow
-                "ArrowCapacityError",        # >2GB column, etc.
-                "ArrowKeyError",             # missing column lookup
-                "ArrowNotImplementedError",  # unsupported encoding
-                "ArrowTypeError",            # type coercion failure
-            )
-        ]
-        _classes = tuple(c for c in _attrs if isinstance(c, type) and issubclass(c, BaseException))
-        if _classes:
-            arrow_catch = _classes
         try:
             t = pq.read_table(path)
-        except arrow_catch as e:
+        except _ARROW_CATCH as e:
             # Round-3 review (Claude): only ArrowInvalid subclasses
             # ``ValueError`` and only ArrowIOError subclasses ``OSError``;
             # ArrowCapacityError / ArrowKeyError / ArrowNotImplemented
