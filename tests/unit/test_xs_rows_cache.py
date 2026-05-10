@@ -387,18 +387,22 @@ def test_arrow_exception_normalised_to_oserror(tmp_path):
 
     with pytest.raises(OSError) as exc_info:
         _read_wua_parquet(str(bad_parquet))
-    # Specifically NOT raising the underlying Arrow* class — the whole
-    # point is that the cache wrapper sees a stable OSError contract
-    # regardless of which Arrow subclass pyarrow chose internally.
+    # v0.1.0 RC round-3 review (Claude #4): the previous assertion was
+    # tautological — ``pytest.raises(OSError)`` already enforces
+    # ``isinstance(exc, OSError)``. The actual invariant we want to
+    # pin: the raised exception is NOT one of the pyarrow Arrow*
+    # classes leaking through unwrapped. A regression where the
+    # normalization is removed would let ``ArrowInvalid`` (a
+    # ValueError + OSError-via-Arrow-MRO?) pass through and the old
+    # test would silently green.
     import pyarrow.lib as pa_lib
     arrow_exc = getattr(pa_lib, "ArrowException", None)
-    if arrow_exc is not None and arrow_exc is not OSError:
-        # Sentinel case (no ArrowException) is fine; otherwise verify
-        # the OSError isn't *actually* an Arrow* class wearing OSError
-        # via MRO accident.
-        assert isinstance(exc_info.value, OSError), (
-            f"expected pure OSError, got {type(exc_info.value).__name__} "
-            f"with MRO {type(exc_info.value).__mro__}"
+    if arrow_exc is not None:
+        assert not isinstance(exc_info.value, arrow_exc), (
+            f"normalisation regressed: exception is still an "
+            f"ArrowException ({type(exc_info.value).__name__}) — "
+            f"the cache wrapper would still see Arrow-typed errors "
+            f"and the asymmetric-MRO classes would escape."
         )
     # Also verify the normalisation message is informative (cause
     # chain preserves the original Arrow exception for debugging).

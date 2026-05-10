@@ -186,7 +186,7 @@ echo "==> Launching Codex, Gemini, Claude in parallel..."
         # here cover: classic API-key auth, organization scoping
         # (which changes billing), endpoint override (which changes
         # provider), Azure routing, project ID for newer auth flows.
-        env -u OPENAI_API_KEY -u OPENAI_BASE_URL \
+        env -u OPENAI_API_KEY -u OPENAI_BASE_URL -u OPENAI_API_BASE \
             -u OPENAI_ORG_ID -u OPENAI_ORGANIZATION \
             -u OPENAI_PROJECT_ID -u OPENAI_API_TYPE \
             -u CODEX_API_KEY \
@@ -212,7 +212,8 @@ PID_CODEX=$!
         # redirection / service-account auth respectively.
         env -u GEMINI_API_KEY -u GOOGLE_API_KEY \
             -u GOOGLE_GENERATIVE_AI_API_KEY \
-            -u GOOGLE_GENAI_USE_VERTEXAI -u GOOGLE_CLOUD_PROJECT \
+            -u GOOGLE_GENAI_USE_VERTEXAI \
+            -u GOOGLE_CLOUD_PROJECT -u GOOGLE_CLOUD_PROJECT_ID \
             -u GOOGLE_CLOUD_LOCATION -u GOOGLE_GEMINI_BASE_URL \
             -u GOOGLE_APPLICATION_CREDENTIALS \
             gemini -p "$(cat "$PROMPT_FILE")" < "$DIFF_FILE" 2>&1
