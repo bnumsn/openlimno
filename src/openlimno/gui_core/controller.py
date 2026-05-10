@@ -77,23 +77,39 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
     # ``ImportError`` on the second line and silently downgrade to the
     # GDAL backend even when pyarrow is otherwise functional. Split the
     # imports so a missing ``ArrowException`` symbol is non-fatal.
+    #
+    # v0.1.0 RC review (Codex P2): the previous fallback used a
+    # ``_NoArrowExceptionAvailable`` sentinel that never matches, so
+    # ``ArrowTypeError``/``ArrowKeyError`` (which inherit only from
+    # ``TypeError``/``KeyError``, not OSError/EOFError/RuntimeError/
+    # ValueError) would escape both the helper's normalization AND the
+    # cache wrapper's exception tuple. Build a real catch-tuple from
+    # whichever individual ``Arrow*`` classes exist on the vendor
+    # build, fall back to the sentinel only if none do.
     try:
         import pyarrow.parquet as pq
     except ImportError:
         pq = None
-    ArrowException: type = _NoArrowExceptionAvailable
+    arrow_catch: tuple[type, ...] = (_NoArrowExceptionAvailable,)
     if pq is not None:
-        try:
-            from pyarrow.lib import ArrowException as _ae
-        except (ImportError, AttributeError):
-            pass  # ArrowException unavailable; ArrowInvalid still
-            # subclasses ValueError and ArrowIOError still subclasses
-            # OSError, both caught by the cache wrapper directly.
-        else:
-            ArrowException = _ae
+        from pyarrow import lib as _pa_lib
+        _attrs = [
+            getattr(_pa_lib, name, None) for name in (
+                "ArrowException",            # canonical parent
+                "ArrowInvalid",              # corrupt footer/data
+                "ArrowIOError",              # I/O underflow
+                "ArrowCapacityError",        # >2GB column, etc.
+                "ArrowKeyError",             # missing column lookup
+                "ArrowNotImplementedError",  # unsupported encoding
+                "ArrowTypeError",            # type coercion failure
+            )
+        ]
+        _classes = tuple(c for c in _attrs if isinstance(c, type) and issubclass(c, BaseException))
+        if _classes:
+            arrow_catch = _classes
         try:
             t = pq.read_table(path)
-        except ArrowException as e:
+        except arrow_catch as e:
             # Round-3 review (Claude): only ArrowInvalid subclasses
             # ``ValueError`` and only ArrowIOError subclasses ``OSError``;
             # ArrowCapacityError / ArrowKeyError / ArrowNotImplemented
