@@ -347,6 +347,52 @@ def test_missing_backend_short_circuits_retry(subject, parquet_file):
     assert mock_sleep.call_count == 0
 
 
+def test_parquet_schema_error_short_circuits_retry(subject, parquet_file):
+    """Post-v0.1.0 round-1 review (Claude #1): the round-3 ArrowException
+    normalisation re-raised the WHOLE Arrow* family as ``OSError``,
+    which made the cache retry burn 150ms × 3 attempts on permanent
+    schema failures (``ArrowKeyError`` = missing column,
+    ``ArrowNotImplementedError`` = unsupported encoding, etc).
+
+    Same fix pattern as ``MissingParquetBackend``: a dedicated
+    ``ParquetSchemaError(RuntimeError)`` subclass that the cache loop
+    short-circuits explicitly. This test pins the load-bearing
+    behaviour.
+    """
+    from openlimno.gui_core.controller import ParquetSchemaError
+
+    state = {"calls": 0}
+
+    def fake_schema_error(p):
+        state["calls"] += 1
+        raise ParquetSchemaError("missing required column 'station_m'")
+
+    with patch("openlimno.gui_core.controller._read_wua_parquet",
+                 side_effect=fake_schema_error), \
+         patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
+        with pytest.raises(ParquetSchemaError):
+            subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
+    assert state["calls"] == 1, (
+        f"ParquetSchemaError must short-circuit, but read was called "
+        f"{state['calls']}× (retry budget burned on a permanent "
+        f"schema/capacity failure)"
+    )
+    assert mock_sleep.call_count == 0
+
+
+def test_parquet_schema_error_subclasses_runtime_error():
+    """Symmetric to test_missing_parquet_backend_subclasses_runtime_error.
+    GUI direct-call sites' ``except (..., RuntimeError)`` must continue
+    to surface a friendly QMessageBox when a corrupt parquet hits a
+    permanent schema failure path.
+    """
+    from openlimno.gui_core.controller import ParquetSchemaError
+    assert issubclass(ParquetSchemaError, RuntimeError), (
+        "ParquetSchemaError must subclass RuntimeError so GUI handlers' "
+        "existing except tuple catches it"
+    )
+
+
 def test_missing_parquet_backend_subclasses_runtime_error():
     """v0.1.0-final residual #3: the subclass relationship is
     load-bearing. ``MissingParquetBackend`` must subclass
@@ -413,53 +459,65 @@ def test_arrow_exception_normalised_to_oserror(tmp_path):
     )
 
 
-def test_arrow_catch_tuple_includes_known_pyarrow_classes():
-    """v0.1.0 RC round-3 review (Claude #8): a positive test for the
-    module-level ``_ARROW_CATCH`` tuple, so a vendor-pyarrow regression
-    that drops e.g. ``ArrowInvalid`` would actually fail CI instead of
-    silently downgrading to the sentinel and passing the existing
-    "doesn't crash on garbage bytes" test.
+def test_arrow_catch_tuples_include_known_pyarrow_classes():
+    """v0.1.0 RC round-3 review (Claude #8) + post-v0.1.0 round-1
+    (Claude #1): positive test for the module-level
+    ``_ARROW_TRANSIENT`` and ``_ARROW_PERMANENT`` tuples, so a
+    vendor-pyarrow regression that drops e.g. ``ArrowInvalid`` from
+    transient or ``ArrowKeyError`` from permanent would actually fail
+    CI instead of silently degrading retry classification.
 
-    On a standard pyarrow install the tuple should contain at minimum
-    ``ArrowException`` (the canonical parent that catches all six
-    subclasses transitively).
+    Transient (retry-eligible): ``ArrowInvalid``, ``ArrowIOError``.
+    Permanent (short-circuit): ``ArrowKeyError``, ``ArrowTypeError``,
+    ``ArrowNotImplementedError``, ``ArrowCapacityError``.
     """
-    pyarrow = pytest.importorskip("pyarrow")
+    pytest.importorskip("pyarrow")
     pa_lib = pytest.importorskip("pyarrow.lib")
 
     from openlimno.gui_core.controller import (
-        _ARROW_CATCH, _NoArrowExceptionAvailable,
+        _ARROW_TRANSIENT, _ARROW_PERMANENT, _NoArrowExceptionAvailable,
     )
 
-    assert _ARROW_CATCH != (_NoArrowExceptionAvailable,), (
-        "with pyarrow installed, _ARROW_CATCH must NOT be the sentinel "
-        "fallback — that would mean parquet read failures bypass "
-        "normalization to OSError"
+    assert _ARROW_TRANSIENT != (_NoArrowExceptionAvailable,), (
+        "with pyarrow installed, _ARROW_TRANSIENT must NOT be the "
+        "sentinel fallback — that would mean transient parquet read "
+        "failures bypass OSError normalization and the cache retry"
+    )
+    assert _ARROW_PERMANENT != (_NoArrowExceptionAvailable,), (
+        "with pyarrow installed, _ARROW_PERMANENT must NOT be the "
+        "sentinel fallback — that would mean permanent schema errors "
+        "still get retried, burning the retry budget"
     )
 
-    arrow_exception = getattr(pa_lib, "ArrowException", None)
-    if arrow_exception is not None:
-        # Standard pyarrow: parent class is sufficient to catch all
-        # subclasses transitively.
-        assert arrow_exception in _ARROW_CATCH, (
-            "_ARROW_CATCH must include pyarrow.lib.ArrowException on "
-            "standard installs; missing it means future Arrow* "
-            "subclasses (e.g. ArrowSerializationError) would escape"
-        )
-    else:
-        # Vendor pyarrow without the parent: tuple must still cover
-        # the asymmetric MRO classes that don't subclass
-        # OSError/ValueError naturally.
-        for name in ("ArrowKeyError", "ArrowTypeError",
-                     "ArrowCapacityError", "ArrowNotImplementedError"):
-            cls = getattr(pa_lib, name, None)
-            if cls is not None:
-                assert cls in _ARROW_CATCH, (
-                    f"vendor pyarrow lacks ArrowException but exposes "
-                    f"{name}; _ARROW_CATCH must include it directly "
-                    f"or the asymmetric-MRO class would escape both "
-                    f"normalization and the cache wrapper's tuple"
-                )
+    # Transient family: ArrowInvalid / ArrowIOError.
+    for name in ("ArrowInvalid", "ArrowIOError"):
+        cls = getattr(pa_lib, name, None)
+        if cls is not None:
+            assert cls in _ARROW_TRANSIENT, (
+                f"_ARROW_TRANSIENT must include pyarrow.lib.{name} so "
+                f"the cache retry treats it as a transient I/O issue"
+            )
+            assert cls not in _ARROW_PERMANENT, (
+                f"pyarrow.lib.{name} is transient — it must NOT be "
+                f"in _ARROW_PERMANENT or it would short-circuit retry "
+                f"on what's actually a torn read"
+            )
+
+    # Permanent family: 4 schema/coercion classes.
+    for name in ("ArrowKeyError", "ArrowTypeError",
+                 "ArrowNotImplementedError", "ArrowCapacityError"):
+        cls = getattr(pa_lib, name, None)
+        if cls is not None:
+            assert cls in _ARROW_PERMANENT, (
+                f"_ARROW_PERMANENT must include pyarrow.lib.{name} so "
+                f"the cache retry SHORT-CIRCUITS instead of burning "
+                f"150ms × 3 attempts on a permanent failure"
+            )
+            assert cls not in _ARROW_TRANSIENT, (
+                f"pyarrow.lib.{name} is a permanent failure — it must "
+                f"NOT be in _ARROW_TRANSIENT or torn-read retry "
+                f"semantics would apply to a guaranteed-permanent error"
+            )
 
 
 def test_no_arrow_exception_sentinel_never_matches():

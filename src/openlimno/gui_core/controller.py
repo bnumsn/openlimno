@@ -49,47 +49,57 @@ class _NoArrowExceptionAvailable(Exception):
     """
 
 
-def _build_arrow_catch_tuple() -> tuple[type, ...]:
-    """Build the catch-tuple for ``_read_wua_parquet`` once at module
-    import time.
+def _build_arrow_catch_tuples() -> tuple[tuple[type, ...], tuple[type, ...]]:
+    """Build TWO catch-tuples: transient and permanent Arrow* failures.
 
-    v0.1.0 RC round-2 review (Claude): the previous per-call build was
-    O(N) introspection on a hot path (every parquet read), and made
-    it impossible to unit-test what the tuple contained — refactors
-    that drop a class would silently downgrade to the sentinel and
-    existing tests would still pass. Hoisting to module scope fixes
-    both: one introspection at import, plus the resulting tuple is
-    importable and assertable from tests.
+    Post-v0.1.0 round-1 review (Claude #1): the previous single
+    ``_ARROW_CATCH`` lumped permanent schema/coercion failures
+    (``ArrowKeyError`` = missing column, ``ArrowNotImplementedError`` =
+    unsupported encoding, ``ArrowTypeError`` = type coercion fail,
+    ``ArrowCapacityError`` = >2 GB column) in with truly transient I/O
+    issues (``ArrowInvalid`` = torn footer, ``ArrowIOError`` = read
+    underflow). Re-raising both as ``OSError`` made the cache retry
+    burn 150 ms × 3 attempts on guaranteed-permanent failures — same
+    pattern that ``MissingParquetBackend`` was introduced to fix.
 
-    Tries the canonical ``ArrowException`` parent first; falls back to
-    the six known individual ``Arrow*`` subclasses if a vendor build
-    omits the parent symbol. ``pyarrow.lib`` itself is import-guarded
-    too, since some vendor shims expose ``pyarrow.parquet`` without
-    the underlying ``pyarrow.lib`` module.
+    Now returns ``(transient, permanent)``. Caller in
+    ``_read_wua_parquet`` routes the two through different normalised
+    exception types; ``_read_xs_rows_cached`` short-circuits the
+    permanent class like it does for ``MissingParquetBackend``.
+
+    Vendor-pyarrow handling: each tuple falls back to the sentinel if
+    none of its classes are available on the build.
     """
     try:
         from pyarrow import lib as _pa_lib
     except ImportError:
-        return (_NoArrowExceptionAvailable,)
-    classes = []
-    for name in (
-        "ArrowException",            # canonical parent
-        "ArrowInvalid",              # corrupt footer / bad data
-        "ArrowIOError",              # I/O underflow
-        "ArrowCapacityError",        # >2 GB column, etc.
-        "ArrowKeyError",             # missing column lookup
-        "ArrowNotImplementedError",  # unsupported encoding
-        "ArrowTypeError",            # type coercion failure
-    ):
-        cls = getattr(_pa_lib, name, None)
-        if isinstance(cls, type) and issubclass(cls, BaseException):
-            classes.append(cls)
-    return tuple(classes) if classes else (_NoArrowExceptionAvailable,)
+        return (_NoArrowExceptionAvailable,), (_NoArrowExceptionAvailable,)
+
+    def _resolve(*names: str) -> tuple[type, ...]:
+        classes = []
+        for name in names:
+            cls = getattr(_pa_lib, name, None)
+            if isinstance(cls, type) and issubclass(cls, BaseException):
+                classes.append(cls)
+        return tuple(classes) if classes else (_NoArrowExceptionAvailable,)
+
+    transient = _resolve(
+        "ArrowInvalid",   # corrupt footer / bad data: retry-eligible
+        "ArrowIOError",   # I/O underflow: retry-eligible
+    )
+    permanent = _resolve(
+        "ArrowKeyError",            # missing column lookup
+        "ArrowNotImplementedError", # unsupported encoding
+        "ArrowTypeError",           # type coercion failure
+        "ArrowCapacityError",       # >2 GB column
+    )
+    return transient, permanent
 
 
-# Module-level: built once at import. Tests assert against this tuple
-# directly to detect vendor-pyarrow downgrades.
-_ARROW_CATCH: tuple[type, ...] = _build_arrow_catch_tuple()
+# Module-level: built once at import. Tests assert against these
+# tuples directly to detect vendor-pyarrow downgrades and the
+# transient-vs-permanent partition.
+_ARROW_TRANSIENT, _ARROW_PERMANENT = _build_arrow_catch_tuples()
 
 
 class MissingParquetBackend(RuntimeError):
@@ -105,6 +115,21 @@ class MissingParquetBackend(RuntimeError):
     """
 
 
+class ParquetSchemaError(RuntimeError):
+    """Permanent parquet failure that should NOT be retried.
+
+    Used by ``_read_wua_parquet`` to normalise the four Arrow* classes
+    that represent permanent schema or capacity failures
+    (``ArrowKeyError``, ``ArrowNotImplementedError``, ``ArrowTypeError``,
+    ``ArrowCapacityError``). Like ``MissingParquetBackend``, this
+    inherits from ``RuntimeError`` so GUI direct-call sites' existing
+    ``except (..., RuntimeError)`` clause continues to surface a
+    friendly QMessageBox; the cache retry loop must short-circuit on
+    this subtype to avoid burning 150 ms × 3 on a guaranteed-permanent
+    failure (post-v0.1.0 round-1 — Claude #1).
+    """
+
+
 def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
     """Read parquet via pyarrow (preferred) with GDAL/OGR fallback.
 
@@ -116,11 +141,10 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
     between backends; read failures propagate so the cache layer can
     act on them.
     """
-    # v0.1.0 RC round-3 review (Claude): the catch-tuple is built once
-    # at module import (``_ARROW_CATCH``) instead of rebuilt per call
-    # — both for performance on the hot path AND so it can be asserted
-    # against in tests. Vendor-pyarrow detection lives in
-    # ``_build_arrow_catch_tuple`` above.
+    # Catch tuples built once at module import (above). Two-tuple
+    # split so transient I/O is retried by the cache wrapper while
+    # permanent schema/coercion failures short-circuit (post-v0.1.0
+    # round-1 — Claude #1).
     try:
         import pyarrow.parquet as pq
     except ImportError:
@@ -128,13 +152,17 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
     if pq is not None:
         try:
             t = pq.read_table(path)
-        except _ARROW_CATCH as e:
-            # Round-3 review (Claude): only ArrowInvalid subclasses
-            # ``ValueError`` and only ArrowIOError subclasses ``OSError``;
-            # ArrowCapacityError / ArrowKeyError / ArrowNotImplemented
-            # would escape the cache wrapper's exception tuple and crash
-            # the GUI. Normalise the whole family to ``OSError`` so
-            # callers don't need to track pyarrow's MRO.
+        except _ARROW_PERMANENT as e:
+            # Permanent failures: missing column, unsupported encoding,
+            # type coercion fail, oversized column. No amount of retry
+            # will fix these — surface immediately so the caller sees a
+            # fast, actionable error instead of 150 ms of UI freeze.
+            raise ParquetSchemaError(f"parquet schema/capacity error: {e}") from e
+        except _ARROW_TRANSIENT as e:
+            # Round-3 review (Claude): ArrowInvalid is a ValueError
+            # subclass, ArrowIOError is an OSError subclass. Normalise
+            # both to OSError so the cache wrapper's exception tuple
+            # treats them uniformly as transient (retry-eligible).
             raise OSError(f"parquet read failed: {e}") from e
         return [
             dict(zip(t.column_names, row, strict=False))
@@ -990,11 +1018,12 @@ class Controller:
                 continue
             try:
                 rows = _read_wua_parquet(path)
-            except MissingParquetBackend:
-                # Round-2 review (Claude P1 #3 + Gemini): permanent
-                # install failure — no point retrying with backoff.
-                # Propagate immediately so the caller sees a fast,
-                # clear error rather than 150 ms of UI freeze.
+            except (MissingParquetBackend, ParquetSchemaError):
+                # Round-2 review (Claude P1 #3 + Gemini) + post-v0.1.0
+                # round-1 (Claude #1): permanent install failure
+                # (MissingParquetBackend) or permanent schema/capacity
+                # error (ParquetSchemaError) — no amount of retry will
+                # fix these. Propagate immediately.
                 raise
             except (OSError, EOFError, RuntimeError) as e:
                 # Round-7 review (all 3): narrow from `except Exception`
