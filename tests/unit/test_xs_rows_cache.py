@@ -427,6 +427,59 @@ def test_real_arrow_keyerror_routes_to_parquet_schema_error():
     )
 
 
+def test_cache_loop_except_clause_order_pins_short_circuit(subject, parquet_file):
+    """Post-v0.1.1 round-1 review (Claude): the cache wrapper's except
+    clauses are also load-bearing in source order, but no test pins
+    them.
+
+    ``_read_xs_rows_cached`` has:
+        except (MissingParquetBackend, ParquetSchemaError): raise
+        except (OSError, EOFError, RuntimeError) as e: ... continue
+
+    Both MissingParquetBackend and ParquetSchemaError inherit from
+    RuntimeError. If someone reorders the broader RuntimeError clause
+    BEFORE the explicit short-circuit clause, both permanent classes
+    get caught by the broader tuple and retried 3× with backoff —
+    silently undoing the entire round-1 fix.
+
+    The other regression test (``test_except_clause_order_real_arrow_invalid_routes_to_oserror``)
+    pins the helper's order. This test pins the cache wrapper's
+    order by counting actual calls + sleeps. A reorder regression
+    would show calls=3 instead of 1.
+    """
+    from openlimno.gui_core.controller import (
+        MissingParquetBackend, ParquetSchemaError,
+    )
+
+    for exc_cls in (MissingParquetBackend, ParquetSchemaError):
+        state = {"calls": 0}
+
+        def fake_raise(p, _e=exc_cls):
+            state["calls"] += 1
+            raise _e(f"simulated {_e.__name__}")
+
+        with patch("openlimno.gui_core.controller._read_wua_parquet",
+                     side_effect=fake_raise), \
+             patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
+            with pytest.raises(exc_cls):
+                subject._read_xs_rows_cached(
+                    str(parquet_file), max_retries=3
+                )
+        # Reset cache between iterations.
+        subject._xs_rows_cache = {}
+
+        assert state["calls"] == 1, (
+            f"REGRESSION: {exc_cls.__name__} was caught by the broader "
+            f"(OSError, EOFError, RuntimeError) clause and RETRIED — "
+            f"the cache-loop except clauses must have been reordered. "
+            f"Got {state['calls']} calls, expected 1 (short-circuit)."
+        )
+        assert mock_sleep.call_count == 0, (
+            f"REGRESSION: {exc_cls.__name__} triggered backoff sleep — "
+            f"the short-circuit clause is not running first."
+        )
+
+
 def test_parquet_schema_error_short_circuits_retry(subject, parquet_file):
     """Post-v0.1.0 round-1 review (Claude #1): the round-3 ArrowException
     normalisation re-raised the WHOLE Arrow* family as ``OSError``,

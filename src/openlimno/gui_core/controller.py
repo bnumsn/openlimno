@@ -169,6 +169,15 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
     except ImportError:
         pq = None
     if pq is not None:
+        # ===== DO NOT REORDER THESE except CLAUSES =====
+        # _ARROW_PERMANENT below contains the ``ArrowException`` parent
+        # as a forward-compat fallback; ArrowInvalid (in
+        # _ARROW_TRANSIENT) IS a subclass of ArrowException via the
+        # MRO. Python tries except clauses in source order, so swapping
+        # would silently classify all transient errors as permanent
+        # and disable retry. Pinned by
+        # ``test_except_clause_order_real_arrow_invalid_routes_to_oserror``
+        # (post-v0.1.0 round-3 — Claude #1).
         try:
             t = pq.read_table(path)
         except _ARROW_TRANSIENT as e:
@@ -1043,14 +1052,22 @@ class Controller:
             if pre is None:
                 last_error = OSError(f"cannot stat {path}")
                 continue
+            # ===== DO NOT REORDER THESE except CLAUSES =====
+            # Both MissingParquetBackend and ParquetSchemaError inherit
+            # from RuntimeError (so GUI direct-call sites' existing
+            # except-tuple catches them with a friendly QMessageBox).
+            # The cache short-circuit MUST come before the broader
+            # RuntimeError clause below — otherwise both permanent
+            # classes get caught as transient and retried 3× with
+            # backoff, undoing the whole point of the dedicated
+            # subclasses. Pinned by
+            # ``test_cache_loop_except_clause_order_pins_short_circuit``
+            # (post-v0.1.1 round-1 — Claude).
             try:
                 rows = _read_wua_parquet(path)
             except (MissingParquetBackend, ParquetSchemaError):
-                # Round-2 review (Claude P1 #3 + Gemini) + post-v0.1.0
-                # round-1 (Claude #1): permanent install failure
-                # (MissingParquetBackend) or permanent schema/capacity
-                # error (ParquetSchemaError) — no amount of retry will
-                # fix these. Propagate immediately.
+                # Permanent failures: install missing or schema/capacity
+                # error. No amount of retry will fix these.
                 raise
             except (OSError, EOFError, RuntimeError) as e:
                 # Round-7 review (all 3): narrow from `except Exception`
