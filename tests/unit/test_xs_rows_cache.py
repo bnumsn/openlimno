@@ -728,6 +728,78 @@ def test_forward_compat_unknown_arrow_subclass_routes_to_permanent():
     )
 
 
+class _FakeColumn:
+    """Mock pyarrow Column whose to_pylist behavior we control."""
+    def __init__(self, values, raise_exc=None):
+        self._values = values
+        self._raise_exc = raise_exc
+
+    def to_pylist(self):
+        if self._raise_exc is not None:
+            raise self._raise_exc
+        return self._values
+
+
+class _FakeTable:
+    """Mock pyarrow Table that provides .column_names and .columns
+    iteration matching the ``_read_wua_parquet`` consumption pattern.
+    """
+    def __init__(self, column_names, columns):
+        self.column_names = column_names
+        self.columns = columns
+
+
+def test_plain_memoryerror_routes_to_parquet_schema_error():
+    """Post-v0.1.1 round-4 fix (Claude #5): plain ``MemoryError``
+    (not ``ArrowMemoryError``) can fire during ``to_pylist()`` on a
+    multi-GB column. Pre-fix this would escape both Arrow tuples AND
+    the cache wrapper's tuple and crash the GUI.
+
+    Returns a fake table whose column raises plain ``MemoryError``
+    on ``to_pylist()``; asserts ``_read_wua_parquet`` re-raises as
+    ``ParquetSchemaError``.
+    """
+    pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+
+    from openlimno.gui_core import controller as ctl
+
+    fake_table = _FakeTable(
+        column_names=["x"],
+        columns=[_FakeColumn(None, raise_exc=MemoryError("alloc failed"))],
+    )
+    with patch.object(pq, "read_table", return_value=fake_table):
+        with pytest.raises(ctl.ParquetSchemaError) as exc_info:
+            ctl._read_wua_parquet("/nonexistent/path.parquet")
+    assert isinstance(exc_info.value.__cause__, MemoryError)
+    assert "MemoryError" in str(exc_info.value)
+
+
+def test_zip_strict_mismatch_routes_to_parquet_schema_error():
+    """Post-v0.1.1 round-5 review (Claude #1): the round-4 change to
+    ``zip(strict=True)`` introduced a new ``ValueError`` path on
+    column-length mismatch. Pre-round-5 this would escape uncaught.
+
+    Returns a fake table whose columns have different lengths,
+    triggering ``zip(strict=True)`` to raise. Asserts the helper
+    re-raises as ``ParquetSchemaError`` with cause-chain to ValueError.
+    """
+    pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+
+    from openlimno.gui_core import controller as ctl
+
+    fake_table = _FakeTable(
+        column_names=["x", "y"],
+        columns=[_FakeColumn([1, 2, 3]), _FakeColumn([10])],  # length mismatch
+    )
+    with patch.object(pq, "read_table", return_value=fake_table):
+        with pytest.raises(ctl.ParquetSchemaError) as exc_info:
+            ctl._read_wua_parquet("/nonexistent/path.parquet")
+    assert "column mismatch" in str(exc_info.value)
+    assert isinstance(exc_info.value.__cause__, ValueError)
+
+
 def test_no_arrow_exception_sentinel_never_matches():
     """v0.1.0-final residual #4 (post-alpha.13 Claude): some vendor
     pyarrow builds don't expose ``ArrowException`` on ``pyarrow.lib``.

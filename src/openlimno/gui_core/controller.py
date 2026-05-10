@@ -96,10 +96,15 @@ def _build_arrow_catch_tuples() -> tuple[tuple[type, ...], tuple[type, ...]]:
         # introduced to fix. Reverted to permanent below.
     )
     # All 8 currently-known permanent Arrow* classes plus the
-    # ``ArrowException`` parent as a forward-compat fallback. Order
-    # matters: the parent ``ArrowException`` MUST be last so any
-    # explicit transient subclass (handled in the previous except
-    # clause) doesn't get caught here.
+    # ``ArrowException`` parent as a forward-compat fallback.
+    # Post-v0.1.1 round-5 review (Claude #2): the previous version of
+    # this comment claimed "Order matters: the parent ArrowException
+    # MUST be last" — that's FALSE. Python's ``except (A, B, C)``
+    # uses isinstance against all classes in the tuple, so tuple
+    # order is irrelevant here. The actual load-bearing order is
+    # the order of the EXCEPT BLOCKS in ``_read_wua_parquet``
+    # (TRANSIENT block before PERMANENT block), which is documented
+    # there with its own DO-NOT-REORDER comment.
     #
     # Post-v0.1.0 round-2 review (Codex P2): the previous narrower
     # list dropped ``ArrowMemoryError``, ``ArrowSerializationError``,
@@ -231,6 +236,18 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
             # error: cancelled`` (which is wrong text for cancellation).
             raise ParquetSchemaError(
                 f"parquet read failed permanently ({type(e).__name__}): {e}"
+            ) from e
+        except ValueError as e:
+            # Post-v0.1.1 round-5 review (Claude #1): the round-4 change
+            # to ``zip(strict=True)`` raises a plain ``ValueError`` on
+            # column-length mismatch. Plain ValueError is NOT in any of
+            # the Arrow tuples (ArrowInvalid IS a ValueError but goes
+            # through _ARROW_TRANSIENT first), NOT in the cache
+            # wrapper's ``(OSError, EOFError, RuntimeError)`` tuple, and
+            # would crash the GUI uncaught. A column-length mismatch is
+            # a permanent schema-shape failure — classify accordingly.
+            raise ParquetSchemaError(
+                f"parquet read failed permanently (column mismatch): {e}"
             ) from e
         except MemoryError as e:
             # Post-v0.1.1 round-4 review (Claude #5): plain
