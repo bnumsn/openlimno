@@ -749,6 +749,99 @@ class _FakeTable:
         self.columns = columns
 
 
+def test_convert_phase_arrow_transient_routes_to_oserror():
+    """Post-v0.1.2 round-2 review (Claude min-coverage a): the
+    CONVERT phase has its own ``except _ARROW_TRANSIENT`` clause
+    (Gemini round-3's fix), but pre-round-2 had no test. A regression
+    that deletes the CONVERT-phase Arrow catches would silently let
+    Arrow exceptions during materialization escape uncaught.
+
+    Mocks a ``_FakeColumn`` whose ``to_pylist()`` raises a real
+    ``ArrowInvalid`` (transient); verifies the helper re-raises as
+    ``OSError``.
+    """
+    pytest.importorskip("pyarrow")
+    pa_lib = pytest.importorskip("pyarrow.lib")
+    pq = pytest.importorskip("pyarrow.parquet")
+    if not hasattr(pa_lib, "ArrowInvalid"):
+        pytest.skip("pyarrow.lib lacks ArrowInvalid on this build")
+
+    from openlimno.gui_core import controller as ctl
+
+    fake_table = _FakeTable(
+        column_names=["x"],
+        columns=[_FakeColumn(
+            None, raise_exc=pa_lib.ArrowInvalid("simulated mid-materialization")
+        )],
+    )
+    with patch.object(pq, "read_table", return_value=fake_table):
+        with pytest.raises(OSError) as exc_info:
+            ctl._read_wua_parquet("/nonexistent/path.parquet")
+    # Must be OSError (transient), NOT ParquetSchemaError (permanent).
+    assert not isinstance(exc_info.value, ctl.ParquetSchemaError), (
+        "CONVERT-phase ArrowInvalid must route to OSError (transient), "
+        "not ParquetSchemaError (permanent)"
+    )
+    assert isinstance(exc_info.value.__cause__, pa_lib.ArrowInvalid)
+
+
+def test_convert_phase_arrow_permanent_routes_to_parquet_schema_error():
+    """Post-v0.1.2 round-2 review (Claude min-coverage b): symmetric
+    to the transient test — CONVERT-phase ``ArrowKeyError`` (in
+    ``_ARROW_PERMANENT``) raised during materialization must route
+    to ``ParquetSchemaError``, not bypass classification.
+    """
+    pytest.importorskip("pyarrow")
+    pa_lib = pytest.importorskip("pyarrow.lib")
+    pq = pytest.importorskip("pyarrow.parquet")
+    if not hasattr(pa_lib, "ArrowKeyError"):
+        pytest.skip("pyarrow.lib lacks ArrowKeyError on this build")
+
+    from openlimno.gui_core import controller as ctl
+
+    fake_table = _FakeTable(
+        column_names=["x"],
+        columns=[_FakeColumn(
+            None, raise_exc=pa_lib.ArrowKeyError("simulated bad column ref")
+        )],
+    )
+    with patch.object(pq, "read_table", return_value=fake_table):
+        with pytest.raises(ctl.ParquetSchemaError) as exc_info:
+            ctl._read_wua_parquet("/nonexistent/path.parquet")
+    assert isinstance(exc_info.value.__cause__, pa_lib.ArrowKeyError)
+    # The CONVERT-phase message should distinguish from READ-phase.
+    assert "conversion" in str(exc_info.value).lower(), (
+        "CONVERT-phase exceptions should produce a message mentioning "
+        "conversion, not read — for debuggability"
+    )
+
+
+def test_outer_zip_name_column_count_mismatch_routes_to_permanent():
+    """Post-v0.1.2 round-2 review (Claude min-coverage c): the OUTER
+    ``zip(t.column_names, row, strict=True)`` raises ``ValueError``
+    if the table's ``column_names`` length differs from its
+    ``columns`` length. Without coverage, a regression that removed
+    the outer ``strict=True`` would silently drop fields with no
+    error to the user.
+    """
+    pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+
+    from openlimno.gui_core import controller as ctl
+
+    # Fake table where column_names (2) doesn't match columns (1).
+    fake_table = _FakeTable(
+        column_names=["x", "y"],  # 2 names
+        columns=[_FakeColumn([1, 2, 3])],  # 1 column
+    )
+    with patch.object(pq, "read_table", return_value=fake_table):
+        with pytest.raises(ctl.ParquetSchemaError) as exc_info:
+            ctl._read_wua_parquet("/nonexistent/path.parquet")
+    # Should be caught by CONVERT-phase ValueError catch and routed
+    # to permanent. Either zip's mismatch fires.
+    assert isinstance(exc_info.value.__cause__, ValueError)
+
+
 def test_read_phase_plain_valueerror_falls_through_to_retry():
     """Post-v0.1.2 round-1 review (Codex P2 + Claude #1 consensus):
     v0.1.2 introduced a regression — the ``except ValueError`` clause
@@ -790,6 +883,44 @@ def test_read_phase_plain_valueerror_falls_through_to_retry():
         "reclassified as ParquetSchemaError (permanent), losing "
         "the cache wrapper's transient retry path"
     )
+
+
+def test_cache_wrapper_retries_on_plain_valueerror(subject, parquet_file):
+    """Post-v0.1.2 round-2 review (Gemini #3): the previous test
+    only verified that ``_read_wua_parquet`` PROPAGATES plain
+    ValueError. It didn't verify that the CACHE WRAPPER actually
+    retries on receiving it. A regression that removed the
+    ``except ValueError`` clause at controller.py:1113 would
+    silently lose the transient retry contract.
+
+    This integration-level test pins the full path:
+    pq.read_table raises ValueError → _read_wua_parquet propagates
+    → _read_xs_rows_cached's ``except ValueError`` catches and
+    retries with backoff. Verify call_count == max_retries.
+    """
+    pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+
+    state = {"calls": 0}
+
+    def always_raise_valueerror(path, **kwargs):
+        state["calls"] += 1
+        raise ValueError("simulated transient torn-footer")
+
+    with patch.object(pq, "read_table", side_effect=always_raise_valueerror), \
+         patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
+        # Will exhaust retries; final raise is the last ValueError.
+        with pytest.raises(Exception):
+            subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
+    # 3 read attempts (cache wrapper retried, not short-circuited).
+    assert state["calls"] == 3, (
+        f"REGRESSION: cache wrapper didn't retry on plain ValueError. "
+        f"Got {state['calls']} calls, expected 3 (max_retries). "
+        f"The except ValueError clause at controller.py:1113 may "
+        f"have been removed — transient retry contract broken."
+    )
+    # 2 sleeps for 3 attempts (no sleep on first).
+    assert mock_sleep.call_count == 2
 
 
 def test_plain_memoryerror_routes_to_parquet_schema_error():

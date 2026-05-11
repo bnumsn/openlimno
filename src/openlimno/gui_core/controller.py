@@ -217,6 +217,13 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
         # 50/100 ms retry. The ``ValueError`` catch here is SAFE
         # because pq.read_table already succeeded — any ValueError
         # reaching this point is from zip-strict or the dict-comp.
+        # ===== DO NOT REORDER THESE except CLAUSES =====
+        # Same load-bearing TRANSIENT-before-PERMANENT order as Phase
+        # 1 — ``_ARROW_PERMANENT`` contains ``ArrowException`` as a
+        # forward-compat parent fallback that would otherwise capture
+        # transient subclasses. Post-v0.1.2 round-2 (Claude): added
+        # this comment so a refactor reordering the CONVERT-phase
+        # blocks doesn't silently degrade retry semantics.
         try:
             return [
                 dict(zip(t.column_names, row, strict=True))
