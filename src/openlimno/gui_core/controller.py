@@ -317,10 +317,26 @@ class Controller:
 
             @pyqtSlot()
             def run(self) -> None:
+                # Catch the full Exception family so programmer bugs
+                # (TypeError, AttributeError, KeyError) route through
+                # ``error`` instead of escaping uncaught from the
+                # worker thread. An uncaught exception here leaves
+                # ``_read_in_flight=True`` permanently (all subsequent
+                # reads silently dropped), the progress dialog modal-
+                # locked, and the QThread leaked with a "Destroyed
+                # while still running" warning. Better UX: show the
+                # bug to the user and let them keep using the app.
+                # Pinned by
+                # ``test_read_parquet_async_uncaught_exception_dispatches_error``.
                 try:
                     rows = self._fn(self._p)
-                except (OSError, EOFError, ValueError, RuntimeError) as exc:
-                    self.error.emit(f"Could not read {self._p}:\n{exc}")
+                except Exception as exc:
+                    import traceback as _tb
+                    self.error.emit(
+                        f"Could not read {self._p}:\n"
+                        f"{type(exc).__name__}: {exc}\n\n"
+                        f"{_tb.format_exc()}"
+                    )
                     return
                 self.finished.emit(rows)
 

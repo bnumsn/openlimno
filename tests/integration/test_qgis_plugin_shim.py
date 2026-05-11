@@ -177,6 +177,66 @@ def test_read_parquet_async_runs_off_main_thread(plugin, tmp_path):
     )
 
 
+def test_read_parquet_async_uncaught_exception_dispatches_error(plugin, tmp_path):
+    """If ``read_fn`` raises an exception outside the cache wrapper's
+    narrow tuple (e.g., a programmer-bug TypeError or AttributeError),
+    the worker must still emit ``error`` so:
+
+    1. ``_read_in_flight`` resets to False (else ALL subsequent reads
+       are silently dropped — clicking buttons does nothing forever).
+    2. The progress dialog closes (else GUI is modal-locked).
+    3. The thread cleans up (else "QThread: Destroyed while still
+       running" warning).
+
+    The error message must include the exception type + traceback
+    so the bug is visible to the user instead of silently breaking
+    every subsequent click.
+    """
+    from qgis.PyQt.QtCore import QEventLoop, QTimer
+
+    p, _ = plugin
+    ctl = p.ctl
+
+    captured: dict = {"error_msg": None, "success_called": False}
+
+    def bad_read(path: str):
+        # Programmer-bug class outside the old narrow except tuple.
+        raise TypeError("simulated programmer bug")
+
+    def on_success(rows) -> None:
+        captured["success_called"] = True
+
+    def on_error(msg: str) -> None:
+        captured["error_msg"] = msg
+
+    loop = QEventLoop()
+    QTimer.singleShot(2000, loop.quit)
+    ctl._read_parquet_async(str(tmp_path / "x.parquet"), bad_read,
+                             on_success, on_error, "test")
+    loop.exec()
+
+    assert captured["error_msg"] is not None, (
+        "REGRESSION: uncaught TypeError in worker did not route to "
+        "on_error — the GUI would hang with the progress dialog stuck "
+        "modal forever and _read_in_flight stuck True."
+    )
+    assert "TypeError" in captured["error_msg"], (
+        "Error message should surface the exception type so the user "
+        "can see the underlying bug"
+    )
+    assert "simulated programmer bug" in captured["error_msg"]
+    assert not captured["success_called"]
+    assert ctl._read_in_flight is False, (
+        "REGRESSION: _read_in_flight stuck at True after an uncaught "
+        "exception — every subsequent _read_parquet_async call would "
+        "be silently dropped."
+    )
+    assert ctl._async_handles == set(), (
+        "REGRESSION: thread/worker/dialog handle leaked after uncaught "
+        "exception — QThread will be destroyed while still running."
+    )
+
+
 def test_read_parquet_async_dedupes_concurrent_reads(plugin, tmp_path):
     """While a read is in flight, additional ``_read_parquet_async``
     calls must be dropped rather than spawning competing workers

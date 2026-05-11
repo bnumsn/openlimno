@@ -136,6 +136,59 @@ def test_safe_env_blocks_provider_prefix_wildcard(prefix_pattern):
     )
 
 
+@pytest.mark.parametrize("var", [
+    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
+    "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+])
+def test_safe_env_preserves_proxy_vars(var):
+    """Corporate-network users have proxy vars set; without them
+    reviewer CLIs can't reach their backends. The allowlist must
+    keep proxy vars passing through.
+
+    Symptom on regression: reviewer fails with ``connection refused``
+    / ``network unreachable`` despite working from a regular shell.
+    """
+    inside = _run_safe_env_dump({var: f"http://proxy.example:8080"})
+    assert inside.get(var) == "http://proxy.example:8080", (
+        f"REGRESSION: proxy var {var!r} stripped — users behind a "
+        f"corporate proxy can't run reviewers. Add it back to the "
+        f"safe_env allowlist."
+    )
+
+
+@pytest.mark.parametrize("var", [
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS",
+])
+def test_safe_env_preserves_ca_bundle_vars(var):
+    """Intercepting-proxy / custom-CA setups need these. Gemini CLI
+    is a Node app — ``NODE_EXTRA_CA_CERTS`` matters specifically for
+    its TLS handshake to Google OAuth endpoints.
+
+    Symptom on regression: reviewer fails with ``self-signed
+    certificate in certificate chain`` / ``unable to verify the
+    first certificate`` despite working from a regular shell.
+    """
+    inside = _run_safe_env_dump({var: "/etc/ssl/certs/custom.pem"})
+    assert inside.get(var) == "/etc/ssl/certs/custom.pem", (
+        f"REGRESSION: CA-bundle var {var!r} stripped — users with "
+        f"a custom TLS cert (intercepting proxy / corporate CA) can't "
+        f"run reviewers. Add it back to the safe_env allowlist."
+    )
+
+
+def test_safe_env_preserves_display_for_oauth_flow():
+    """First-time OAuth flow on gemini-cli opens a browser. Without
+    DISPLAY (or WAYLAND_DISPLAY), the CLI falls back to console-only
+    auth which is harder to drive headlessly.
+    """
+    inside = _run_safe_env_dump({
+        "DISPLAY": ":0", "WAYLAND_DISPLAY": "wayland-0",
+    })
+    assert inside.get("DISPLAY") == ":0"
+    assert inside.get("WAYLAND_DISPLAY") == "wayland-0"
+
+
 def test_triple_review_script_sources_safe_env():
     """``scripts/triple_review.sh`` must actually source the
     extracted ``safe_env`` definition rather than re-inlining its own
