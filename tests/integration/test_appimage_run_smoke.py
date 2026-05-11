@@ -1,8 +1,8 @@
 """Verify the bundled AppImage can actually run a case end-to-end.
 
-This catches the class of regression that v0.1.0-alpha.2 shipped with —
-PyInstaller exclude lists and missing collect_all calls broke the
-solver path inside the bundle while the dev-venv tests stayed green.
+Catches the class of regression where PyInstaller exclude lists or
+missing ``collect_all`` calls break the solver path inside the bundle
+while dev-venv tests stay green.
 """
 from __future__ import annotations
 

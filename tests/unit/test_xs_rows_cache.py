@@ -1,9 +1,11 @@
-"""Unit tests for ``Controller._read_xs_rows_cached``.
+"""Unit tests for ``Controller._read_xs_rows_cached`` + the
+``_read_wua_parquet`` helper it wraps.
 
-The third review round (codex + gemini + claude) found that the previous
-cache implementation cemented torn rows when the parquet was rewritten
-during the read. Claude's verdict was unambiguous: 'the only behaviorally
-new code path is untested'. This file fixes that.
+The cache wrapper detects mid-read rewrites by comparing pre/post stat,
+retries with linear backoff on transient I/O, and short-circuits on
+``MissingParquetBackend`` / ``ParquetSchemaError`` (permanent). The
+helper normalises pyarrow's asymmetric exception MRO into the canonical
+transient/permanent classes the wrapper expects.
 
 These tests exercise the caching logic in pure Python without instantiating
 a Host. ``Controller.__init__`` only needs an attribute access (host),
@@ -149,10 +151,10 @@ def test_stat_failure_serves_stale_cache(subject, parquet_file):
 
 
 def test_vanished_during_read_retries_then_raises(subject, parquet_file):
-    """Round-6 fix (Codex P0): a vanished file on attempt 0 should
-    re-enter the retry loop (a transient ``mv -f`` may complete
-    before retries exhaust). Only when ALL retries fail do we raise.
-    Previously we raised immediately, defeating the backoff design."""
+    """A vanished file on attempt 0 must re-enter the retry loop —
+    a transient ``mv -f`` may complete before retries exhaust. Only
+    when ALL retries fail do we raise. Raising immediately on the
+    first vanish would defeat the backoff design."""
     def fake_read_then_delete(p):
         Path(p).unlink()
         return [{"row": "TORN"}]
@@ -172,10 +174,9 @@ def test_vanished_during_read_retries_then_raises(subject, parquet_file):
 
 
 def test_parquet_read_exception_triggers_retry(subject, parquet_file):
-    """Round-6 fix (Gemini P0): if `_read_wua_parquet` raises (e.g.,
-    pyarrow's ArrowInvalid on a torn footer, or OSError on a locked
-    file), the retry loop must catch and retry instead of propagating
-    immediately."""
+    """If ``_read_wua_parquet`` raises (e.g., pyarrow's ArrowInvalid
+    on a torn footer, or OSError on a locked file), the retry loop
+    must catch and retry instead of propagating immediately."""
     state = {"calls": 0}
 
     def flaky_read(p):
@@ -193,10 +194,10 @@ def test_parquet_read_exception_triggers_retry(subject, parquet_file):
 
 
 def test_empty_rows_treated_as_valid_cache(subject, parquet_file):
-    """Round-6 fix (Claude P1): an empty parquet (legitimate WUA
-    with no observations yet) must produce a cacheable empty list.
-    Previous ``cache.get("rows")`` truthy-check treated [] as
-    no-cache, forcing re-read every click."""
+    """An empty parquet (legitimate WUA with no observations yet)
+    must produce a cacheable empty list. A truthy-check on
+    ``cache.get("rows")`` would treat ``[]`` as no-cache and force
+    re-read on every click."""
     calls = []
 
     def fake_read(p):
@@ -212,10 +213,9 @@ def test_empty_rows_treated_as_valid_cache(subject, parquet_file):
 
 
 def test_vanished_during_read_serves_prior_cache(subject, parquet_file):
-    """Round-5 fix (Gemini P0): if a prior good cache exists and the
-    file vanishes mid-read on a subsequent call, serve the prior
-    cached rows (which were read from a quiescent file) rather than
-    the torn read."""
+    """If a prior good cache exists and the file vanishes mid-read
+    on a subsequent call, serve the prior cached rows (which were
+    read from a quiescent file) rather than the torn read."""
     state = {"reads": 0, "should_delete": False}
 
     def fake_read(p):
@@ -244,9 +244,9 @@ def test_vanished_during_read_serves_prior_cache(subject, parquet_file):
 
 
 def test_backoff_called_with_correct_durations(subject, parquet_file):
-    """Round-5 fix (Claude P1): the `time.sleep` calls in the retry
-    loop must use linear backoff. A regression that drops the sleep
-    or uses a fixed duration must fail."""
+    """The ``time.sleep`` calls in the retry loop must use linear
+    backoff (0.05 s × attempt). A regression that drops the sleep or
+    uses a fixed duration must fail this test."""
     state = {"call_count": 0}
 
     def always_rewrite(p):
@@ -272,9 +272,9 @@ def test_backoff_called_with_correct_durations(subject, parquet_file):
 
 
 def test_retry_exhaustion_raises(subject, parquet_file):
-    """Round-4 fix: a writer rewriting on every read attempt must
-    eventually trigger a clear error rather than silently returning
-    the last torn read (Claude P1 + Gemini P1)."""
+    """A writer rewriting on every read attempt must eventually
+    trigger a clear error rather than silently returning the last
+    torn read."""
     state = {"call_count": 0}
 
     def always_rewrite(p):
@@ -294,10 +294,10 @@ def test_retry_exhaustion_raises(subject, parquet_file):
 
 
 def test_typeerror_propagates_does_not_retry(subject, parquet_file):
-    """Round-7 fix (all 3 reviewers): narrow ``except`` so programmer
-    bugs (TypeError, AttributeError) propagate immediately rather than
-    being misdiagnosed as transient I/O issues that burn the retry
-    budget."""
+    """The cache wrapper's ``except`` must be narrow enough that
+    programmer bugs (TypeError, AttributeError) propagate immediately
+    rather than being misdiagnosed as transient I/O issues that burn
+    the retry budget."""
     state = {"calls": 0}
 
     def fake_read_typeerror(p):
@@ -317,15 +317,14 @@ def test_typeerror_propagates_does_not_retry(subject, parquet_file):
 
 
 def test_missing_backend_short_circuits_retry(subject, parquet_file):
-    """v0.1.0-final residual #3 (post-alpha.13 Claude): the cache
-    wrapper's ``except MissingParquetBackend: raise`` clause must
-    precede the broader ``except (..., RuntimeError)`` so a stripped
-    install (no pyarrow + no GDAL) does not burn the retry budget on
-    a permanent install problem.
+    """The cache wrapper's ``except MissingParquetBackend: raise``
+    clause must precede the broader ``except (..., RuntimeError)`` so
+    a stripped install (no pyarrow + no GDAL) does not burn the retry
+    budget on a permanent install problem.
 
     A tooling-driven reorder of the except clauses (ruff sort, etc.)
-    would silently regress this. This test pins the behaviour: zero
-    retries, zero sleep, error propagates immediately.
+    would silently regress this. Pins the behaviour: zero retries,
+    zero sleep, error propagates immediately.
     """
     from openlimno.gui_core.controller import MissingParquetBackend
 
@@ -348,19 +347,19 @@ def test_missing_backend_short_circuits_retry(subject, parquet_file):
 
 
 def test_except_clause_order_real_arrow_invalid_routes_to_oserror():
-    """Post-v0.1.0 round-3 review (Claude #1): the except-clause order
-    in ``_read_wua_parquet`` is load-bearing — ``_ARROW_PERMANENT``
-    contains the ``ArrowException`` parent (forward-compat fallback),
-    which is also a superclass of ``ArrowInvalid`` listed in
-    ``_ARROW_TRANSIENT``. Python's except-matching tries clauses in
-    source order; if a refactor swaps TRANSIENT and PERMANENT blocks,
-    every transient ArrowInvalid would silently get re-classified as
-    permanent — killing retry semantics for torn reads.
+    """The isinstance-check order in ``_normalize_parquet_exception``
+    is load-bearing — ``_ARROW_PERMANENT`` contains the
+    ``ArrowException`` parent (forward-compat fallback), which is
+    also a superclass of ``ArrowInvalid`` listed in
+    ``_ARROW_TRANSIENT``. If the helper swaps the TRANSIENT/PERMANENT
+    isinstance checks, every transient ``ArrowInvalid`` would silently
+    get re-classified as permanent — killing retry semantics for torn
+    reads.
 
-    This test pins the order: a real ``ArrowInvalid`` raised by
-    ``pq.read_table`` MUST surface as ``OSError`` (transient path),
-    NOT ``ParquetSchemaError`` (permanent path). A swap regression
-    would fail this immediately.
+    Pins the order: a real ``ArrowInvalid`` raised by ``pq.read_table``
+    MUST surface as ``OSError`` (transient path), NOT
+    ``ParquetSchemaError`` (permanent path). A swap regression fails
+    immediately.
     """
     pytest.importorskip("pyarrow")
     pa_lib = pytest.importorskip("pyarrow.lib")
@@ -370,10 +369,10 @@ def test_except_clause_order_real_arrow_invalid_routes_to_oserror():
     from openlimno.gui_core import controller as ctl
     import pyarrow.parquet as pq
 
-    def fake_read_arrow_invalid(path, **kwargs):
+    def fake_parquet_file_arrow_invalid(path, **kwargs):
         raise pa_lib.ArrowInvalid("simulated torn parquet footer")
 
-    with patch.object(pq, "read_table", side_effect=fake_read_arrow_invalid):
+    with patch.object(pq, "ParquetFile", side_effect=fake_parquet_file_arrow_invalid):
         with pytest.raises(OSError) as exc_info:
             ctl._read_wua_parquet("/nonexistent/path.parquet")
     # Crucial: must be OSError, NOT ParquetSchemaError (which would
@@ -381,23 +380,22 @@ def test_except_clause_order_real_arrow_invalid_routes_to_oserror():
     # the permanent ArrowException-parent fallback).
     assert not isinstance(exc_info.value, ctl.ParquetSchemaError), (
         "REGRESSION: ArrowInvalid (transient) was caught by the "
-        "_ARROW_PERMANENT clause via its ArrowException parent — the "
-        "except blocks were probably reordered. Transient retry "
-        "semantics are now broken for torn parquet reads."
+        "_ARROW_PERMANENT branch via its ArrowException parent — the "
+        "isinstance-check order in _normalize_parquet_exception was "
+        "probably swapped. Transient retry semantics are now broken "
+        "for torn parquet reads."
     )
 
 
 def test_real_arrow_keyerror_routes_to_parquet_schema_error():
-    """Post-v0.1.0 round-3 review (Claude #4): the round-2 fix split
-    ``_ARROW_PERMANENT`` to short-circuit retry on schema errors, but
-    no integration test verified that an actual ``ArrowKeyError``
-    raised by ``pq.read_table`` traverses the normalisation correctly.
+    """Integration-level check that an actual ``ArrowKeyError`` raised
+    by ``pq.read_table`` traverses the normalisation correctly.
 
     The existing ``test_parquet_schema_error_short_circuits_retry``
     mocks ``_read_wua_parquet`` itself, bypassing the helper's
     classification logic. This test mocks one level lower
-    (``pq.read_table``) so the actual ``except _ARROW_PERMANENT``
-    branch fires and re-raises as ``ParquetSchemaError``.
+    (``pq.read_table``) so the actual ``_ARROW_PERMANENT`` branch
+    fires and re-raises as ``ParquetSchemaError``.
     """
     pytest.importorskip("pyarrow")
     pa_lib = pytest.importorskip("pyarrow.lib")
@@ -407,10 +405,10 @@ def test_real_arrow_keyerror_routes_to_parquet_schema_error():
     from openlimno.gui_core import controller as ctl
     import pyarrow.parquet as pq
 
-    def fake_read_arrow_keyerror(path, **kwargs):
+    def fake_parquet_file_arrow_keyerror(path, **kwargs):
         raise pa_lib.ArrowKeyError("simulated missing column 'station_m'")
 
-    with patch.object(pq, "read_table", side_effect=fake_read_arrow_keyerror):
+    with patch.object(pq, "ParquetFile", side_effect=fake_parquet_file_arrow_keyerror):
         with pytest.raises(ctl.ParquetSchemaError) as exc_info:
             ctl._read_wua_parquet("/nonexistent/path.parquet")
     # Cause chain must preserve the original ArrowKeyError for
@@ -428,24 +426,23 @@ def test_real_arrow_keyerror_routes_to_parquet_schema_error():
 
 
 def test_cache_loop_except_clause_order_pins_short_circuit(subject, parquet_file):
-    """Post-v0.1.1 round-1 review (Claude): the cache wrapper's except
-    clauses are also load-bearing in source order, but no test pins
-    them.
+    """The cache wrapper's except clauses are load-bearing in source
+    order.
 
     ``_read_xs_rows_cached`` has:
         except (MissingParquetBackend, ParquetSchemaError): raise
         except (OSError, EOFError, RuntimeError) as e: ... continue
 
-    Both MissingParquetBackend and ParquetSchemaError inherit from
-    RuntimeError. If someone reorders the broader RuntimeError clause
-    BEFORE the explicit short-circuit clause, both permanent classes
-    get caught by the broader tuple and retried 3× with backoff —
-    silently undoing the entire round-1 fix.
+    Both ``MissingParquetBackend`` and ``ParquetSchemaError`` inherit
+    from ``RuntimeError``. If someone reorders the broader RuntimeError
+    clause BEFORE the explicit short-circuit clause, both permanent
+    classes get caught by the broader tuple and retried 3× with
+    backoff — silently breaking the short-circuit contract.
 
-    The other regression test (``test_except_clause_order_real_arrow_invalid_routes_to_oserror``)
-    pins the helper's order. This test pins the cache wrapper's
-    order by counting actual calls + sleeps. A reorder regression
-    would show calls=3 instead of 1.
+    The helper's isinstance order is pinned by
+    ``test_except_clause_order_real_arrow_invalid_routes_to_oserror``;
+    this test pins the cache wrapper's order by counting actual calls
+    + sleeps. A reorder regression shows calls=3 instead of 1.
     """
     from openlimno.gui_core.controller import (
         MissingParquetBackend, ParquetSchemaError,
@@ -480,12 +477,12 @@ def test_cache_loop_except_clause_order_pins_short_circuit(subject, parquet_file
             f"REGRESSION: {exc_cls.__name__} triggered backoff sleep — "
             f"the short-circuit clause is not running first."
         )
-        # Post-v0.1.1 round-2 review (Claude #4): pin EXCEPTION IDENTITY,
-        # not just type. A regression that converted ``raise`` to
-        # ``raise OSError(str(e))`` in the broader clause would still
-        # raise the right type-name (because the test type is the
-        # original) but lose the original exception object — the
-        # ``raise`` short-circuit MUST propagate the same instance.
+        # Pin EXCEPTION IDENTITY, not just type. A regression that
+        # converted bare ``raise`` to ``raise OSError(str(e))`` in the
+        # broader clause would still raise the right type-name (because
+        # the test type IS the original) but lose the original
+        # exception object — the bare ``raise`` short-circuit MUST
+        # propagate the same instance.
         assert exc_info.value is state["raised"], (
             f"REGRESSION: {exc_cls.__name__} was caught and re-raised "
             f"as a NEW instance (not propagated via bare ``raise``). "
@@ -496,16 +493,15 @@ def test_cache_loop_except_clause_order_pins_short_circuit(subject, parquet_file
 
 
 def test_parquet_schema_error_short_circuits_retry(subject, parquet_file):
-    """Post-v0.1.0 round-1 review (Claude #1): the round-3 ArrowException
-    normalisation re-raised the WHOLE Arrow* family as ``OSError``,
-    which made the cache retry burn ~150ms total backoff (50+100ms across 3 attempts) on permanent
-    schema failures (``ArrowKeyError`` = missing column,
-    ``ArrowNotImplementedError`` = unsupported encoding, etc).
+    """``ParquetSchemaError`` is a dedicated ``RuntimeError`` subclass
+    so the cache loop can short-circuit permanent schema failures
+    (``ArrowKeyError`` = missing column,
+    ``ArrowNotImplementedError`` = unsupported encoding, etc.)
+    instead of burning ~150 ms total backoff (50+100 ms across 3
+    attempts).
 
-    Same fix pattern as ``MissingParquetBackend``: a dedicated
-    ``ParquetSchemaError(RuntimeError)`` subclass that the cache loop
-    short-circuits explicitly. This test pins the load-bearing
-    behaviour.
+    Pins that the short-circuit clause runs: a ParquetSchemaError raised
+    on the first attempt must propagate without retry or sleep.
     """
     from openlimno.gui_core.controller import ParquetSchemaError
 
@@ -542,12 +538,10 @@ def test_parquet_schema_error_subclasses_runtime_error():
 
 
 def test_missing_parquet_backend_subclasses_runtime_error():
-    """v0.1.0-final residual #3: the subclass relationship is
-    load-bearing. ``MissingParquetBackend`` must subclass
-    ``RuntimeError`` so the GUI direct-call sites'
-    ``except (..., RuntimeError)`` continues to surface a friendly
-    QMessageBox without per-site changes when both backends are
-    missing.
+    """``MissingParquetBackend`` must subclass ``RuntimeError`` so
+    the GUI direct-call sites' ``except (..., RuntimeError)``
+    continues to surface a friendly QMessageBox without per-site
+    changes when both backends are missing.
     """
     from openlimno.gui_core.controller import MissingParquetBackend
     assert issubclass(MissingParquetBackend, RuntimeError), (
@@ -558,20 +552,20 @@ def test_missing_parquet_backend_subclasses_runtime_error():
 
 
 def test_arrow_exception_normalised_to_oserror(tmp_path):
-    """v0.1.0-final residual (post-alpha.13 round-3 codex MRO probe):
-    pyarrow's exception MRO is asymmetric — ``ArrowInvalid`` is a
-    ``ValueError`` and ``ArrowIOError`` is an ``OSError``, but
+    """pyarrow's exception MRO is asymmetric — ``ArrowInvalid`` is
+    a ``ValueError`` and ``ArrowIOError`` is an ``OSError``, but
     ``ArrowCapacityError``, ``ArrowKeyError``,
     ``ArrowNotImplementedError``, ``ArrowTypeError`` inherit only
-    from ``ArrowException`` → ``Exception``. Without normalization
+    from ``ArrowException`` → ``Exception``. Without normalisation
     in ``_read_wua_parquet``, those four would escape the cache
     wrapper's ``except (OSError, EOFError, ValueError, RuntimeError)``
     tuple and crash the GUI thread.
 
-    The fix: catch ``ArrowException`` inside ``_read_wua_parquet``
-    and re-raise as ``OSError``. This integration test verifies the
-    real (non-mocked) code path: garbage bytes that pyarrow's reader
-    rejects must surface as ``OSError``, NOT as an Arrow* class.
+    The fix: ``_normalize_parquet_exception`` catches the whole
+    ``ArrowException`` family and re-raises as ``OSError``
+    (transient) or ``ParquetSchemaError`` (permanent). Integration
+    check that garbage bytes pyarrow's reader rejects surface as
+    ``OSError``, NOT as an Arrow* class.
     """
     pytest.importorskip("pyarrow")
     from openlimno.gui_core.controller import _read_wua_parquet
@@ -581,20 +575,14 @@ def test_arrow_exception_normalised_to_oserror(tmp_path):
 
     with pytest.raises(OSError) as exc_info:
         _read_wua_parquet(str(bad_parquet))
-    # v0.1.0 RC round-3 review (Claude #4): the previous assertion was
-    # tautological — ``pytest.raises(OSError)`` already enforces
-    # ``isinstance(exc, OSError)``. The actual invariant we want to
-    # pin: the raised exception is NOT one of the pyarrow Arrow*
-    # classes leaking through unwrapped. A regression where the
-    # normalization is removed would let ``ArrowInvalid`` (a
-    # ValueError + OSError-via-Arrow-MRO?) pass through and the old
-    # test would silently green.
-    # Post-v0.1.0 round-4 review (Claude #7): tighten this from
-    # "if-branch on ArrowException availability" to "skip if absent."
-    # The previous form silently degraded the assertion to a vacuous
-    # "OSError raised somewhere" check on builds without ArrowException
-    # — which was much weaker than the test name promised. Skipping
-    # surfaces the under-coverage explicitly.
+    # The invariant: the raised exception is NOT one of the pyarrow
+    # Arrow* classes leaking through unwrapped. Asserting plain
+    # ``isinstance(exc, OSError)`` would be tautological after
+    # ``pytest.raises(OSError)``; the meaningful check is the
+    # negative. ``pytest.skip`` (rather than if-branching) when
+    # ``ArrowException`` is absent so vendor builds surface the
+    # under-coverage explicitly instead of degrading to a vacuous
+    # assertion.
     import pyarrow.lib as pa_lib
     arrow_exc = getattr(pa_lib, "ArrowException", None)
     if arrow_exc is None:
@@ -618,16 +606,16 @@ def test_arrow_exception_normalised_to_oserror(tmp_path):
 
 
 def test_arrow_catch_tuples_include_known_pyarrow_classes():
-    """v0.1.0 RC round-3 review (Claude #8) + post-v0.1.0 round-1
-    (Claude #1): positive test for the module-level
-    ``_ARROW_TRANSIENT`` and ``_ARROW_PERMANENT`` tuples, so a
-    vendor-pyarrow regression that drops e.g. ``ArrowInvalid`` from
-    transient or ``ArrowKeyError`` from permanent would actually fail
-    CI instead of silently degrading retry classification.
+    """Positive test for the module-level ``_ARROW_TRANSIENT`` and
+    ``_ARROW_PERMANENT`` tuples, so a vendor-pyarrow regression that
+    drops e.g. ``ArrowInvalid`` from transient or ``ArrowKeyError``
+    from permanent would actually fail CI instead of silently
+    degrading retry classification.
 
     Transient (retry-eligible): ``ArrowInvalid``, ``ArrowIOError``.
     Permanent (short-circuit): ``ArrowKeyError``, ``ArrowTypeError``,
-    ``ArrowNotImplementedError``, ``ArrowCapacityError``.
+    ``ArrowNotImplementedError``, ``ArrowCapacityError``,
+    ``ArrowMemoryError`` (50/100 ms backoff won't free RAM).
     """
     pytest.importorskip("pyarrow")
     pa_lib = pytest.importorskip("pyarrow.lib")
@@ -647,10 +635,10 @@ def test_arrow_catch_tuples_include_known_pyarrow_classes():
         "still get retried, burning the retry budget"
     )
 
-    # Transient family: ArrowInvalid / ArrowIOError. Post-v0.1.1
-    # round-2 briefly added ArrowMemoryError; round-3 reverted it
-    # (50/100ms backoff doesn't help OS reclaim RAM; consensus
-    # Claude+Gemini).
+    # Transient family: ArrowInvalid / ArrowIOError. ArrowMemoryError
+    # is intentionally PERMANENT — 50/100 ms backoff won't help the
+    # OS reclaim RAM, so retrying allocation failures just burns the
+    # budget.
     for name in ("ArrowInvalid", "ArrowIOError"):
         cls = getattr(pa_lib, name, None)
         if cls is not None:
@@ -665,9 +653,6 @@ def test_arrow_catch_tuples_include_known_pyarrow_classes():
             )
 
     # Permanent family: 8 specific + ArrowException parent fallback.
-    # Post-v0.1.1 round-3 (Claude+Gemini) restored ArrowMemoryError to
-    # permanent — 50/100ms backoff is too short for OS RAM reclamation,
-    # so retrying allocation failures just burns the budget.
     for name in ("ArrowKeyError", "ArrowTypeError",
                  "ArrowNotImplementedError", "ArrowCapacityError",
                  "ArrowMemoryError",
@@ -694,11 +679,11 @@ def test_arrow_catch_tuples_include_known_pyarrow_classes():
 
 
 def test_forward_compat_unknown_arrow_subclass_routes_to_permanent():
-    """Post-v0.1.1 round-3 review (Claude min-coverage #4): the
-    forward-compat fallback is the ``ArrowException`` parent at the
-    end of ``_ARROW_PERMANENT``. An untested invariant: any future
-    pyarrow exception subclass that we haven't classified explicitly
-    MUST route to ``ParquetSchemaError`` (default-permanent).
+    """Forward-compat invariant: the ``ArrowException`` parent at
+    the end of ``_ARROW_PERMANENT`` catches any future pyarrow
+    exception subclass we haven't classified explicitly. Unknown
+    Arrow* subclasses MUST route to ``ParquetSchemaError``
+    (default-permanent — don't waste retry budget on unknowns).
 
     Verify by raising a synthetic ``ArrowException`` subclass that
     couldn't possibly be in our explicit list, and asserting it gets
@@ -716,10 +701,10 @@ def test_forward_compat_unknown_arrow_subclass_routes_to_permanent():
     from openlimno.gui_core import controller as ctl
     import pyarrow.parquet as pq
 
-    def fake_read_unknown(path, **kwargs):
+    def fake_parquet_file_unknown(path, **kwargs):
         raise _FakeArrowSubclass("simulated future pyarrow error")
 
-    with patch.object(pq, "read_table", side_effect=fake_read_unknown):
+    with patch.object(pq, "ParquetFile", side_effect=fake_parquet_file_unknown):
         with pytest.raises(ctl.ParquetSchemaError) as exc_info:
             ctl._read_wua_parquet("/nonexistent/path.parquet")
     assert isinstance(exc_info.value.__cause__, _FakeArrowSubclass), (
@@ -728,34 +713,88 @@ def test_forward_compat_unknown_arrow_subclass_routes_to_permanent():
     )
 
 
-class _FakeColumn:
-    """Mock pyarrow Column whose to_pylist behavior we control."""
-    def __init__(self, values, raise_exc=None):
-        self._values = values
+class _FakeBatch:
+    """Mock pyarrow RecordBatch whose ``to_pylist`` behavior we
+    control. ``_read_wua_parquet`` calls ``batch.to_pylist()`` once
+    per batch; ``raise_exc`` lets us inject classification-test
+    exceptions at that exact site.
+    """
+    def __init__(self, rows, raise_exc=None):
+        self._rows = rows
         self._raise_exc = raise_exc
 
     def to_pylist(self):
         if self._raise_exc is not None:
             raise self._raise_exc
-        return self._values
+        return self._rows
 
 
-class _FakeTable:
-    """Mock pyarrow Table that provides .column_names and .columns
-    iteration matching the ``_read_wua_parquet`` consumption pattern.
+class _FakeParquetFile:
+    """Mock pyarrow.parquet.ParquetFile that yields preset batches
+    from ``iter_batches()``. ``_read_wua_parquet`` only depends on
+    ``iter_batches()`` so we don't need to fake the full surface.
     """
-    def __init__(self, column_names, columns):
-        self.column_names = column_names
-        self.columns = columns
+    def __init__(self, batches):
+        self._batches = batches
+
+    def iter_batches(self, **kwargs):
+        yield from self._batches
+
+
+class _FakeOGRFeature:
+    def __init__(self, values):
+        self._values = values
+
+    def GetField(self, name):
+        return self._values[name]
+
+
+class _FakeOGRFieldDefn:
+    def __init__(self, name):
+        self._name = name
+
+    def GetName(self):
+        return self._name
+
+
+class _FakeOGRLayerDefn:
+    def __init__(self, field_names):
+        self._fields = [_FakeOGRFieldDefn(n) for n in field_names]
+
+    def GetFieldCount(self):
+        return len(self._fields)
+
+    def GetFieldDefn(self, i):
+        return self._fields[i]
+
+
+class _FakeOGRLayer:
+    def __init__(self, field_names, features):
+        self._defn = _FakeOGRLayerDefn(field_names)
+        self._features = features
+
+    def GetLayerDefn(self):
+        return self._defn
+
+    def __iter__(self):
+        return iter(self._features)
+
+
+class _FakeOGRDataset:
+    def __init__(self, layer):
+        self._layer = layer
+
+    def GetLayer(self, idx):
+        return self._layer
 
 
 def test_read_phase_memoryerror_routes_to_parquet_schema_error():
-    """Post-v0.1.2 round-4 review (Claude): plain ``MemoryError`` from
-    ``pq.read_table`` itself (large-file read OOM) was uncovered in
-    READ phase — only CONVERT phase had the catch. Plain MemoryError
-    is in none of the Arrow tuples, none of the cache wrapper's
-    ``(OSError, EOFError, RuntimeError)`` tuple, and would crash the
-    GUI thread on large-file reads. Pinned by this test.
+    """Plain ``MemoryError`` from ``pq.ParquetFile`` itself (large-file
+    footer OOM) is in none of the Arrow tuples and none of the cache
+    wrapper's ``(OSError, EOFError, RuntimeError)`` tuple — without
+    explicit handling it would crash the GUI thread.
+    ``_normalize_parquet_exception`` re-raises it as a permanent
+    ``ParquetSchemaError`` (50/100 ms backoff won't reclaim RAM).
     """
     pytest.importorskip("pyarrow")
     pq = pytest.importorskip("pyarrow.parquet")
@@ -765,62 +804,90 @@ def test_read_phase_memoryerror_routes_to_parquet_schema_error():
     def raise_read_memoryerror(path, **kwargs):
         raise MemoryError("simulated large-file read OOM")
 
-    with patch.object(pq, "read_table", side_effect=raise_read_memoryerror):
+    with patch.object(pq, "ParquetFile", side_effect=raise_read_memoryerror):
         with pytest.raises(ctl.ParquetSchemaError) as exc_info:
             ctl._read_wua_parquet("/nonexistent/path.parquet")
     assert isinstance(exc_info.value.__cause__, MemoryError)
     assert "read OOM" in str(exc_info.value)
 
 
-def test_materialization_phase_plain_valueerror_falls_through_to_retry():
-    """Post-v0.1.2 round-4 review (Claude): symmetric to the
-    round-1 fix for READ-phase plain ValueError. Plain ``ValueError``
-    from ``c.to_pylist()`` (Cython-backed chunked arrays on bad
-    UTF-8 / decimal overflow / torn dict pages) must propagate to
-    the cache wrapper for transient retry, NOT be reclassified as
-    permanent ParquetSchemaError.
+def test_pyarrow_permanent_failure_falls_back_to_ogr_success():
+    """OGR fallback path: when pyarrow rejects a file permanently
+    (``ParquetSchemaError``) but OGR can read it (e.g., parquet
+    variant / vendor encoding pyarrow doesn't support), the helper
+    must return OGR's rows rather than surfacing pyarrow's error.
 
-    Round-4 split CONVERT phase into 2a (materialize, plain ValueError
-    propagates) and 2b (zip, ValueError becomes column-mismatch
-    permanent). This test pins that the 2a/2b separation works.
+    Previously the OGR fallback only fired when pyarrow itself
+    failed to IMPORT, leaving it orphaned on every other failure
+    mode. Pins the fix.
+    """
+    pytest.importorskip("pyarrow")
+    pa_lib = pytest.importorskip("pyarrow.lib")
+    pq = pytest.importorskip("pyarrow.parquet")
+    osgeo = pytest.importorskip("osgeo")
+    if not hasattr(pa_lib, "ArrowKeyError"):
+        pytest.skip("pyarrow.lib lacks ArrowKeyError on this build")
+
+    from openlimno.gui_core import controller as ctl
+
+    def fake_parquet_file_keyerror(path, **kwargs):
+        raise pa_lib.ArrowKeyError("simulated unsupported column encoding")
+
+    fake_ds = _FakeOGRDataset(
+        _FakeOGRLayer(["station_m"], [_FakeOGRFeature({"station_m": 12.5})]),
+    )
+
+    with patch.object(pq, "ParquetFile", side_effect=fake_parquet_file_keyerror), \
+         patch.object(osgeo.ogr, "Open", return_value=fake_ds):
+        rows = ctl._read_wua_parquet("/nonexistent/path.parquet")
+    assert rows == [{"station_m": 12.5}], (
+        "OGR fallback must return its rows when pyarrow rejects the "
+        "file permanently — that's the whole point of the secondary "
+        "backend."
+    )
+
+
+def test_materialization_phase_plain_valueerror_falls_through_to_retry():
+    """Symmetric to ``test_read_phase_plain_valueerror_falls_through_to_retry``.
+    Plain ``ValueError`` from ``batch.to_pylist()`` (Cython-backed
+    chunked arrays on bad UTF-8 / decimal overflow / torn dict pages)
+    must propagate to the cache wrapper for transient retry, NOT be
+    reclassified as permanent ``ParquetSchemaError``.
+
+    The READ phase opens the file; the MATERIALIZE phase iterates
+    batches. Plain ValueError from a batch must fall through.
     """
     pytest.importorskip("pyarrow")
     pq = pytest.importorskip("pyarrow.parquet")
 
     from openlimno.gui_core import controller as ctl
 
-    fake_table = _FakeTable(
-        column_names=["x"],
-        columns=[_FakeColumn(
-            None, raise_exc=ValueError("simulated bad UTF-8 in chunked array")
-        )],
-    )
-    with patch.object(pq, "read_table", return_value=fake_table):
+    fake_pf = _FakeParquetFile([
+        _FakeBatch(None, raise_exc=ValueError("simulated bad UTF-8 in chunked array")),
+    ])
+    with patch.object(pq, "ParquetFile", return_value=fake_pf):
         # Must propagate as plain ValueError, NOT ParquetSchemaError.
         with pytest.raises(ValueError) as exc_info:
             ctl._read_wua_parquet("/nonexistent/path.parquet")
     assert not isinstance(exc_info.value, ctl.ParquetSchemaError), (
-        "REGRESSION: plain ValueError from to_pylist() was wrongly "
-        "reclassified as ParquetSchemaError (permanent), losing "
-        "the cache wrapper's transient retry path. The CONVERT-phase "
-        "split (2a materialize / 2b zip) must let materialization "
-        "ValueError fall through."
+        "REGRESSION: plain ValueError from batch.to_pylist() was wrongly "
+        "reclassified as ParquetSchemaError (permanent), losing the "
+        "cache wrapper's transient retry path."
     )
 
 
 def test_convert_phase_arrow_transient_triggers_cache_retry(subject, parquet_file):
-    """Post-v0.1.2 round-3 review (Claude #3 + Gemini #3): the round-2
-    test ``test_convert_phase_arrow_transient_routes_to_oserror``
+    """End-to-end check that a CONVERT-phase transient Arrow error
+    actually triggers cache retry. ``test_convert_phase_arrow_transient_routes_to_oserror``
     verifies the helper-level OSError mapping but doesn't verify the
-    end-to-end behavior: that the cache wrapper actually retries on
-    that OSError. A regression removing the OSError → cache OSError
-    handoff (e.g., changing the message format to break catching)
-    would slip past unit-level mocks.
+    cache wrapper actually retries on receipt. A regression breaking
+    the OSError → cache OSError handoff (e.g., changing the message
+    format) would slip past unit-level mocks.
 
-    This integration-level test pins the full path: pq.read_table
-    returns a fake_table whose column raises ArrowInvalid during
-    materialization → _read_wua_parquet re-raises as OSError →
-    cache wrapper catches OSError → retries 3× with backoff.
+    Pins the full path: pq.read_table returns a fake_table whose
+    column raises ``ArrowInvalid`` during materialization →
+    ``_read_wua_parquet`` re-raises as ``OSError`` → cache wrapper
+    catches OSError → retries 3× with backoff.
     """
     pytest.importorskip("pyarrow")
     pa_lib = pytest.importorskip("pyarrow.lib")
@@ -830,33 +897,31 @@ def test_convert_phase_arrow_transient_triggers_cache_retry(subject, parquet_fil
 
     state = {"calls": 0}
 
-    def fake_read_returns_bad_table(path, **kwargs):
+    def fake_parquet_file_with_bad_batch(path, **kwargs):
         state["calls"] += 1
-        return _FakeTable(
-            column_names=["x"],
-            columns=[_FakeColumn(
-                None, raise_exc=pa_lib.ArrowInvalid("mid-mat torn buffer")
-            )],
-        )
+        return _FakeParquetFile([
+            _FakeBatch(None, raise_exc=pa_lib.ArrowInvalid("mid-mat torn buffer")),
+        ])
 
-    with patch.object(pq, "read_table", side_effect=fake_read_returns_bad_table), \
+    with patch.object(pq, "ParquetFile", side_effect=fake_parquet_file_with_bad_batch), \
          patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
         with pytest.raises(Exception):
             subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
-    # CONVERT-phase ArrowInvalid → OSError → cache retries 3×.
+    # MATERIALIZE-phase ArrowInvalid → OSError → cache retries 3×.
     assert state["calls"] == 3, (
-        f"REGRESSION: CONVERT-phase ArrowInvalid did not trigger "
+        f"REGRESSION: MATERIALIZE-phase ArrowInvalid did not trigger "
         f"cache retry. Got {state['calls']} calls, expected 3."
     )
     assert mock_sleep.call_count == 2  # No sleep on first attempt
 
 
 def test_convert_phase_arrow_transient_routes_to_oserror():
-    """Post-v0.1.2 round-2 review (Claude min-coverage a): the
-    CONVERT phase has its own ``except _ARROW_TRANSIENT`` clause
-    (Gemini round-3's fix), but pre-round-2 had no test. A regression
-    that deletes the CONVERT-phase Arrow catches would silently let
-    Arrow exceptions during materialization escape uncaught.
+    """The CONVERT (materialize) phase normalises Arrow exceptions
+    through ``_normalize_parquet_exception`` just like the READ phase.
+    Without that, ArrowInvalid raised by ``c.to_pylist()`` would
+    escape uncaught (it inherits from ValueError but the cache
+    wrapper relies on ``OSError`` for retry-with-backoff and
+    ``ParquetSchemaError`` for short-circuit).
 
     Mocks a ``_FakeColumn`` whose ``to_pylist()`` raises a real
     ``ArrowInvalid`` (transient); verifies the helper re-raises as
@@ -870,28 +935,24 @@ def test_convert_phase_arrow_transient_routes_to_oserror():
 
     from openlimno.gui_core import controller as ctl
 
-    fake_table = _FakeTable(
-        column_names=["x"],
-        columns=[_FakeColumn(
-            None, raise_exc=pa_lib.ArrowInvalid("simulated mid-materialization")
-        )],
-    )
-    with patch.object(pq, "read_table", return_value=fake_table):
+    fake_pf = _FakeParquetFile([
+        _FakeBatch(None, raise_exc=pa_lib.ArrowInvalid("simulated mid-materialization")),
+    ])
+    with patch.object(pq, "ParquetFile", return_value=fake_pf):
         with pytest.raises(OSError) as exc_info:
             ctl._read_wua_parquet("/nonexistent/path.parquet")
     # Must be OSError (transient), NOT ParquetSchemaError (permanent).
     assert not isinstance(exc_info.value, ctl.ParquetSchemaError), (
-        "CONVERT-phase ArrowInvalid must route to OSError (transient), "
+        "MATERIALIZE-phase ArrowInvalid must route to OSError (transient), "
         "not ParquetSchemaError (permanent)"
     )
     assert isinstance(exc_info.value.__cause__, pa_lib.ArrowInvalid)
 
 
 def test_convert_phase_arrow_permanent_routes_to_parquet_schema_error():
-    """Post-v0.1.2 round-2 review (Claude min-coverage b): symmetric
-    to the transient test — CONVERT-phase ``ArrowKeyError`` (in
-    ``_ARROW_PERMANENT``) raised during materialization must route
-    to ``ParquetSchemaError``, not bypass classification.
+    """Symmetric to the transient test —  CONVERT-phase ``ArrowKeyError``
+    (in ``_ARROW_PERMANENT``) raised during materialization must
+    route to ``ParquetSchemaError``, not bypass classification.
     """
     pytest.importorskip("pyarrow")
     pa_lib = pytest.importorskip("pyarrow.lib")
@@ -901,70 +962,29 @@ def test_convert_phase_arrow_permanent_routes_to_parquet_schema_error():
 
     from openlimno.gui_core import controller as ctl
 
-    fake_table = _FakeTable(
-        column_names=["x"],
-        columns=[_FakeColumn(
-            None, raise_exc=pa_lib.ArrowKeyError("simulated bad column ref")
-        )],
-    )
-    with patch.object(pq, "read_table", return_value=fake_table):
+    fake_pf = _FakeParquetFile([
+        _FakeBatch(None, raise_exc=pa_lib.ArrowKeyError("simulated bad column ref")),
+    ])
+    with patch.object(pq, "ParquetFile", return_value=fake_pf):
         with pytest.raises(ctl.ParquetSchemaError) as exc_info:
             ctl._read_wua_parquet("/nonexistent/path.parquet")
     assert isinstance(exc_info.value.__cause__, pa_lib.ArrowKeyError)
-    # The CONVERT-phase message should distinguish from READ-phase.
-    # Round-4 renamed "conversion" → "materialization" when splitting
-    # CONVERT into 2a (materialize) and 2b (zip).
+    # The materialization-phase message should distinguish from the
+    # read phase so users can tell where a corrupt parquet failed.
     assert "materialization" in str(exc_info.value).lower(), (
-        "CONVERT-phase 2a exceptions should produce a message "
+        "materialization-phase exceptions should produce a message "
         "mentioning materialization, not read — for debuggability"
     )
 
 
-def test_inner_zip_name_row_mismatch_routes_to_permanent():
-    """Post-v0.1.2 round-2 review (Claude min-coverage c) + round-5
-    rename: with ONE _FakeColumn of length 3 and TWO column_names,
-    the OUTER zip(*column_lists, strict=True) has only one iterable
-    so its strict=True has no effect; what fires is the INNER
-    ``dict(zip(t.column_names, row, strict=True))`` because
-    column_names has 2 entries but each row tuple has 1. This pins
-    the inner-zip strict invariant.
-
-    Round-5 review (Claude): the previous name claimed "outer zip"
-    but actually tested inner zip — load-bearing semantics need
-    accurate naming for the test to detect the right regression.
-    Outer-zip strict is pinned separately by
-    ``test_zip_strict_mismatch_routes_to_parquet_schema_error``.
-    """
-    pytest.importorskip("pyarrow")
-    pq = pytest.importorskip("pyarrow.parquet")
-
-    from openlimno.gui_core import controller as ctl
-
-    # Fake table where column_names (2) doesn't match columns (1).
-    # Outer zip has single iterable, doesn't fire; inner zip fires
-    # on name/row count mismatch.
-    fake_table = _FakeTable(
-        column_names=["x", "y"],  # 2 names
-        columns=[_FakeColumn([1, 2, 3])],  # 1 column
-    )
-    with patch.object(pq, "read_table", return_value=fake_table):
-        with pytest.raises(ctl.ParquetSchemaError) as exc_info:
-            ctl._read_wua_parquet("/nonexistent/path.parquet")
-    assert isinstance(exc_info.value.__cause__, ValueError)
-
-
 def test_success_path_after_transient_retries(subject, parquet_file):
-    """Post-v0.1.2 round-5 review (Claude #4): every existing retry
-    test exhausts attempts. A regression that turned ``continue``
-    into ``break`` after the first transient catch would pass all
-    current tests because no test exercises "transient fails N
-    times, then succeeds, returns rows" — only "transient fails
-    max_retries times, raises".
-
-    This test fails 2 times then succeeds on attempt 3; asserts
-    rows are returned correctly AND cached. A break-instead-of-
-    continue regression would fail this immediately because
-    attempt 2's failure would prematurely abort the loop.
+    """Success-after-retry coverage: every other retry test exhausts
+    attempts, so a regression that turned ``continue`` into ``break``
+    after the first transient catch would silently pass them. This
+    test fails 2 times then succeeds on attempt 3; asserts rows are
+    returned correctly AND cached. A break-instead-of-continue
+    regression would fail this immediately because attempt 2's
+    failure would prematurely abort the loop.
     """
     state = {"calls": 0}
 
@@ -995,26 +1015,19 @@ def test_success_path_after_transient_retries(subject, parquet_file):
 
 
 def test_read_phase_plain_valueerror_falls_through_to_retry():
-    """Post-v0.1.2 round-1 review (Codex P2 + Claude #1 consensus):
-    v0.1.2 introduced a regression — the ``except ValueError`` clause
-    in ``_read_wua_parquet`` was inside the same try block as
-    ``pq.read_table``, so a plain ``ValueError`` from read itself
-    (older/vendor pyarrow paths reporting torn footer as ValueError,
-    bad parameter args, etc.) was reclassified as
-    ``ParquetSchemaError`` → short-circuit, no retry.
+    """Plain ``ValueError`` from ``pq.ParquetFile`` (older/vendor
+    pyarrow paths reporting torn footer as plain ValueError,
+    bad-parameter errors, etc.) must propagate raw to the cache
+    wrapper's transient-retry clause — NOT be reclassified as
+    permanent ``ParquetSchemaError``.
 
-    v0.1.1 had handled these via the cache wrapper's ``except
-    ValueError`` clause with transient retry semantics. v0.1.2
-    silently lost that retry path.
+    The READ phase only catches Arrow exceptions (via
+    ``_normalize_parquet_exception``) and ``MemoryError``; plain
+    ValueError falls through to the cache wrapper.
 
-    Round-1 fix splits the try blocks: READ phase only catches Arrow
-    exceptions; plain ValueError from read propagates raw to the
-    cache wrapper. CONVERT phase catches ValueError for zip-mismatch
-    only.
-
-    This test pins the new contract: a plain ValueError raised by
-    ``pq.read_table`` must NOT become ``ParquetSchemaError``; it must
-    propagate as a plain ValueError so the cache wrapper sees it.
+    Pins the contract: plain ValueError from ``pq.ParquetFile`` must
+    NOT become ``ParquetSchemaError``; it must propagate as plain
+    ValueError so the cache wrapper sees it.
     """
     pytest.importorskip("pyarrow")
     pq = pytest.importorskip("pyarrow.parquet")
@@ -1024,31 +1037,32 @@ def test_read_phase_plain_valueerror_falls_through_to_retry():
     def raise_plain_valueerror(path, **kwargs):
         raise ValueError("simulated older-pyarrow torn-footer report")
 
-    with patch.object(pq, "read_table", side_effect=raise_plain_valueerror):
+    with patch.object(pq, "ParquetFile", side_effect=raise_plain_valueerror):
         # Must raise ValueError, NOT ParquetSchemaError.
         with pytest.raises(ValueError) as exc_info:
             ctl._read_wua_parquet("/nonexistent/path.parquet")
     # Critical: NOT a ParquetSchemaError — the cache wrapper's
     # transient retry path depends on plain ValueError propagating.
     assert not isinstance(exc_info.value, ctl.ParquetSchemaError), (
-        "REGRESSION: plain ValueError from pq.read_table was "
+        "REGRESSION: plain ValueError from pq.ParquetFile was "
         "reclassified as ParquetSchemaError (permanent), losing "
         "the cache wrapper's transient retry path"
     )
 
 
 def test_cache_wrapper_retries_on_plain_valueerror(subject, parquet_file):
-    """Post-v0.1.2 round-2 review (Gemini #3): the previous test
-    only verified that ``_read_wua_parquet`` PROPAGATES plain
-    ValueError. It didn't verify that the CACHE WRAPPER actually
-    retries on receiving it. A regression that removed the
-    ``except ValueError`` clause at controller.py:1113 would
-    silently lose the transient retry contract.
+    """Integration-level check that the cache wrapper actually
+    retries on plain ValueError. The sibling
+    ``test_read_phase_plain_valueerror_falls_through_to_retry`` only
+    verifies that ``_read_wua_parquet`` PROPAGATES plain ValueError;
+    a regression that removed the ``except ValueError`` clause in
+    ``_read_xs_rows_cached`` would silently lose the transient retry
+    contract.
 
-    This integration-level test pins the full path:
-    pq.read_table raises ValueError → _read_wua_parquet propagates
-    → _read_xs_rows_cached's ``except ValueError`` catches and
-    retries with backoff. Verify call_count == max_retries.
+    Pins the full path: pq.read_table raises ValueError →
+    ``_read_wua_parquet`` propagates → ``_read_xs_rows_cached``'s
+    ``except ValueError`` catches and retries with backoff. Verifies
+    ``call_count == max_retries``.
     """
     pytest.importorskip("pyarrow")
     pq = pytest.importorskip("pyarrow.parquet")
@@ -1059,7 +1073,7 @@ def test_cache_wrapper_retries_on_plain_valueerror(subject, parquet_file):
         state["calls"] += 1
         raise ValueError("simulated transient torn-footer")
 
-    with patch.object(pq, "read_table", side_effect=always_raise_valueerror), \
+    with patch.object(pq, "ParquetFile", side_effect=always_raise_valueerror), \
          patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
         # Will exhaust retries; final raise is the last ValueError.
         with pytest.raises(Exception):
@@ -1068,7 +1082,7 @@ def test_cache_wrapper_retries_on_plain_valueerror(subject, parquet_file):
     assert state["calls"] == 3, (
         f"REGRESSION: cache wrapper didn't retry on plain ValueError. "
         f"Got {state['calls']} calls, expected 3 (max_retries). "
-        f"The except ValueError clause at controller.py:1113 may "
+        f"The except ValueError clause in _read_xs_rows_cached may "
         f"have been removed — transient retry contract broken."
     )
     # 2 sleeps for 3 attempts (no sleep on first).
@@ -1076,66 +1090,41 @@ def test_cache_wrapper_retries_on_plain_valueerror(subject, parquet_file):
 
 
 def test_plain_memoryerror_routes_to_parquet_schema_error():
-    """Post-v0.1.1 round-4 fix (Claude #5): plain ``MemoryError``
-    (not ``ArrowMemoryError``) can fire during ``to_pylist()`` on a
-    multi-GB column. Pre-fix this would escape both Arrow tuples AND
-    the cache wrapper's tuple and crash the GUI.
+    """Plain ``MemoryError`` (not ``ArrowMemoryError``) can fire
+    during ``to_pylist()`` on a multi-GB column. Without explicit
+    handling it would escape both Arrow tuples AND the cache
+    wrapper's ``(OSError, EOFError, RuntimeError)`` tuple and crash
+    the GUI.
 
     Returns a fake table whose column raises plain ``MemoryError``
     on ``to_pylist()``; asserts ``_read_wua_parquet`` re-raises as
-    ``ParquetSchemaError``.
+    ``ParquetSchemaError`` (permanent — 50/100 ms backoff won't
+    reclaim RAM).
     """
     pytest.importorskip("pyarrow")
     pq = pytest.importorskip("pyarrow.parquet")
 
     from openlimno.gui_core import controller as ctl
 
-    fake_table = _FakeTable(
-        column_names=["x"],
-        columns=[_FakeColumn(None, raise_exc=MemoryError("alloc failed"))],
-    )
-    with patch.object(pq, "read_table", return_value=fake_table):
+    fake_pf = _FakeParquetFile([
+        _FakeBatch(None, raise_exc=MemoryError("alloc failed")),
+    ])
+    with patch.object(pq, "ParquetFile", return_value=fake_pf):
         with pytest.raises(ctl.ParquetSchemaError) as exc_info:
             ctl._read_wua_parquet("/nonexistent/path.parquet")
     assert isinstance(exc_info.value.__cause__, MemoryError)
     assert "MemoryError" in str(exc_info.value)
 
 
-def test_zip_strict_mismatch_routes_to_parquet_schema_error():
-    """Post-v0.1.1 round-5 review (Claude #1): the round-4 change to
-    ``zip(strict=True)`` introduced a new ``ValueError`` path on
-    column-length mismatch. Pre-round-5 this would escape uncaught.
-
-    Returns a fake table whose columns have different lengths,
-    triggering ``zip(strict=True)`` to raise. Asserts the helper
-    re-raises as ``ParquetSchemaError`` with cause-chain to ValueError.
-    """
-    pytest.importorskip("pyarrow")
-    pq = pytest.importorskip("pyarrow.parquet")
-
-    from openlimno.gui_core import controller as ctl
-
-    fake_table = _FakeTable(
-        column_names=["x", "y"],
-        columns=[_FakeColumn([1, 2, 3]), _FakeColumn([10])],  # length mismatch
-    )
-    with patch.object(pq, "read_table", return_value=fake_table):
-        with pytest.raises(ctl.ParquetSchemaError) as exc_info:
-            ctl._read_wua_parquet("/nonexistent/path.parquet")
-    assert "column-length mismatch" in str(exc_info.value)
-    assert isinstance(exc_info.value.__cause__, ValueError)
-
-
 def test_no_arrow_exception_sentinel_never_matches():
-    """v0.1.0-final residual #4 (post-alpha.13 Claude): some vendor
-    pyarrow builds don't expose ``ArrowException`` on ``pyarrow.lib``.
-    The fix introduced a ``_NoArrowExceptionAvailable`` sentinel so
-    ``except ArrowException`` is always a syntactically valid clause.
-    The sentinel must never match any real exception that
-    ``pq.read_table`` would raise, so the absence of ``ArrowException``
-    silently downgrades to the cache wrapper's broader ``except``
-    tuple (OSError/ValueError/EOFError/RuntimeError) instead of
-    swallowing a real failure.
+    """Some vendor pyarrow builds don't expose ``ArrowException`` on
+    ``pyarrow.lib``. ``_NoArrowExceptionAvailable`` is the sentinel
+    that keeps ``isinstance(exc, _ARROW_*)`` checks syntactically
+    valid in that case. The sentinel must never match any real
+    exception ``pq.read_table`` would raise, so the absence of
+    ``ArrowException`` silently downgrades to the cache wrapper's
+    broader ``except`` tuple (OSError/ValueError/EOFError/RuntimeError)
+    instead of swallowing a real failure.
     """
     from openlimno.gui_core.controller import _NoArrowExceptionAvailable
 

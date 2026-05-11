@@ -11,7 +11,7 @@ import math
 import os
 import time
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, NoReturn, Protocol
 
 
 class Host(Protocol):
@@ -39,37 +39,28 @@ def _read_wua_csv(path: str) -> list[dict[str, str]]:
 
 
 class _NoArrowExceptionAvailable(Exception):
-    """Sentinel: never matches any real exception.
-
-    Used as a fallback in the module-level ``_ARROW_CATCH`` tuple when
-    pyarrow has no recognisable Arrow* exception classes (no
-    ``ArrowException`` parent, no individual subclasses). ``except
-    _NoArrowExceptionAvailable`` is then a syntactically valid clause
-    that simply never fires.
+    """Sentinel for vendor pyarrow builds with no recognizable Arrow*
+    classes. Falls into one of the ``_ARROW_*`` tuples but never
+    matches anything real — keeps ``isinstance`` checks syntactically
+    valid in that edge case.
     """
 
 
 def _build_arrow_catch_tuples() -> tuple[tuple[type, ...], tuple[type, ...]]:
-    """Build TWO catch-tuples: transient and permanent Arrow* failures.
+    """Resolve pyarrow exception classes into (transient, permanent).
 
-    Post-v0.1.0 round-1 review (Claude #1): the previous single
-    ``_ARROW_CATCH`` lumped permanent schema/coercion failures
-    (``ArrowKeyError`` = missing column, ``ArrowNotImplementedError`` =
-    unsupported encoding, ``ArrowTypeError`` = type coercion fail,
-    ``ArrowCapacityError`` = >2 GB column) in with truly transient I/O
-    issues (``ArrowInvalid`` = torn footer, ``ArrowIOError`` = read
-    underflow). Re-raising both as ``OSError`` made the cache retry
-    burn ~150 ms total backoff (50 + 100 ms) across 3 attempts on
-    guaranteed-permanent failures — same
-    pattern that ``MissingParquetBackend`` was introduced to fix.
+    Classification:
+    - Transient (retry-eligible): torn footer / brief I/O underflow.
+      A 50/100 ms backoff CAN help on these (e.g., writer mid-flush).
+    - Permanent (short-circuit): schema, coercion, allocation,
+      cancellation, capacity. Retry won't fix.
 
-    Now returns ``(transient, permanent)``. Caller in
-    ``_read_wua_parquet`` routes the two through different normalised
-    exception types; ``_read_xs_rows_cached`` short-circuits the
-    permanent class like it does for ``MissingParquetBackend``.
+    Forward-compat: the ``ArrowException`` parent in the permanent
+    tuple catches any future Arrow* subclass. Unknown defaults to
+    "don't waste retry budget".
 
-    Vendor-pyarrow handling: each tuple falls back to the sentinel if
-    none of its classes are available on the build.
+    Vendor-pyarrow: each tuple falls back to the sentinel if none of
+    its classes are importable, so ``isinstance`` checks stay valid.
     """
     try:
         from pyarrow import lib as _pa_lib
@@ -85,35 +76,9 @@ def _build_arrow_catch_tuples() -> tuple[tuple[type, ...], tuple[type, ...]]:
         return tuple(classes) if classes else (_NoArrowExceptionAvailable,)
 
     transient = _resolve(
-        "ArrowInvalid",       # corrupt footer / bad data: retry-eligible
-        "ArrowIOError",       # I/O underflow: retry-eligible
-        # Post-v0.1.1 round-3 review (Claude + Gemini consensus):
-        # ``ArrowMemoryError`` was briefly moved here in round-2, but
-        # 50/100 ms backoff is far too short for an OS to free
-        # meaningful RAM. If pyarrow's allocation failed once, a
-        # 50 ms retry will almost certainly fail again — exactly
-        # the burn-the-budget pattern transient-vs-permanent was
-        # introduced to fix. Reverted to permanent below.
+        "ArrowInvalid",   # corrupt footer / bad data
+        "ArrowIOError",   # I/O underflow
     )
-    # All 8 currently-known permanent Arrow* classes plus the
-    # ``ArrowException`` parent as a forward-compat fallback.
-    # Post-v0.1.1 round-5 review (Claude #2): the previous version of
-    # this comment claimed "Order matters: the parent ArrowException
-    # MUST be last" — that's FALSE. Python's ``except (A, B, C)``
-    # uses isinstance against all classes in the tuple, so tuple
-    # order is irrelevant here. The actual load-bearing order is
-    # the order of the EXCEPT BLOCKS in ``_read_wua_parquet``
-    # (TRANSIENT block before PERMANENT block), which is documented
-    # there with its own DO-NOT-REORDER comment.
-    #
-    # Post-v0.1.0 round-2 review (Codex P2): the previous narrower
-    # list dropped ``ArrowMemoryError``, ``ArrowSerializationError``,
-    # ``ArrowCancelled``, ``ArrowIndexError``, and any future
-    # subclass — those would escape both this function AND the cache
-    # wrapper's ``except (OSError, EOFError, RuntimeError, ValueError)``
-    # tuple, crashing the GUI. Including ``ArrowException`` last
-    # gives forward-compatible coverage; new pyarrow exception types
-    # default to "permanent" (don't waste retry budget on unknown).
     permanent = _resolve(
         "ArrowKeyError",            # missing column lookup
         "ArrowNotImplementedError", # unsupported encoding
@@ -128,148 +93,93 @@ def _build_arrow_catch_tuples() -> tuple[tuple[type, ...], tuple[type, ...]]:
     return transient, permanent
 
 
-# Module-level: built once at import. Tests assert against these
-# tuples directly to detect vendor-pyarrow downgrades and the
-# transient-vs-permanent partition.
+# Built once at module import. Tests assert against these directly so
+# a vendor-pyarrow downgrade (sentinel-only) fails CI.
 _ARROW_TRANSIENT, _ARROW_PERMANENT = _build_arrow_catch_tuples()
 
 
 class MissingParquetBackend(RuntimeError):
-    """Neither pyarrow nor GDAL/OGR is importable.
-
-    Inherits from ``RuntimeError`` so the GUI direct-call sites'
-    existing ``except (..., RuntimeError)`` still surfaces a friendly
-    QMessageBox. The cache retry loop in
-    ``Controller._read_xs_rows_cached`` checks for this subtype
-    *before* the broader RuntimeError clause so it short-circuits
-    instead of burning the retry budget on a permanent install
-    problem (round-2 review — Claude P1 #3 + Gemini).
+    """Neither pyarrow nor GDAL/OGR is importable. Cache wrapper
+    short-circuits this subclass before the broader RuntimeError
+    clause — retry can't install a missing dependency.
     """
 
 
 class ParquetSchemaError(RuntimeError):
-    """Permanent parquet failure that should NOT be retried.
-
-    Used by ``_read_wua_parquet`` to normalise the four Arrow* classes
-    that represent permanent schema or capacity failures
-    (``ArrowKeyError``, ``ArrowNotImplementedError``, ``ArrowTypeError``,
-    ``ArrowCapacityError``). Like ``MissingParquetBackend``, this
-    inherits from ``RuntimeError`` so GUI direct-call sites' existing
-    ``except (..., RuntimeError)`` clause continues to surface a
-    friendly QMessageBox; the cache retry loop must short-circuit on
-    this subtype to avoid burning ~150 ms total (50+100 ms backoff
-    across 3 attempts) on a guaranteed-permanent
-    failure (post-v0.1.0 round-1 — Claude #1).
+    """Permanent parquet failure (schema, coercion, capacity, OOM,
+    cancellation). Distinct subclass so the cache wrapper can
+    short-circuit before falling into its transient-retry clause for
+    plain RuntimeError.
     """
 
 
-def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
-    """Read parquet via pyarrow (preferred) with GDAL/OGR fallback.
+def _normalize_parquet_exception(exc: BaseException, phase: str) -> NoReturn:
+    """Classify a pyarrow exception and re-raise as the canonical
+    transient/permanent type the cache wrapper expects. Always raises.
 
-    Round-7 review (Codex P1): the previous implementation caught
-    ``Exception`` at both backends and returned ``[]`` on failure.
-    That made ``Controller._read_xs_rows_cached``'s retry-on-exception
-    code unreachable in production — torn reads silently produced
-    empty rows that got cached. Now only ``ImportError`` falls through
-    between backends; read failures propagate so the cache layer can
-    act on them.
+    Unclassified exceptions propagate unchanged so plain ``ValueError``
+    (older pyarrow torn-footer reports it as ValueError) reaches the
+    cache wrapper's transient-retry clause.
+
+    Classification order matters: TRANSIENT first because the PERMANENT
+    tuple includes the ``ArrowException`` parent as a forward-compat
+    fallback. Plain ``MemoryError`` checked AFTER Arrow* so
+    ``ArrowMemoryError`` keeps its specific class name in the message.
+
+    Args:
+        exc: the caught exception.
+        phase: ``"read"`` or ``"materialization"`` — surfaced in the
+            re-raised message so users can tell where a corrupt parquet
+            failed.
     """
-    # Catch tuples built once at module import (above). Two-tuple
-    # split so transient I/O is retried by the cache wrapper while
-    # permanent schema/coercion failures short-circuit (post-v0.1.0
-    # round-1 — Claude #1).
-    try:
-        import pyarrow.parquet as pq
-    except ImportError:
-        pq = None
-    if pq is not None:
-        # ===== DO NOT REORDER THESE except CLAUSES =====
-        # _ARROW_PERMANENT below contains the ``ArrowException`` parent
-        # as a forward-compat fallback; ArrowInvalid (in
-        # _ARROW_TRANSIENT) IS a subclass of ArrowException via the
-        # MRO. Python tries except clauses in source order, so swapping
-        # would silently classify all transient errors as permanent
-        # and disable retry. Pinned by
-        # ``test_except_clause_order_real_arrow_invalid_routes_to_oserror``
-        # (post-v0.1.0 round-3 — Claude #1).
-        # Phase 1: READ. Only Arrow exceptions get re-classified here.
-        # Plain ValueError from pq.read_table (older/vendor pyarrow
-        # paths reporting torn footer as ValueError, bad-arg errors)
-        # propagates to the cache wrapper's ``except ValueError``
-        # clause where it gets transient retry semantics — same as
-        # v0.1.1. Post-v0.1.2 round-1 (Codex P2 + Claude #1): a
-        # too-broad ValueError catch in the convert phase was
-        # reclassifying these as permanent, dropping retry.
-        try:
-            t = pq.read_table(path)
-        except _ARROW_TRANSIENT as e:
-            raise OSError(f"parquet read failed: {e}") from e
-        except _ARROW_PERMANENT as e:
-            raise ParquetSchemaError(
-                f"parquet read failed permanently ({type(e).__name__}): {e}"
-            ) from e
-        except MemoryError as e:
-            # Post-v0.1.2 round-4 review (Claude): plain ``MemoryError``
-            # from ``pq.read_table`` (large-file read OOM) was uncovered
-            # in READ phase — CONVERT phase had the catch but READ
-            # didn't. Plain MemoryError escapes all Arrow tuples AND
-            # the cache wrapper's ``(OSError, EOFError, RuntimeError)``
-            # tuple — would crash the GUI on large-file reads.
-            raise ParquetSchemaError(
-                f"parquet read OOM (MemoryError): {e}"
-            ) from e
+    if isinstance(exc, _ARROW_TRANSIENT):
+        raise OSError(f"parquet {phase} failed: {exc}") from exc
+    if isinstance(exc, _ARROW_PERMANENT):
+        raise ParquetSchemaError(
+            f"parquet {phase} failed permanently ({type(exc).__name__}): {exc}"
+        ) from exc
+    if isinstance(exc, MemoryError):
+        raise ParquetSchemaError(
+            f"parquet {phase} OOM ({type(exc).__name__}): {exc}"
+        ) from exc
+    raise exc  # propagate unclassified (plain ValueError, etc.)
 
-        # Phase 2a: MATERIALIZE columns. Plain ValueError from
-        # ``c.to_pylist()`` (Cython-backed chunked arrays can raise it
-        # for bad UTF-8, decimal overflow, torn dictionary pages on
-        # older pyarrow) propagates to the cache wrapper's transient
-        # retry path — same semantics as READ-phase plain ValueError
-        # (post-v0.1.2 round-4 — Claude). Arrow exceptions + MemoryError
-        # still get classified here.
-        # ===== DO NOT REORDER THESE except CLAUSES =====
-        try:
-            column_lists = [c.to_pylist() for c in t.columns]
-        except _ARROW_TRANSIENT as e:
-            raise OSError(f"parquet materialization failed: {e}") from e
-        except _ARROW_PERMANENT as e:
-            raise ParquetSchemaError(
-                f"parquet materialization failed permanently ({type(e).__name__}): {e}"
-            ) from e
-        except MemoryError as e:
-            raise ParquetSchemaError(
-                f"parquet materialization OOM (MemoryError): {e}"
-            ) from e
 
-        # Phase 2b: ZIP rows. Only the strict=True column-length
-        # mismatch path raises ValueError here — materialization
-        # already succeeded above, so any ValueError is from
-        # ``zip(strict=True)`` or the inner ``dict(zip(... strict=True))``.
-        # Classify as permanent (column-shape mismatch is a real
-        # schema error, not transient).
-        try:
-            return [
-                dict(zip(t.column_names, row, strict=True))
-                for row in zip(*column_lists, strict=True)
-            ]
-        except ValueError as e:
-            raise ParquetSchemaError(
-                f"parquet column-length mismatch: {e}"
-            ) from e
-    # No pyarrow: try GDAL OGR.
+def _read_via_pyarrow(pq, path: str) -> list[dict[str, Any]]:
+    """Pyarrow path: stream batches so peak memory stays bounded."""
+    # READ phase: open + parse footer. ``_normalize_parquet_exception``
+    # classifies Arrow exceptions + ``MemoryError``; plain ``ValueError``
+    # (older pyarrow reports torn footers as ValueError) propagates
+    # unchanged to the cache wrapper's transient-retry clause.
     try:
-        from osgeo import ogr
-    except ImportError as e:
-        raise MissingParquetBackend(
-            "neither pyarrow nor GDAL available to read parquet"
-        ) from e
+        pf = pq.ParquetFile(path)
+    except Exception as e:
+        _normalize_parquet_exception(e, phase="read")
+
+    # MATERIALIZE phase: stream batches. Each ``batch.to_pylist()``
+    # returns a list-of-dicts directly; we extend and free the batch
+    # before the next iteration so peak memory stays bounded.
+    rows: list[dict[str, Any]] = []
+    try:
+        for batch in pf.iter_batches():
+            rows.extend(batch.to_pylist())
+    except Exception as e:
+        _normalize_parquet_exception(e, phase="materialization")
+    return rows
+
+
+def _read_via_ogr(ogr, path: str) -> list[dict[str, Any]]:
+    """GDAL/OGR path: secondary backend covering parquet variants
+    pyarrow can't read (vendor encodings, older format revisions).
+    """
     ds = ogr.Open(path)
     if ds is None:
         raise OSError(f"GDAL/OGR failed to open {path}")
     try:
-        # Round-2 review (Claude P1 #1): malformed datasets can return
-        # ``None`` from ``GetLayer(0)``; without this guard the next
-        # ``GetLayerDefn()`` raises ``AttributeError`` which the cache
-        # retry loop classifies as a programmer bug and propagates uncaught.
+        # Guard against ``None`` from ``GetLayer(0)`` on malformed
+        # datasets — otherwise the next ``GetLayerDefn()`` raises
+        # ``AttributeError`` which the cache retry loop classifies as
+        # a programmer bug and propagates uncaught.
         layer = ds.GetLayer(0)
         if layer is None:
             raise OSError(f"GDAL/OGR returned no layer in {path}")
@@ -281,6 +191,59 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
         # reference and frees the file handle. Long PyQt sessions
         # otherwise accumulate open fds across repeated WUA-Q opens.
         ds = None  # noqa: F841
+
+
+def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
+    """Read parquet via pyarrow (preferred) with GDAL/OGR fallback.
+
+    The OGR fallback fires when pyarrow either isn't installed OR
+    permanently rejects the file (``ParquetSchemaError``). It does
+    NOT fire on transient pyarrow errors (those propagate to the
+    cache wrapper's retry loop, which is more appropriate than
+    retrying through a different backend).
+
+    Failures propagate to the cache layer's retry-on-exception logic.
+    Returning ``[]`` silently on read failure would mask torn-footer
+    errors by caching the empty result.
+    """
+    try:
+        import pyarrow.parquet as pq
+    except ImportError:
+        pq = None
+
+    pyarrow_error: ParquetSchemaError | None = None
+    if pq is not None:
+        try:
+            return _read_via_pyarrow(pq, path)
+        except ParquetSchemaError as e:
+            # pyarrow permanently rejected the file. Don't give up
+            # yet — OGR may handle parquet variants pyarrow doesn't
+            # support. Transient pyarrow errors (OSError) propagate
+            # past this clause for the cache wrapper to retry.
+            pyarrow_error = e
+
+    try:
+        from osgeo import ogr
+    except ImportError as e:
+        if pyarrow_error is not None:
+            # pyarrow failed and no OGR to retry with — surface
+            # pyarrow's specific error rather than masking it as
+            # "missing backend."
+            raise pyarrow_error
+        raise MissingParquetBackend(
+            "neither pyarrow nor GDAL available to read parquet"
+        ) from e
+
+    try:
+        return _read_via_ogr(ogr, path)
+    except Exception:
+        if pyarrow_error is not None:
+            # Both backends rejected the file. Surface pyarrow's
+            # error with its original cause chain intact (the primary
+            # backend's verdict on the file is more useful for
+            # debugging than OGR's secondary attempt).
+            raise pyarrow_error  # noqa: B904 — intentional plain re-raise
+        raise
 
 
 
@@ -306,6 +269,86 @@ class Controller:
         self._pick_action: Any = None  # set by UI when an action is checkable
         self._run_case_proc: Any = None
         self._run_case_log: bytearray = bytearray()
+        # Active async-read handles: (thread, worker, progress) tuples
+        # kept alive until the worker's signal fires. Letting these go
+        # to GC mid-flight crashes Qt (C++ object destroyed while the
+        # Python wrapper still holds a slot binding).
+        self._async_handles: set[tuple[Any, Any, Any]] = set()
+        # Reentrancy guard for map-click → _plot_at_station; the
+        # progress dialog is WindowModal but the QGIS map canvas
+        # routes clicks past WindowModality, so rapid clicks could
+        # otherwise spawn parallel reads racing on the cache.
+        self._read_in_flight: bool = False
+
+    def _read_parquet_async(
+        self,
+        path: str,
+        read_fn,
+        on_success,
+        on_error,
+        label: str = "Reading parquet…",
+    ) -> None:
+        """Run ``read_fn(path)`` on a background QThread, then invoke
+        ``on_success(rows)`` or ``on_error(msg)`` on the main thread.
+
+        Shows an indeterminate busy dialog while the read is in flight.
+        Threads + workers live on ``self._async_handles`` until the
+        signal fires — letting them GC mid-flight crashes Qt.
+        """
+        from qgis.PyQt.QtCore import QObject, Qt, QThread, pyqtSignal, pyqtSlot
+        from qgis.PyQt.QtWidgets import QProgressDialog
+
+        if self._read_in_flight:
+            # Drop the new request rather than spawning a second
+            # worker that would race on the cache.
+            return
+        self._read_in_flight = True
+
+        parent = self.host.main_window()
+
+        class _Worker(QObject):
+            finished = pyqtSignal(list)
+            error = pyqtSignal(str)
+
+            def __init__(self, p: str, fn) -> None:
+                super().__init__()
+                self._p = p
+                self._fn = fn
+
+            @pyqtSlot()
+            def run(self) -> None:
+                try:
+                    rows = self._fn(self._p)
+                except (OSError, EOFError, ValueError, RuntimeError) as exc:
+                    self.error.emit(f"Could not read {self._p}:\n{exc}")
+                    return
+                self.finished.emit(rows)
+
+        progress = QProgressDialog(label, "", 0, 0, parent)
+        progress.setCancelButton(None)  # no cancellation backing => hide cancel
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.show()
+
+        thread = QThread(parent)
+        worker = _Worker(path, read_fn)
+        worker.moveToThread(thread)
+
+        handle = (thread, worker, progress)
+        self._async_handles.add(handle)
+
+        def _cleanup_and_dispatch(callback, arg) -> None:
+            thread.quit()
+            thread.wait()
+            progress.close()
+            self._async_handles.discard(handle)
+            self._read_in_flight = False
+            callback(arg)
+
+        worker.finished.connect(lambda rows: _cleanup_and_dispatch(on_success, rows))
+        worker.error.connect(lambda msg: _cleanup_and_dispatch(on_error, msg))
+        thread.started.connect(worker.run)
+        thread.start()
 
     # ------------------------------------------------------------------
     # Open existing results
@@ -350,36 +393,31 @@ class Controller:
         )
         if not path:
             return
-        # Round-1 review (Codex P2 + Claude): _read_wua_parquet now raises
-        # on torn parquet (alpha.10 round-7 change); without this guard,
-        # selecting a corrupt file in the dialog crashes the GUI thread
-        # via the unhandled exception path.
-        try:
-            rows = _read_wua_csv(path) if path.endswith(".csv") else _read_wua_parquet(path)
-        except (OSError, EOFError, ValueError, RuntimeError) as e:
-            QMessageBox.warning(self.host.main_window(), "OpenLimno",
-                                f"Could not read {path}:\n{e}")
-            return
-        if not rows:
-            return
-        dlg = QDialog(self.host.main_window())
-        dlg.setWindowTitle(f"WUA-Q: {os.path.basename(path)}")
-        layout = QVBoxLayout(dlg)
-        headers = list(rows[0].keys())
-        table = QTableWidget(len(rows), len(headers), dlg)
-        table.setHorizontalHeaderLabels(headers)
-        for i, row in enumerate(rows):
-            for j, h in enumerate(headers):
-                table.setItem(i, j, QTableWidgetItem(str(row.get(h, ""))))
-        layout.addWidget(table)
-        dlg.resize(640, 480)
-        dlg.exec()
+
+        def _show_rows(rows) -> None:
+            if not rows:
+                return
+            dlg = QDialog(self.host.main_window())
+            dlg.setWindowTitle(f"WUA-Q: {os.path.basename(path)}")
+            layout = QVBoxLayout(dlg)
+            headers = list(rows[0].keys())
+            table = QTableWidget(len(rows), len(headers), dlg)
+            table.setHorizontalHeaderLabels(headers)
+            for i, row in enumerate(rows):
+                for j, h in enumerate(headers):
+                    table.setItem(i, j, QTableWidgetItem(str(row.get(h, ""))))
+            layout.addWidget(table)
+            dlg.resize(640, 480)
+            dlg.exec()
+
+        def _show_error(msg: str) -> None:
+            QMessageBox.warning(self.host.main_window(), "OpenLimno", msg)
+
+        read_fn = _read_wua_csv if path.endswith(".csv") else _read_wua_parquet
+        self._read_parquet_async(path, read_fn, _show_rows, _show_error, "Reading WUA-Q…")
 
     def plot_cross_section(self) -> None:
-        from qgis.PyQt.QtWidgets import (
-            QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-            QFormLayout, QMessageBox, QVBoxLayout,
-        )
+        from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox
 
         xs_path, _ = QFileDialog.getOpenFileName(
             self.host.main_window(),
@@ -389,20 +427,32 @@ class Controller:
         )
         if not xs_path:
             return
-        # Round-1 review: _read_wua_parquet raises on torn parquet
-        # (alpha.10 round-7); collapse exception + empty-rows into one
-        # error UX path so corrupt files don't escape into Qt's default
-        # exception handler.
-        try:
-            rows = _read_wua_parquet(xs_path)
-        except (OSError, EOFError, ValueError, RuntimeError) as e:
-            QMessageBox.warning(self.host.main_window(), "OpenLimno",
-                                f"Could not read {xs_path}:\n{e}")
-            return
-        if not rows:
-            QMessageBox.warning(self.host.main_window(), "OpenLimno",
-                                  f"Could not read {xs_path}")
-            return
+
+        def _continue_with_rows(rows) -> None:
+            if not rows:
+                QMessageBox.warning(self.host.main_window(), "OpenLimno",
+                                    f"Could not read {xs_path}")
+                return
+            self._plot_cross_section_dialog(xs_path, rows)
+
+        def _on_error(msg: str) -> None:
+            QMessageBox.warning(self.host.main_window(), "OpenLimno", msg)
+
+        self._read_parquet_async(
+            xs_path, _read_wua_parquet, _continue_with_rows, _on_error,
+            "Reading cross-sections…",
+        )
+
+    def _plot_cross_section_dialog(self, xs_path: str, rows: list) -> None:
+        """Once xs-parquet rows are loaded, prompt for hydraulics + open
+        the configuration dialog. Split from ``plot_cross_section`` so
+        the slow parquet read can run on a background QThread.
+        """
+        from qgis.PyQt.QtWidgets import (
+            QComboBox, QDialog, QDialogButtonBox, QFileDialog,
+            QFormLayout, QMessageBox,
+        )
+
         stations = sorted({float(r["station_m"]) for r in rows})
 
         hyd_path, _ = QFileDialog.getOpenFileName(
@@ -1083,18 +1133,16 @@ class Controller:
             return cache["rows"]
         # Cache miss: read with TOCTOU guard. Each transient failure
         # mode (stat-fails, parquet-read-raises, post-stat-None, pre/post
-        # disagree) records last_error and continues into the next
+        # disagree) records ``last_error`` and continues into the next
         # attempt — only when retries are exhausted do we fall back to
-        # the prior cache or raise. Round-6 fixes:
-        #   - Codex P2 / Claude P1: ``post is None`` was raising on
-        #     attempt 0, defeating the retry budget for `mv -f`-style
-        #     transient unlinks. Now it `continue`s.
-        #   - Gemini P0: parquet readers raise on torn input
-        #     (ArrowInvalid, EOFError, OSError). The previous code
-        #     let those propagate out, bypassing retry. Wrap.
-        #   - Claude P1: ``cache.get("rows")`` was falsy on empty
-        #     rows; an empty parquet would be treated as no-cache.
-        #     Use ``"rows" in cache`` instead.
+        # the prior cache or raise. Notes on subtleties:
+        #   - ``post is None`` ``continue``s rather than raises so a
+        #     transient unlink (e.g., ``mv -f``) doesn't defeat the
+        #     retry budget on attempt 0.
+        #   - Parquet readers raise on torn input (ArrowInvalid,
+        #     EOFError, OSError) — wrap so the cache layer can retry.
+        #   - Use ``"rows" in cache`` (not truthy check) so an empty
+        #     parquet is still cacheable.
         last_error = None
         for attempt in range(max_retries):
             if attempt > 0:
@@ -1112,26 +1160,24 @@ class Controller:
             # classes get caught as transient and retried 3× with
             # backoff, undoing the whole point of the dedicated
             # subclasses. Pinned by
-            # ``test_cache_loop_except_clause_order_pins_short_circuit``
-            # (post-v0.1.1 round-1 — Claude).
+            # ``test_cache_loop_except_clause_order_pins_short_circuit``.
             try:
                 rows = _read_wua_parquet(path)
             except (MissingParquetBackend, ParquetSchemaError):
-                # Permanent failures: install missing or schema/capacity
+                # Permanent failures: missing install or schema/capacity
                 # error. No amount of retry will fix these.
                 raise
             except (OSError, EOFError, RuntimeError) as e:
-                # Round-7 review (all 3): narrow from `except Exception`
-                # to the transient I/O / read-failure family. Don't
-                # swallow programmer bugs (TypeError, AttributeError,
-                # KeyError) under the retry banner. ArrowInvalid is a
-                # subclass of OSError in newer pyarrow, ValueError in
-                # older — we add ValueError as a safety net below.
+                # Narrow exception list — don't swallow programmer
+                # bugs (TypeError, AttributeError, KeyError) under the
+                # retry banner. ArrowInvalid is an OSError subclass in
+                # newer pyarrow / ValueError in older — ValueError is
+                # added below as a safety net.
                 last_error = e
                 continue
             except ValueError as e:
-                # pyarrow.lib.ArrowInvalid on torn footers used to be
-                # ValueError. Treat as transient.
+                # Older pyarrow reported torn footers as plain
+                # ValueError; treat as transient.
                 last_error = e
                 continue
             post = _stat(path)
@@ -1152,16 +1198,37 @@ class Controller:
         raise last_error or RuntimeError(f"unable to read {path} stably")
 
     def _plot_at_station(self, station: float) -> None:
-        from qgis.PyQt.QtWidgets import (
-            QComboBox, QDialog, QDialogButtonBox, QFormLayout, QMessageBox,
-        )
+        from qgis.PyQt.QtWidgets import QMessageBox
 
         if not self._xs_parquet:
             QMessageBox.warning(self.host.main_window(), "OpenLimno",
                                   "No cross_section.parquet selected.")
             return
         cache_key = self._xs_parquet
-        rows = self._read_xs_rows_cached(cache_key)
+
+        def _continue_with_rows(rows) -> None:
+            if not rows:
+                return
+            self._plot_at_station_dialog(rows, station)
+
+        def _on_error(msg: str) -> None:
+            QMessageBox.warning(self.host.main_window(), "OpenLimno", msg)
+
+        self._read_parquet_async(
+            cache_key, self._read_xs_rows_cached,
+            _continue_with_rows, _on_error,
+            "Reading cross-section data…",
+        )
+
+    def _plot_at_station_dialog(self, rows: list, station: float) -> None:
+        """Sync UI flow that runs after the (possibly async) cross-section
+        read has produced rows. Split from ``_plot_at_station`` so the
+        cold-cache read can run on a background QThread.
+        """
+        from qgis.PyQt.QtWidgets import (
+            QComboBox, QDialog, QDialogButtonBox, QFormLayout,
+        )
+
         stations = sorted({float(r["station_m"]) for r in rows})
         station = min(stations, key=lambda s: abs(s - station))
 

@@ -58,8 +58,9 @@ def _smoke_run_case_in_bundle(case_yaml: str) -> int:
 def main() -> int:
     # Bundle smoke-test mode: run a case headless and exit. Used by the
     # release-time test that proves the AppImage can actually solve a
-    # case (the way scipy.optimize + WEDM schema bundling regressions
-    # got past v0.1.0-alpha.2).
+    # case — dev-venv tests can't catch PyInstaller bundling regressions
+    # (missing collect_all entries, over-eager exclude lists) that only
+    # bite the frozen build.
     if len(sys.argv) >= 3 and sys.argv[1] == "--smoke-run-case":
         return _smoke_run_case_in_bundle(sys.argv[2])
 
