@@ -749,6 +749,49 @@ class _FakeTable:
         self.columns = columns
 
 
+def test_convert_phase_arrow_transient_triggers_cache_retry(subject, parquet_file):
+    """Post-v0.1.2 round-3 review (Claude #3 + Gemini #3): the round-2
+    test ``test_convert_phase_arrow_transient_routes_to_oserror``
+    verifies the helper-level OSError mapping but doesn't verify the
+    end-to-end behavior: that the cache wrapper actually retries on
+    that OSError. A regression removing the OSError → cache OSError
+    handoff (e.g., changing the message format to break catching)
+    would slip past unit-level mocks.
+
+    This integration-level test pins the full path: pq.read_table
+    returns a fake_table whose column raises ArrowInvalid during
+    materialization → _read_wua_parquet re-raises as OSError →
+    cache wrapper catches OSError → retries 3× with backoff.
+    """
+    pytest.importorskip("pyarrow")
+    pa_lib = pytest.importorskip("pyarrow.lib")
+    pq = pytest.importorskip("pyarrow.parquet")
+    if not hasattr(pa_lib, "ArrowInvalid"):
+        pytest.skip("pyarrow.lib lacks ArrowInvalid on this build")
+
+    state = {"calls": 0}
+
+    def fake_read_returns_bad_table(path, **kwargs):
+        state["calls"] += 1
+        return _FakeTable(
+            column_names=["x"],
+            columns=[_FakeColumn(
+                None, raise_exc=pa_lib.ArrowInvalid("mid-mat torn buffer")
+            )],
+        )
+
+    with patch.object(pq, "read_table", side_effect=fake_read_returns_bad_table), \
+         patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
+        with pytest.raises(Exception):
+            subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
+    # CONVERT-phase ArrowInvalid → OSError → cache retries 3×.
+    assert state["calls"] == 3, (
+        f"REGRESSION: CONVERT-phase ArrowInvalid did not trigger "
+        f"cache retry. Got {state['calls']} calls, expected 3."
+    )
+    assert mock_sleep.call_count == 2  # No sleep on first attempt
+
+
 def test_convert_phase_arrow_transient_routes_to_oserror():
     """Post-v0.1.2 round-2 review (Claude min-coverage a): the
     CONVERT phase has its own ``except _ARROW_TRANSIENT`` clause
