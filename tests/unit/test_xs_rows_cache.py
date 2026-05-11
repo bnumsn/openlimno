@@ -920,13 +920,20 @@ def test_convert_phase_arrow_permanent_routes_to_parquet_schema_error():
     )
 
 
-def test_outer_zip_name_column_count_mismatch_routes_to_permanent():
-    """Post-v0.1.2 round-2 review (Claude min-coverage c): the OUTER
-    ``zip(t.column_names, row, strict=True)`` raises ``ValueError``
-    if the table's ``column_names`` length differs from its
-    ``columns`` length. Without coverage, a regression that removed
-    the outer ``strict=True`` would silently drop fields with no
-    error to the user.
+def test_inner_zip_name_row_mismatch_routes_to_permanent():
+    """Post-v0.1.2 round-2 review (Claude min-coverage c) + round-5
+    rename: with ONE _FakeColumn of length 3 and TWO column_names,
+    the OUTER zip(*column_lists, strict=True) has only one iterable
+    so its strict=True has no effect; what fires is the INNER
+    ``dict(zip(t.column_names, row, strict=True))`` because
+    column_names has 2 entries but each row tuple has 1. This pins
+    the inner-zip strict invariant.
+
+    Round-5 review (Claude): the previous name claimed "outer zip"
+    but actually tested inner zip — load-bearing semantics need
+    accurate naming for the test to detect the right regression.
+    Outer-zip strict is pinned separately by
+    ``test_zip_strict_mismatch_routes_to_parquet_schema_error``.
     """
     pytest.importorskip("pyarrow")
     pq = pytest.importorskip("pyarrow.parquet")
@@ -934,6 +941,8 @@ def test_outer_zip_name_column_count_mismatch_routes_to_permanent():
     from openlimno.gui_core import controller as ctl
 
     # Fake table where column_names (2) doesn't match columns (1).
+    # Outer zip has single iterable, doesn't fire; inner zip fires
+    # on name/row count mismatch.
     fake_table = _FakeTable(
         column_names=["x", "y"],  # 2 names
         columns=[_FakeColumn([1, 2, 3])],  # 1 column
@@ -941,9 +950,48 @@ def test_outer_zip_name_column_count_mismatch_routes_to_permanent():
     with patch.object(pq, "read_table", return_value=fake_table):
         with pytest.raises(ctl.ParquetSchemaError) as exc_info:
             ctl._read_wua_parquet("/nonexistent/path.parquet")
-    # Should be caught by CONVERT-phase ValueError catch and routed
-    # to permanent. Either zip's mismatch fires.
     assert isinstance(exc_info.value.__cause__, ValueError)
+
+
+def test_success_path_after_transient_retries(subject, parquet_file):
+    """Post-v0.1.2 round-5 review (Claude #4): every existing retry
+    test exhausts attempts. A regression that turned ``continue``
+    into ``break`` after the first transient catch would pass all
+    current tests because no test exercises "transient fails N
+    times, then succeeds, returns rows" — only "transient fails
+    max_retries times, raises".
+
+    This test fails 2 times then succeeds on attempt 3; asserts
+    rows are returned correctly AND cached. A break-instead-of-
+    continue regression would fail this immediately because
+    attempt 2's failure would prematurely abort the loop.
+    """
+    state = {"calls": 0}
+
+    def fake_read_transient_then_success(p):
+        state["calls"] += 1
+        if state["calls"] < 3:
+            raise OSError(f"simulated transient on attempt {state['calls']}")
+        return [{"row": 1, "ok": True}]
+
+    with patch("openlimno.gui_core.controller._read_wua_parquet",
+                 side_effect=fake_read_transient_then_success), \
+         patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
+        rows = subject._read_xs_rows_cached(
+            str(parquet_file), max_retries=3
+        )
+    assert state["calls"] == 3, (
+        f"REGRESSION: cache loop did not retry through 3 attempts. "
+        f"Got {state['calls']} calls — a break-instead-of-continue "
+        f"in the broader exception clauses would silently abort the "
+        f"loop on first failure."
+    )
+    assert mock_sleep.call_count == 2  # backoff sleeps before retries 2, 3
+    assert rows == [{"row": 1, "ok": True}], (
+        "rows from successful retry attempt must be returned"
+    )
+    # And the success result must be cached for subsequent calls.
+    assert subject._xs_rows_cache.get("rows") == [{"row": 1, "ok": True}]
 
 
 def test_read_phase_plain_valueerror_falls_through_to_retry():
