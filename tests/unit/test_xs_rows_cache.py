@@ -749,6 +749,65 @@ class _FakeTable:
         self.columns = columns
 
 
+def test_read_phase_memoryerror_routes_to_parquet_schema_error():
+    """Post-v0.1.2 round-4 review (Claude): plain ``MemoryError`` from
+    ``pq.read_table`` itself (large-file read OOM) was uncovered in
+    READ phase — only CONVERT phase had the catch. Plain MemoryError
+    is in none of the Arrow tuples, none of the cache wrapper's
+    ``(OSError, EOFError, RuntimeError)`` tuple, and would crash the
+    GUI thread on large-file reads. Pinned by this test.
+    """
+    pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+
+    from openlimno.gui_core import controller as ctl
+
+    def raise_read_memoryerror(path, **kwargs):
+        raise MemoryError("simulated large-file read OOM")
+
+    with patch.object(pq, "read_table", side_effect=raise_read_memoryerror):
+        with pytest.raises(ctl.ParquetSchemaError) as exc_info:
+            ctl._read_wua_parquet("/nonexistent/path.parquet")
+    assert isinstance(exc_info.value.__cause__, MemoryError)
+    assert "read OOM" in str(exc_info.value)
+
+
+def test_materialization_phase_plain_valueerror_falls_through_to_retry():
+    """Post-v0.1.2 round-4 review (Claude): symmetric to the
+    round-1 fix for READ-phase plain ValueError. Plain ``ValueError``
+    from ``c.to_pylist()`` (Cython-backed chunked arrays on bad
+    UTF-8 / decimal overflow / torn dict pages) must propagate to
+    the cache wrapper for transient retry, NOT be reclassified as
+    permanent ParquetSchemaError.
+
+    Round-4 split CONVERT phase into 2a (materialize, plain ValueError
+    propagates) and 2b (zip, ValueError becomes column-mismatch
+    permanent). This test pins that the 2a/2b separation works.
+    """
+    pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+
+    from openlimno.gui_core import controller as ctl
+
+    fake_table = _FakeTable(
+        column_names=["x"],
+        columns=[_FakeColumn(
+            None, raise_exc=ValueError("simulated bad UTF-8 in chunked array")
+        )],
+    )
+    with patch.object(pq, "read_table", return_value=fake_table):
+        # Must propagate as plain ValueError, NOT ParquetSchemaError.
+        with pytest.raises(ValueError) as exc_info:
+            ctl._read_wua_parquet("/nonexistent/path.parquet")
+    assert not isinstance(exc_info.value, ctl.ParquetSchemaError), (
+        "REGRESSION: plain ValueError from to_pylist() was wrongly "
+        "reclassified as ParquetSchemaError (permanent), losing "
+        "the cache wrapper's transient retry path. The CONVERT-phase "
+        "split (2a materialize / 2b zip) must let materialization "
+        "ValueError fall through."
+    )
+
+
 def test_convert_phase_arrow_transient_triggers_cache_retry(subject, parquet_file):
     """Post-v0.1.2 round-3 review (Claude #3 + Gemini #3): the round-2
     test ``test_convert_phase_arrow_transient_routes_to_oserror``
@@ -853,9 +912,11 @@ def test_convert_phase_arrow_permanent_routes_to_parquet_schema_error():
             ctl._read_wua_parquet("/nonexistent/path.parquet")
     assert isinstance(exc_info.value.__cause__, pa_lib.ArrowKeyError)
     # The CONVERT-phase message should distinguish from READ-phase.
-    assert "conversion" in str(exc_info.value).lower(), (
-        "CONVERT-phase exceptions should produce a message mentioning "
-        "conversion, not read — for debuggability"
+    # Round-4 renamed "conversion" → "materialization" when splitting
+    # CONVERT into 2a (materialize) and 2b (zip).
+    assert "materialization" in str(exc_info.value).lower(), (
+        "CONVERT-phase 2a exceptions should produce a message "
+        "mentioning materialization, not read — for debuggability"
     )
 
 

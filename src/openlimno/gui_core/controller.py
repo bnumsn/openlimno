@@ -208,40 +208,52 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
             raise ParquetSchemaError(
                 f"parquet read failed permanently ({type(e).__name__}): {e}"
             ) from e
+        except MemoryError as e:
+            # Post-v0.1.2 round-4 review (Claude): plain ``MemoryError``
+            # from ``pq.read_table`` (large-file read OOM) was uncovered
+            # in READ phase — CONVERT phase had the catch but READ
+            # didn't. Plain MemoryError escapes all Arrow tuples AND
+            # the cache wrapper's ``(OSError, EOFError, RuntimeError)``
+            # tuple — would crash the GUI on large-file reads.
+            raise ParquetSchemaError(
+                f"parquet read OOM (MemoryError): {e}"
+            ) from e
 
-        # Phase 2: CONVERT. Arrow exceptions during materialization
-        # still get classified (Gemini round-3); plus the
-        # zip(strict=True) ValueError and plain MemoryError get
-        # mapped to permanent ParquetSchemaError because column-shape
-        # mismatch and OOM aren't going to fix themselves with a
-        # 50/100 ms retry. The ``ValueError`` catch here is SAFE
-        # because pq.read_table already succeeded — any ValueError
-        # reaching this point is from zip-strict or the dict-comp.
+        # Phase 2a: MATERIALIZE columns. Plain ValueError from
+        # ``c.to_pylist()`` (Cython-backed chunked arrays can raise it
+        # for bad UTF-8, decimal overflow, torn dictionary pages on
+        # older pyarrow) propagates to the cache wrapper's transient
+        # retry path — same semantics as READ-phase plain ValueError
+        # (post-v0.1.2 round-4 — Claude). Arrow exceptions + MemoryError
+        # still get classified here.
         # ===== DO NOT REORDER THESE except CLAUSES =====
-        # Same load-bearing TRANSIENT-before-PERMANENT order as Phase
-        # 1 — ``_ARROW_PERMANENT`` contains ``ArrowException`` as a
-        # forward-compat parent fallback that would otherwise capture
-        # transient subclasses. Post-v0.1.2 round-2 (Claude): added
-        # this comment so a refactor reordering the CONVERT-phase
-        # blocks doesn't silently degrade retry semantics.
         try:
-            return [
-                dict(zip(t.column_names, row, strict=True))
-                for row in zip(*[c.to_pylist() for c in t.columns], strict=True)
-            ]
+            column_lists = [c.to_pylist() for c in t.columns]
         except _ARROW_TRANSIENT as e:
-            raise OSError(f"parquet conversion failed: {e}") from e
+            raise OSError(f"parquet materialization failed: {e}") from e
         except _ARROW_PERMANENT as e:
             raise ParquetSchemaError(
-                f"parquet conversion failed permanently ({type(e).__name__}): {e}"
-            ) from e
-        except ValueError as e:
-            raise ParquetSchemaError(
-                f"parquet column-length mismatch: {e}"
+                f"parquet materialization failed permanently ({type(e).__name__}): {e}"
             ) from e
         except MemoryError as e:
             raise ParquetSchemaError(
                 f"parquet materialization OOM (MemoryError): {e}"
+            ) from e
+
+        # Phase 2b: ZIP rows. Only the strict=True column-length
+        # mismatch path raises ValueError here — materialization
+        # already succeeded above, so any ValueError is from
+        # ``zip(strict=True)`` or the inner ``dict(zip(... strict=True))``.
+        # Classify as permanent (column-shape mismatch is a real
+        # schema error, not transient).
+        try:
+            return [
+                dict(zip(t.column_names, row, strict=True))
+                for row in zip(*column_lists, strict=True)
+            ]
+        except ValueError as e:
+            raise ParquetSchemaError(
+                f"parquet column-length mismatch: {e}"
             ) from e
     # No pyarrow: try GDAL OGR.
     try:
