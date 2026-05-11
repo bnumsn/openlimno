@@ -192,76 +192,49 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
         # and disable retry. Pinned by
         # ``test_except_clause_order_real_arrow_invalid_routes_to_oserror``
         # (post-v0.1.0 round-3 — Claude #1).
+        # Phase 1: READ. Only Arrow exceptions get re-classified here.
+        # Plain ValueError from pq.read_table (older/vendor pyarrow
+        # paths reporting torn footer as ValueError, bad-arg errors)
+        # propagates to the cache wrapper's ``except ValueError``
+        # clause where it gets transient retry semantics — same as
+        # v0.1.1. Post-v0.1.2 round-1 (Codex P2 + Claude #1): a
+        # too-broad ValueError catch in the convert phase was
+        # reclassifying these as permanent, dropping retry.
         try:
             t = pq.read_table(path)
-            # Post-v0.1.1 round-3 review (Gemini): the conversion
-            # ``c.to_pylist() + zip`` was previously OUTSIDE the try
-            # block. ``ArrowMemoryError``, ``ArrowTypeError``,
-            # ``ArrowCapacityError`` are all equally likely to fire
-            # during column materialization as during read_table —
-            # leaving conversion uncovered meant those exceptions
-            # bypassed our classification and propagated raw into the
-            # cache wrapper. Wrap conversion in the same try.
-            # Post-v0.1.1 round-4 review (Gemini #3): use
-            # ``strict=True`` for zip — column-length mismatch from a
-            # partial materialization failure should raise, not
-            # silently truncate to the shortest column.
-            rows = [
-                dict(zip(t.column_names, row, strict=True))
-                for row in zip(*[c.to_pylist() for c in t.columns], strict=True)
-            ]
-            return rows
         except _ARROW_TRANSIENT as e:
-            # Order matters: TRANSIENT first because _ARROW_PERMANENT
-            # below contains the ``ArrowException`` parent as a
-            # forward-compat fallback, which would otherwise match
-            # ``ArrowInvalid`` (a transient subclass) and
-            # mis-classify it as permanent.
-            #
-            # Round-3 review (Claude): ArrowInvalid is a ValueError
-            # subclass, ArrowIOError is an OSError subclass. Normalise
-            # both to OSError so the cache wrapper's exception tuple
-            # treats them uniformly as transient (retry-eligible).
             raise OSError(f"parquet read failed: {e}") from e
         except _ARROW_PERMANENT as e:
-            # Permanent failures: missing column, unsupported encoding,
-            # type coercion fail, oversized column, allocation, etc.
-            # The ``ArrowException`` parent at the end of
-            # ``_ARROW_PERMANENT`` catches any future subclass we
-            # haven't classified yet — conservative default is "don't
-            # retry on unknown."
-            # Post-v0.1.1 round-2 review (Claude #2): include the
-            # original Arrow* class name in the message so cases like
-            # ``ArrowCancelled`` don't read as ``parquet schema/capacity
-            # error: cancelled`` (which is wrong text for cancellation).
             raise ParquetSchemaError(
                 f"parquet read failed permanently ({type(e).__name__}): {e}"
             ) from e
-        except ValueError as e:
-            # Post-v0.1.1 round-5 review (Claude #1): the round-4 change
-            # to ``zip(strict=True)`` raises a plain ``ValueError`` on
-            # column-length mismatch. Plain ValueError is NOT in any of
-            # the Arrow tuples (ArrowInvalid IS a ValueError but goes
-            # through _ARROW_TRANSIENT first), NOT in the cache
-            # wrapper's ``(OSError, EOFError, RuntimeError)`` tuple, and
-            # would crash the GUI uncaught. A column-length mismatch is
-            # a permanent schema-shape failure — classify accordingly.
+
+        # Phase 2: CONVERT. Arrow exceptions during materialization
+        # still get classified (Gemini round-3); plus the
+        # zip(strict=True) ValueError and plain MemoryError get
+        # mapped to permanent ParquetSchemaError because column-shape
+        # mismatch and OOM aren't going to fix themselves with a
+        # 50/100 ms retry. The ``ValueError`` catch here is SAFE
+        # because pq.read_table already succeeded — any ValueError
+        # reaching this point is from zip-strict or the dict-comp.
+        try:
+            return [
+                dict(zip(t.column_names, row, strict=True))
+                for row in zip(*[c.to_pylist() for c in t.columns], strict=True)
+            ]
+        except _ARROW_TRANSIENT as e:
+            raise OSError(f"parquet conversion failed: {e}") from e
+        except _ARROW_PERMANENT as e:
             raise ParquetSchemaError(
-                f"parquet read failed permanently (column mismatch): {e}"
+                f"parquet conversion failed permanently ({type(e).__name__}): {e}"
+            ) from e
+        except ValueError as e:
+            raise ParquetSchemaError(
+                f"parquet column-length mismatch: {e}"
             ) from e
         except MemoryError as e:
-            # Post-v0.1.1 round-4 review (Claude #5): plain
-            # ``MemoryError`` (not ``ArrowMemoryError``) can fire during
-            # ``to_pylist()`` on a multi-GB column. ``ArrowMemoryError``
-            # IS a ``MemoryError`` subclass and is caught by the
-            # ``_ARROW_PERMANENT`` clause above (preserving its
-            # specific Arrow class name in the message). This clause
-            # catches the *plain* ``MemoryError`` case which would
-            # otherwise escape both Arrow tuples AND the cache
-            # wrapper's ``(OSError, EOFError, RuntimeError)`` clause,
-            # surfacing to the GUI as an unhandled crash.
             raise ParquetSchemaError(
-                f"parquet read failed permanently (MemoryError): {e}"
+                f"parquet materialization OOM (MemoryError): {e}"
             ) from e
     # No pyarrow: try GDAL OGR.
     try:

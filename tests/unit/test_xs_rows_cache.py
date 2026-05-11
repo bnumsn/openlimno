@@ -749,6 +749,49 @@ class _FakeTable:
         self.columns = columns
 
 
+def test_read_phase_plain_valueerror_falls_through_to_retry():
+    """Post-v0.1.2 round-1 review (Codex P2 + Claude #1 consensus):
+    v0.1.2 introduced a regression — the ``except ValueError`` clause
+    in ``_read_wua_parquet`` was inside the same try block as
+    ``pq.read_table``, so a plain ``ValueError`` from read itself
+    (older/vendor pyarrow paths reporting torn footer as ValueError,
+    bad parameter args, etc.) was reclassified as
+    ``ParquetSchemaError`` → short-circuit, no retry.
+
+    v0.1.1 had handled these via the cache wrapper's ``except
+    ValueError`` clause with transient retry semantics. v0.1.2
+    silently lost that retry path.
+
+    Round-1 fix splits the try blocks: READ phase only catches Arrow
+    exceptions; plain ValueError from read propagates raw to the
+    cache wrapper. CONVERT phase catches ValueError for zip-mismatch
+    only.
+
+    This test pins the new contract: a plain ValueError raised by
+    ``pq.read_table`` must NOT become ``ParquetSchemaError``; it must
+    propagate as a plain ValueError so the cache wrapper sees it.
+    """
+    pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+
+    from openlimno.gui_core import controller as ctl
+
+    def raise_plain_valueerror(path, **kwargs):
+        raise ValueError("simulated older-pyarrow torn-footer report")
+
+    with patch.object(pq, "read_table", side_effect=raise_plain_valueerror):
+        # Must raise ValueError, NOT ParquetSchemaError.
+        with pytest.raises(ValueError) as exc_info:
+            ctl._read_wua_parquet("/nonexistent/path.parquet")
+    # Critical: NOT a ParquetSchemaError — the cache wrapper's
+    # transient retry path depends on plain ValueError propagating.
+    assert not isinstance(exc_info.value, ctl.ParquetSchemaError), (
+        "REGRESSION: plain ValueError from pq.read_table was "
+        "reclassified as ParquetSchemaError (permanent), losing "
+        "the cache wrapper's transient retry path"
+    )
+
+
 def test_plain_memoryerror_routes_to_parquet_schema_error():
     """Post-v0.1.1 round-4 fix (Claude #5): plain ``MemoryError``
     (not ``ArrowMemoryError``) can fire during ``to_pylist()`` on a
@@ -796,7 +839,7 @@ def test_zip_strict_mismatch_routes_to_parquet_schema_error():
     with patch.object(pq, "read_table", return_value=fake_table):
         with pytest.raises(ctl.ParquetSchemaError) as exc_info:
             ctl._read_wua_parquet("/nonexistent/path.parquet")
-    assert "column mismatch" in str(exc_info.value)
+    assert "column-length mismatch" in str(exc_info.value)
     assert isinstance(exc_info.value.__cause__, ValueError)
 
 
