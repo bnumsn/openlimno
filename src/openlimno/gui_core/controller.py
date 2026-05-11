@@ -299,8 +299,17 @@ class Controller:
         from qgis.PyQt.QtWidgets import QProgressDialog
 
         if self._read_in_flight:
-            # Drop the new request rather than spawning a second
-            # worker that would race on the cache.
+            # Don't spawn a second worker (would race on the cache),
+            # but surface feedback through ``on_error`` so the user
+            # knows their click was acknowledged but de-duped. Silent
+            # drop made the map-click path feel broken — clicking did
+            # nothing visible while a previous read finished. Pinned
+            # by
+            # ``test_read_parquet_async_dedupes_concurrent_reads``.
+            on_error(
+                "Another file read is in progress. Please wait for it "
+                "to finish before opening a new file."
+            )
             return
         self._read_in_flight = True
 

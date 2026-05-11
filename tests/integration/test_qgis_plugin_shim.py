@@ -302,18 +302,16 @@ def test_read_parquet_async_uncaught_exception_dispatches_error(plugin, tmp_path
 
 def test_read_parquet_async_dedupes_concurrent_reads(plugin, tmp_path):
     """While a read is in flight, additional ``_read_parquet_async``
-    calls must be dropped rather than spawning competing workers
-    that race on the cache.
+    calls must be dropped (no competing worker) AND route the caller
+    to ``on_error`` with a "busy" message so the user knows the click
+    was acknowledged. Silent drop made the map-click path feel broken.
     """
     from qgis.PyQt.QtCore import QEventLoop, QTimer
 
     p, _ = plugin
     ctl = p.ctl
 
-    state = {"first_started": False}
-
     def first_read(path: str) -> list:
-        state["first_started"] = True
         # Block briefly so the second call lands while we're in-flight.
         import time
         time.sleep(0.1)
@@ -322,13 +320,20 @@ def test_read_parquet_async_dedupes_concurrent_reads(plugin, tmp_path):
     def second_read(path: str) -> list:
         raise AssertionError("second read must not run — first is in flight")
 
-    results: dict = {"first_rows": None, "second_called": False}
+    results: dict = {
+        "first_rows": None,
+        "second_called": False,
+        "second_error_msg": None,
+    }
 
     def first_success(rows) -> None:
         results["first_rows"] = rows
 
     def second_success(rows) -> None:
         results["second_called"] = True
+
+    def second_error(msg: str) -> None:
+        results["second_error_msg"] = msg
 
     def noop_error(msg: str) -> None:
         pass
@@ -339,11 +344,11 @@ def test_read_parquet_async_dedupes_concurrent_reads(plugin, tmp_path):
     # Kick off first read.
     ctl._read_parquet_async(str(tmp_path / "a.parquet"), first_read,
                              first_success, noop_error, "first")
-    # Immediately attempt a second — must be dropped.
+    # Immediately attempt a second — must be dropped AND notify caller.
     ctl._read_parquet_async(str(tmp_path / "b.parquet"), second_read,
-                             second_success, noop_error, "second")
+                             second_success, second_error, "second")
 
-    # Run the loop until both signals have processed (or timeout).
+    # Run the loop until first signal processes (or timeout).
     def _check() -> None:
         if results["first_rows"] is not None:
             loop.quit()
@@ -356,8 +361,18 @@ def test_read_parquet_async_dedupes_concurrent_reads(plugin, tmp_path):
 
     assert results["first_rows"] == [{"first": True}]
     assert results["second_called"] is False, (
-        "second async read should have been dropped while the first was "
-        "in flight — cache-race protection regressed"
+        "second async read must NOT run — would race on cache"
+    )
+    assert results["second_error_msg"] is not None, (
+        "REGRESSION: deduped second call silently dropped without "
+        "feedback — user has no indication their click was received. "
+        "_read_parquet_async should route through on_error when "
+        "_read_in_flight is already True."
+    )
+    assert "progress" in results["second_error_msg"].lower() or \
+           "wait" in results["second_error_msg"].lower(), (
+        f"on_error message should explain the busy state, got: "
+        f"{results['second_error_msg']!r}"
     )
 
 
