@@ -1137,11 +1137,11 @@ class Controller:
     def _read_xs_rows_cached(self, path: str, max_retries: int = 3) -> list:
         """Read cross_section.parquet rows with a stat→read→stat guard.
 
-        Round-3 review (codex+gemini+claude unanimous) found the previous
-        cache implementation cemented torn rows when the file was rewritten
-        during the read: post-read stat agreed with new on-disk metadata,
-        so subsequent clicks served the corrupt cache forever. The correct
-        pattern is:
+        Naive ``mtime+size`` caching cements torn rows when the file is
+        rewritten DURING the read: post-read stat agrees with new
+        on-disk metadata, so subsequent clicks serve the corrupt cache
+        forever. The TOCTOU-safe pattern is:
+
             pre = stat()
             rows = read()
             post = stat()
