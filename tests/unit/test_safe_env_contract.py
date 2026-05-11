@@ -177,6 +177,40 @@ def test_safe_env_preserves_ca_bundle_vars(var):
     )
 
 
+@pytest.mark.parametrize("var,value", [
+    ("LANG", "en_US.UTF-8"),
+    ("LC_ALL", "en_US.UTF-8"),
+    ("TMPDIR", "/var/tmp"),
+    ("XDG_DATA_HOME", "/home/u/.local/share"),
+    ("XDG_CONFIG_HOME", "/home/u/.config"),
+    ("XDG_CACHE_HOME", "/home/u/.cache"),
+    ("XDG_RUNTIME_DIR", "/run/user/1000"),
+    ("USER", "testuser"),
+    ("SHELL", "/usr/bin/zsh"),
+    ("TERM", "xterm-256color"),
+])
+def test_safe_env_preserves_runtime_locale_xdg_vars(var, value):
+    """Locale + XDG dirs + tempdir + shell metadata must pass through.
+
+    LANG / LC_ALL — without them, CLI tools fall back to C locale and
+    emit garbled non-ASCII messages.
+    XDG_CONFIG_HOME — gemini-cli on Linux stores its OAuth token at
+    $XDG_CONFIG_HOME/google-cloud-cli. Stripping this orphans the
+    subscription token.
+    TMPDIR — CLIs that spool intermediate data need a writable place.
+    TERM / SHELL — some interactive CLIs gate behavior on these.
+
+    Pins the full allowlist so a future "security tightening" can't
+    silently break locale/auth-path/scratch-space discovery.
+    """
+    inside = _run_safe_env_dump({var: value})
+    assert inside.get(var) == value, (
+        f"REGRESSION: allowlisted runtime var {var!r} was stripped by "
+        f"safe_env. Likely cause: someone removed it from the allowlist "
+        f"in scripts/lib/safe_env.sh thinking it was non-essential."
+    )
+
+
 def test_safe_env_preserves_display_for_oauth_flow():
     """First-time OAuth flow on gemini-cli opens a browser. Without
     DISPLAY (or WAYLAND_DISPLAY), the CLI falls back to console-only
