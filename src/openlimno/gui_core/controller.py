@@ -357,6 +357,22 @@ class Controller:
             thread.quit()
             thread.wait()
             progress.close()
+            # Qt-side cleanup: signal connections form Python↔C++ ref
+            # cycles that Python's GC can't break — without explicit
+            # deleteLater() the QObjects accumulate at ~2/read over a
+            # long session. deleteLater schedules deletion on the next
+            # event-loop iteration, after current slot returns. Pinned
+            # by ``test_read_parquet_async_does_not_leak_qobjects``.
+            try:
+                worker.finished.disconnect()
+                worker.error.disconnect()
+            except (TypeError, RuntimeError):
+                # disconnect raises if no connections remain — harmless
+                # in our flow but be defensive against re-entrancy.
+                pass
+            worker.deleteLater()
+            thread.deleteLater()
+            progress.deleteLater()
             self._async_handles.discard(handle)
             self._read_in_flight = False
             callback(arg)

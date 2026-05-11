@@ -177,6 +177,69 @@ def test_read_parquet_async_runs_off_main_thread(plugin, tmp_path):
     )
 
 
+def test_read_parquet_async_does_not_leak_qobjects(plugin, tmp_path):
+    """Successive async reads must not accumulate QObjects.
+
+    Without explicit ``worker.deleteLater() / thread.deleteLater() /
+    progress.deleteLater()`` plus signal disconnect, the Python↔Qt
+    signal connections form ref cycles Python's GC can't break. Pre-
+    fix this leaked ~2 QObjects per read; over a long PyQt session
+    (hundreds of file opens) that adds up to thousands of dead Qt
+    objects holding C++ memory.
+
+    Pins the bounded-leak contract: after N reads, the net new QObject
+    count must NOT scale linearly with N.
+    """
+    import gc
+    from qgis.PyQt.QtCore import QEventLoop, QObject, QTimer
+
+    p, _ = plugin
+    ctl = p.ctl
+
+    def trivial(path: str):
+        return [{"x": 1}]
+
+    def _qobject_count() -> int:
+        gc.collect()
+        return sum(1 for obj in gc.get_objects() if isinstance(obj, QObject))
+
+    def _spin_event_loop(ms: int = 200) -> None:
+        loop = QEventLoop(); QTimer.singleShot(ms, loop.quit); loop.exec()
+
+    # Warm up so any one-shot setup objects materialise before baseline.
+    state = {"done": False}
+    ctl._read_parquet_async("/warm", trivial,
+                             lambda r: state.update(done=True),
+                             lambda m: None, "warm")
+    while not state["done"]:
+        _spin_event_loop(50)
+    _spin_event_loop(200)  # drain deferred-delete queue
+    baseline = _qobject_count()
+
+    # Do N reads and measure.
+    N = 25
+    for i in range(N):
+        st = {"done": False}
+        ctl._read_parquet_async(f"/p{i}", trivial,
+                                 lambda r, st=st: st.update(done=True),
+                                 lambda m: None, "n")
+        while not st["done"]:
+            _spin_event_loop(50)
+
+    _spin_event_loop(500)  # let all deleteLater() drain
+    after = _qobject_count()
+
+    leak_per_read = (after - baseline) / N
+    assert leak_per_read < 0.5, (
+        f"REGRESSION: {leak_per_read:.2f} QObjects leaked per async read "
+        f"(baseline {baseline}, after {N} reads {after}). Without "
+        f"worker/thread/progress .deleteLater() + signal disconnect, "
+        f"each async read leaks ~2 QObjects from the Python↔Qt signal "
+        f"ref cycle. Over a long session this is hundreds of dead Qt "
+        f"objects holding C++ memory."
+    )
+
+
 def test_read_parquet_async_uncaught_exception_dispatches_error(plugin, tmp_path):
     """If ``read_fn`` raises an exception outside the cache wrapper's
     narrow tuple (e.g., a programmer-bug TypeError or AttributeError),
