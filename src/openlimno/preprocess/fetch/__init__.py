@@ -15,6 +15,7 @@ Submodules:
     species    — GBIF backbone taxon match + georeferenced occurrences
     fishbase   — curated FishBase species-traits starter table (~12 spp)
     cn_hydro   — Chinese hydrology adapter INTERFACE (no crawler code)
+    watershed_climate — 5-point watershed-aware climate aggregator (v1.2)
     cache      — XDG-cache-aware on-disk cache shared by all fetchers
     sidecar    — external-source provenance sidecar in case_dir/data/
 """
@@ -49,6 +50,11 @@ from openlimno.preprocess.fetch.soilgrids import (
     DEFAULT_PROPERTIES as SOILGRIDS_DEFAULT_PROPERTIES,
     SoilGridsFetchResult,
     fetch_soilgrids,
+)
+from openlimno.preprocess.fetch.watershed_climate import (
+    WatershedClimateResult,
+    fetch_watershed_climate,
+    watershed_sample_points,
 )
 from openlimno.preprocess.fetch.cn_hydro import (
     CN_HYDRO_CHARTER_NOTE,
@@ -141,6 +147,9 @@ __all__ = [
     "FishBaseTraits",
     "fetch_fishbase_traits",
     "list_starter_species",
+    "WatershedClimateResult",
+    "fetch_watershed_climate",
+    "watershed_sample_points",
     "CN_HYDRO_CHARTER_NOTE",
     "ChinaDischargeResult",
     "ChinaHydroAdapter",

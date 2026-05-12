@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from openlimno.preprocess.fetch.cache import (
@@ -721,6 +723,142 @@ def test_open_meteo_cache_key_includes_bbox_like_params(monkeypatch, tmp_path):
         "REGRESSION: cache reused Shanghai entry for NYC — cache key "
         "doesn't include lat/lon"
     )
+
+
+# ---------------------------------------------------------------------
+# watershed_climate.py — 5-point aggregator (v1.2.0)
+# ---------------------------------------------------------------------
+def test_watershed_sample_points_returns_centroid_plus_4_corners():
+    from openlimno.preprocess.fetch import watershed_sample_points
+    bbox = (100.0, 38.0, 101.0, 39.0)
+    pts = watershed_sample_points(bbox, inset_fraction=0.1)
+    assert len(pts) == 5
+    centroid = pts[0]
+    assert centroid == pytest.approx((38.5, 100.5))
+    # 4 corners inset by 10% of each side
+    inset_dy = 0.1; inset_dx = 0.1
+    expected_corners = {
+        (38.0 + inset_dy, 100.0 + inset_dx),
+        (38.0 + inset_dy, 101.0 - inset_dx),
+        (39.0 - inset_dy, 100.0 + inset_dx),
+        (39.0 - inset_dy, 101.0 - inset_dx),
+    }
+    actual_corners = {tuple(p) for p in pts[1:]}
+    assert actual_corners == expected_corners
+
+
+def test_watershed_sample_points_rejects_invalid_inputs():
+    from openlimno.preprocess.fetch import watershed_sample_points
+    with pytest.raises(ValueError, match="inset_fraction"):
+        watershed_sample_points((0, 0, 1, 1), inset_fraction=0.6)
+    with pytest.raises(ValueError, match="Invalid bbox"):
+        watershed_sample_points((1.0, 0, 0.5, 1.0))
+
+
+def test_watershed_bbox_from_geojson_recovers_extent(tmp_path):
+    """Round-trip a GeoJSON we write ourselves through the bbox
+    extractor. Pins the GeoJSON-walking helper without needing
+    geopandas."""
+    from openlimno.preprocess.fetch.watershed_climate import (
+        _watershed_bbox_from_geojson,
+    )
+    geojson = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "properties": {"area_km2": 100.0, "n_basins": 3},
+            "geometry": {
+                "type": "MultiPolygon",
+                "coordinates": [
+                    [[
+                        [100.10, 38.10],
+                        [100.30, 38.10],
+                        [100.30, 38.30],
+                        [100.10, 38.30],
+                        [100.10, 38.10],
+                    ]],
+                ],
+            },
+        }],
+    }
+    gp = tmp_path / "ws.geojson"
+    gp.write_text(json.dumps(geojson))
+    bbox = _watershed_bbox_from_geojson(gp)
+    assert bbox == pytest.approx((100.10, 38.10, 100.30, 38.30))
+
+
+def test_watershed_climate_aggregates_5_points_with_fake_fetcher(tmp_path):
+    """End-to-end: write a small watershed GeoJSON, feed a fake
+    climate fetcher that returns site-dependent T_water (so the SD
+    column is non-zero), aggregate, assert shape + simple arithmetic.
+    """
+    import numpy as _np
+    from openlimno.preprocess.fetch import (
+        WatershedClimateResult, fetch_watershed_climate,
+    )
+    geojson = {
+        "type": "Feature",
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[
+                [100.0, 38.0], [101.0, 38.0],
+                [101.0, 39.0], [100.0, 39.0], [100.0, 38.0],
+            ]],
+        },
+    }
+    gp = tmp_path / "ws.geojson"
+    gp.write_text(json.dumps(geojson))
+
+    @dataclass
+    class _FakeRes:
+        df: object
+        citation: str = "fake citation"
+    @dataclass
+    class _Holder:
+        df: pd.DataFrame
+        citation: str = "fake citation"
+    import pandas as _pd
+    @dataclass
+    class _Wrap:
+        def __init__(self, lat):
+            # T linearly depends on lat → spread across the 5 points
+            self.df = _pd.DataFrame({
+                "time": ["2024-01-01", "2024-01-02"],
+                "T_water_C_stefan": [lat + 0.0, lat + 1.0],
+                "T_air_C_mean": [lat - 2.0, lat - 1.0],
+                "prcp_mm": [0.0, 1.0],
+            })
+            self.citation = "fake"
+
+    def fake_fetcher(lat, lon, sy, ey):
+        return _Wrap(lat)
+
+    res = fetch_watershed_climate(gp, fake_fetcher, 2024, 2024)
+    assert isinstance(res, WatershedClimateResult)
+    assert len(res.sample_points) == 5
+    assert res.watershed_bbox == pytest.approx((100.0, 38.0, 101.0, 39.0))
+    df = res.df
+    assert list(df.columns) == [
+        "time", "T_water_C_mean", "T_water_C_sd", "n_samples",
+        "T_air_C_mean", "prcp_mm_total",
+    ]
+    assert len(df) == 2
+    # All 5 sample points contribute
+    assert (df["n_samples"] == 5).all()
+    # Per-day mean = mean of 5 lat values (centroid + 4 inset corners)
+    # The 5 lats: centroid=38.5, corner ys = 38.1, 38.1, 38.9, 38.9
+    expected_lat_mean = (38.5 + 38.1 + 38.1 + 38.9 + 38.9) / 5
+    # day 1: T = lat → mean = expected_lat_mean
+    assert df.iloc[0]["T_water_C_mean"] == pytest.approx(expected_lat_mean)
+    # day 2: T = lat + 1
+    assert df.iloc[1]["T_water_C_mean"] == pytest.approx(expected_lat_mean + 1.0)
+    # SD non-zero because lats differ
+    assert (df["T_water_C_sd"] > 0).all()
+    # Precipitation: sum over 5 points = day1 0, day2 5
+    assert df.iloc[0]["prcp_mm_total"] == 0.0
+    assert df.iloc[1]["prcp_mm_total"] == 5.0
+    # Citation came from the underlying fetcher
+    assert res.citation == "fake"
 
 
 # ---------------------------------------------------------------------

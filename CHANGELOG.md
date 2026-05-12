@@ -5,6 +5,12 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v1.2.0 — watershed-aware climate aggregator**:
+    - New module `openlimno.preprocess.fetch.watershed_climate` aggregates any one-point climate fetcher over a watershed: `fetch_watershed_climate(watershed_geojson, fetcher, start_year, end_year)` samples 5 points (centroid + 4 inset corners) and emits a daily series with `T_water_C_mean / T_water_C_sd / n_samples`. SD column surfaces the basin's internal climate gradient as a confidence proxy.
+    - Source-agnostic interface: any callable matching `(lat, lon, sy, ey) → result_with_.df_attribute` plugs in — both `fetch_daymet_daily` and `fetch_open_meteo_daily` satisfy it unchanged.
+    - GeoJSON-walking helper `_watershed_bbox_from_geojson` recovers the bbox from any GeoJSON shape (FeatureCollection / Feature / Geometry) without a geopandas / shapely dependency.
+    - 4 new unit tests pin: sample-point geometry (centroid + 4 inset corners with correct math), inset/bbox input validation, GeoJSON bbox round-trip, and a 2-day fake-fetcher end-to-end run that exercises mean / SD / `prcp_mm_total` aggregation.
+    - Real-data smoke (Heihe mid-basin, Open-Meteo, 2024): 5 sample points sweep a 38.02 ± 0.24° N / 100.63 ± 0.43° E box; SD median **1.87 °C / max 3.84 °C** confirms a real intra-watershed climate gradient that single-point fetches would have missed.
 - **v1.1.2 — occurrence-density tiers + reporting tag**:
     - `Case._build_provenance` extends the v0.6 species-validation pass with **4-tier density classification** based on `data.species_occurrences.occurrence_count_total`:
         - `absent` (0) — keeps the v0.6 loud warning ("no observed records, confirm restoration / introduction").
