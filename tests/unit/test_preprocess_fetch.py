@@ -887,6 +887,32 @@ def test_hydrosheds_write_watershed_geojson_missing_basin_raises(tmp_path):
         write_watershed_geojson(shp, [1, 99], tmp_path / "ws.geojson")
 
 
+def test_hydrosheds_does_not_enable_global_ogr_exceptions():
+    """REGRESSION GUARD: importing hydrosheds.py must NOT call
+    ``ogr.UseExceptions()``. Real HydroSHEDS shapefiles ship with a
+    ``.sbn`` legacy spatial index that emits non-fatal "ERROR 1:
+    Inconsistent shape count for bin" warnings on iteration. With
+    exceptions enabled those warnings abort the layer read mid-stream,
+    breaking find_basin_at + upstream_basin_ids on any real continent.
+
+    Hand-rolled mini shapefiles (used by other unit tests in this file)
+    have no .sbn, so they DON'T trigger the warning — meaning a buggy
+    re-introduction of UseExceptions() would silently pass the unit
+    suite and only break in production. This pin closes that gap.
+    """
+    import importlib
+    import openlimno.preprocess.fetch.hydrosheds  # noqa: F401
+    from osgeo import ogr
+    # Force a fresh import to be sure module-init didn't leave state
+    importlib.reload(openlimno.preprocess.fetch.hydrosheds)
+    # In exception mode GetUseExceptions() returns 1.
+    assert ogr.GetUseExceptions() == 0, (
+        "REGRESSION: ogr.UseExceptions() was enabled at module-init. "
+        "This breaks HydroSHEDS layer iteration on .sbn-indexed real "
+        "shapefiles. See hydrosheds.py module-level NOTE."
+    )
+
+
 def test_hydrosheds_url_format_matches_provider_convention():
     """Pin the URL template — HydroSHEDS occasionally restructures their
     distribution; a silent 404 would re-fetch on every cache miss.

@@ -43,7 +43,11 @@ from osgeo import ogr, osr
 
 from openlimno.preprocess.fetch.cache import CacheEntry, cache_dir, cached_fetch
 
-ogr.UseExceptions()
+# NOTE: we deliberately do NOT call ogr.UseExceptions() — HydroSHEDS
+# shapefiles ship with a .sbn spatial index that emits non-fatal "ERROR
+# 1: Inconsistent shape count for bin" warnings on layer iteration. In
+# exception mode those abort the read; in legacy (default) mode they're
+# logged and harmless. We check return values explicitly where it matters.
 
 HYDROSHEDS_BASE = "https://data.hydrosheds.org/file"
 
