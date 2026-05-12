@@ -5,6 +5,12 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v0.3.2 — global climate via Open-Meteo**:
+    - `openlimno.preprocess.fetch.openmeteo` — `fetch_open_meteo_daily(lat, lon, start_year, end_year, *, include_precip)` against `https://archive-api.open-meteo.com/v1/archive` (ERA5/ERA5-Land reanalysis, Hersbach et al. 2020). Subscription-free, no key, global coverage 1940-present.
+    - DataFrame schema identical to Daymet (`tmax_C`/`tmin_C`/`T_air_C_mean`/`T_water_C_stefan` + optional `prcp_mm`); reuses `STEFAN_AIR_TO_WATER_A`/`B` from `daymet.py` so the air→water transform is single-sourced across both fetchers.
+    - `OpenMeteoFetchResult` duck-types `DaymetFetchResult` for `.df`/`.cache`/`.lat`/`.lon`/`.elevation_m`/`.citation` — downstream code accepts either type unchanged.
+    - CLI `init-from-osm --fetch-climate open-meteo:LAT:LON:SY:EY` (parallel to existing `daymet:` form); sidecar records label `climate_open_meteo`, source_type `open_meteo_archive`, full citation.
+    - 10 new unit tests covering input validation (inverted years / pre-1940 / out-of-range lat-lon), end-to-end parse, Stefan-constant sharing, precip-column toggle, sub-zero water-temp clip, missing-`daily`-block error path, and cache-key distinguishability for different points.
 - M0 repository scaffolding: pixi.toml, pyproject.toml, CI matrix, governance documents, ADR templates, WEDM JSON-Schema initial drafts
 - SPEC v0.5 frozen, Approved-for-M0 (unconditional)
 - Lemhi sample data package (`data/lemhi/`): USGS 13305000 real discharge, public-value steelhead HSI (Bovee 1978 / Raleigh 1984), synthetic mesh + cross-sections + rating curve, all schema-validated

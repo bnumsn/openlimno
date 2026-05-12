@@ -1,13 +1,16 @@
-"""Online data acquisition for OpenLimno (v0.3 P0).
+"""Online data acquisition for OpenLimno.
 
 Subscription-free public sources only. Every fetch records source URL +
 fetch_time + SHA-256 in the returned object so provenance.json can carry
 the trail for reproducibility / citation.
 
 Submodules:
-    nwis  — USGS National Water Information System (US discharge + rating curve)
-    dem   — Copernicus GLO-30 (global) / NASA SRTM (60°N–56°S) DEM tiles
-    cache — XDG-cache-aware on-disk cache shared by both fetchers
+    nwis      — USGS NWIS (US discharge + rating curve)
+    dem       — Copernicus GLO-30 (global) / NASA SRTM (60°N–56°S) DEM tiles
+    daymet    — Daymet v4 daily climate (North America, 1 km)
+    openmeteo — Open-Meteo archive (global, ~11 km ERA5-Land backend)
+    cache     — XDG-cache-aware on-disk cache shared by all fetchers
+    sidecar   — external-source provenance sidecar in case_dir/data/
 """
 from __future__ import annotations
 
@@ -19,6 +22,10 @@ from openlimno.preprocess.fetch.cache import (
 from openlimno.preprocess.fetch.daymet import (
     DaymetFetchResult,
     fetch_daymet_daily,
+)
+from openlimno.preprocess.fetch.openmeteo import (
+    OpenMeteoFetchResult,
+    fetch_open_meteo_daily,
 )
 from openlimno.preprocess.fetch.dem import (
     DEMFetchResult,
@@ -46,6 +53,8 @@ __all__ = [
     "DEMFetchResult",
     "DaymetFetchResult",
     "fetch_daymet_daily",
+    "OpenMeteoFetchResult",
+    "fetch_open_meteo_daily",
     "clip_centerline_to_bbox",
     "cut_cross_sections_from_dem",
     "fetch_copernicus_dem",

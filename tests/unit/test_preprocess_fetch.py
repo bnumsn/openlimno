@@ -513,3 +513,211 @@ def test_dem_accepts_3deg_bbox():
     assert "outside Copernicus" in str(excinfo.value), (
         f"Expected coverage error for polar bbox, got: {excinfo.value}"
     )
+
+
+# ---------------------------------------------------------------------
+# openmeteo.py — input validation (no network)
+# ---------------------------------------------------------------------
+def test_open_meteo_rejects_inverted_year_range():
+    from openlimno.preprocess.fetch import fetch_open_meteo_daily
+    with pytest.raises(ValueError, match="start_year"):
+        fetch_open_meteo_daily(31.23, 121.47, start_year=2024, end_year=2020)
+
+
+def test_open_meteo_rejects_pre_1940_year():
+    """Open-Meteo archive backend (ERA5) starts 1940-01-01. Earlier
+    requests would get silently snapped, mislabelling the CSV — refuse
+    locally. Mirrors the Daymet pre-1980 guard.
+    """
+    from openlimno.preprocess.fetch import fetch_open_meteo_daily
+    with pytest.raises(ValueError, match="Open-Meteo archive coverage"):
+        fetch_open_meteo_daily(31.23, 121.47, start_year=1900, end_year=1905)
+
+
+def test_open_meteo_rejects_invalid_lat_lon():
+    """Globe-wide coverage means lat/lon only need basic sanity bounds,
+    not a North-America box like Daymet. Pin the [-90,90]/[-180,180]
+    rejection so a transposed lat/lon never silently queries the wrong
+    grid cell.
+    """
+    from openlimno.preprocess.fetch import fetch_open_meteo_daily
+    with pytest.raises(ValueError, match="lat="):
+        fetch_open_meteo_daily(95.0, 121.47, 2024, 2024)
+    with pytest.raises(ValueError, match="lon="):
+        fetch_open_meteo_daily(31.23, 250.0, 2024, 2024)
+
+
+def test_open_meteo_reuses_stefan_constants_from_daymet():
+    """Both climate fetchers must share the SAME air→water linear
+    regression constants, otherwise switching between Daymet and
+    Open-Meteo for the same case would silently produce different
+    T_water columns. Single source of truth lives in daymet.py.
+    """
+    from openlimno.preprocess.fetch import daymet, openmeteo
+    assert openmeteo.STEFAN_AIR_TO_WATER_A is daymet.STEFAN_AIR_TO_WATER_A
+    assert openmeteo.STEFAN_AIR_TO_WATER_B is daymet.STEFAN_AIR_TO_WATER_B
+
+
+def _fake_open_meteo_response(
+    *, include_precip: bool = False,
+    elevation: float = 12.0, snapped_lat: float = 31.25,
+    snapped_lon: float = 121.5,
+) -> bytes:
+    """Build a minimal Open-Meteo archive JSON payload (3-day window)."""
+    payload = {
+        "latitude": snapped_lat,
+        "longitude": snapped_lon,
+        "elevation": elevation,
+        "timezone": "UTC",
+        "utc_offset_seconds": 0,
+        "generationtime_ms": 1.23,
+        "daily": {
+            "time": ["2024-07-01", "2024-07-02", "2024-07-03"],
+            "temperature_2m_max": [30.0, 31.0, 29.5],
+            "temperature_2m_min": [22.0, 23.0, 21.5],
+        },
+    }
+    if include_precip:
+        payload["daily"]["precipitation_sum"] = [0.0, 1.5, 8.2]
+    return json.dumps(payload).encode()
+
+
+def test_open_meteo_parses_response_into_daymet_compatible_schema(
+    monkeypatch, tmp_path,
+):
+    """End-to-end parse path: inject a canned JSON payload via the
+    cache (so no network is needed), then verify the produced
+    DataFrame schema matches Daymet's exactly.
+    """
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+    class _Resp:
+        content = _fake_open_meteo_response()
+        def raise_for_status(self): pass
+
+    def fake_get(url, params=None, timeout=None):  # noqa: ARG001
+        return _Resp()
+
+    monkeypatch.setattr(
+        "openlimno.preprocess.fetch.openmeteo.requests.get", fake_get,
+    )
+    from openlimno.preprocess.fetch import fetch_open_meteo_daily
+    res = fetch_open_meteo_daily(31.23, 121.47, 2024, 2024)
+
+    assert list(res.df.columns) == [
+        "time", "tmax_C", "tmin_C", "T_air_C_mean", "T_water_C_stefan",
+    ], "schema must equal Daymet's so downstream code is source-agnostic"
+    assert len(res.df) == 3
+    # Stefan check: a=5.0, b=0.75 → at tmean=26, T_water=24.5
+    row = res.df.iloc[0]
+    assert row["tmax_C"] == 30.0 and row["tmin_C"] == 22.0
+    assert row["T_air_C_mean"] == pytest.approx(26.0)
+    assert row["T_water_C_stefan"] == pytest.approx(5.0 + 0.75 * 26.0)
+    # Snapped coords + elevation come from response, not the request
+    assert res.lat == pytest.approx(31.25)
+    assert res.lon == pytest.approx(121.5)
+    assert res.elevation_m == pytest.approx(12.0)
+    assert res.timezone == "UTC"
+    assert "Open-Meteo" in res.citation and "Hersbach" in res.citation
+
+
+def test_open_meteo_include_precip_adds_column(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+    class _Resp:
+        content = _fake_open_meteo_response(include_precip=True)
+        def raise_for_status(self): pass
+
+    monkeypatch.setattr(
+        "openlimno.preprocess.fetch.openmeteo.requests.get",
+        lambda url, params=None, timeout=None: _Resp(),
+    )
+    from openlimno.preprocess.fetch import fetch_open_meteo_daily
+    res = fetch_open_meteo_daily(
+        31.23, 121.47, 2024, 2024, include_precip=True,
+    )
+    assert "prcp_mm" in res.df.columns
+    assert res.df["prcp_mm"].tolist() == [0.0, 1.5, 8.2]
+
+
+def test_open_meteo_water_temp_is_clipped_at_zero(monkeypatch, tmp_path):
+    """Sub-zero air temps must NOT produce negative water temps —
+    streams in ice-free state stay ≥ 0 °C. Same clip as Daymet."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    payload = {
+        "latitude": 60.0, "longitude": 30.0, "elevation": 100.0,
+        "timezone": "UTC", "utc_offset_seconds": 0,
+        "daily": {
+            "time": ["2024-01-01"],
+            "temperature_2m_max": [-10.0],
+            "temperature_2m_min": [-20.0],
+        },
+    }
+
+    class _Resp:
+        content = json.dumps(payload).encode()
+        def raise_for_status(self): pass
+
+    monkeypatch.setattr(
+        "openlimno.preprocess.fetch.openmeteo.requests.get",
+        lambda url, params=None, timeout=None: _Resp(),
+    )
+    from openlimno.preprocess.fetch import fetch_open_meteo_daily
+    res = fetch_open_meteo_daily(60.0, 30.0, 2024, 2024)
+    # T_air_mean = -15. Stefan(−15) = 5 + 0.75×(−15) = −6.25 → clipped 0.
+    assert res.df.iloc[0]["T_water_C_stefan"] == 0.0
+
+
+def test_open_meteo_raises_on_missing_daily_block(monkeypatch, tmp_path):
+    """If the API returns an error envelope (no ``daily``), fail loudly
+    instead of producing an empty DataFrame that silently passes
+    downstream validators."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+    class _Resp:
+        content = json.dumps({
+            "error": True, "reason": "rate limited",
+        }).encode()
+        def raise_for_status(self): pass
+
+    monkeypatch.setattr(
+        "openlimno.preprocess.fetch.openmeteo.requests.get",
+        lambda url, params=None, timeout=None: _Resp(),
+    )
+    from openlimno.preprocess.fetch import fetch_open_meteo_daily
+    with pytest.raises(RuntimeError, match="missing 'daily'"):
+        fetch_open_meteo_daily(31.23, 121.47, 2024, 2024)
+
+
+def test_open_meteo_cache_key_includes_bbox_like_params(monkeypatch, tmp_path):
+    """Two different (lat, lon) requests must NOT collide in cache —
+    the v0.3 P0 DEM regression (cache key ignoring bbox) bit us once;
+    pin the analogous invariant for climate."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    call_log: list[dict] = []
+
+    class _Resp:
+        def __init__(self, lat, lon):
+            self._lat = lat
+            self._lon = lon
+        @property
+        def content(self):
+            return _fake_open_meteo_response(
+                snapped_lat=self._lat, snapped_lon=self._lon,
+            )
+        def raise_for_status(self): pass
+
+    def fake_get(url, params=None, timeout=None):  # noqa: ARG001
+        call_log.append(dict(params))
+        return _Resp(float(params["latitude"]), float(params["longitude"]))
+
+    monkeypatch.setattr(
+        "openlimno.preprocess.fetch.openmeteo.requests.get", fake_get,
+    )
+    from openlimno.preprocess.fetch import fetch_open_meteo_daily
+    fetch_open_meteo_daily(31.23, 121.47, 2024, 2024)  # Shanghai
+    fetch_open_meteo_daily(40.71, -74.01, 2024, 2024)  # NYC
+    assert len(call_log) == 2, (
+        "REGRESSION: cache reused Shanghai entry for NYC — cache key "
+        "doesn't include lat/lon"
+    )
