@@ -5,6 +5,9 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v0.7.1 — state snapshot doc**:
+    - `docs/STATE_2026_05.md` — single-page inventory of where the project stands after the v0.3 → v0.7 arc: headline numbers (324 tests, 9 fetchers, 8/8 e2e PASS), version history at a glance, full fetcher matrix with pin-test names, WEDM v0.2 schema field map, defensive-design pin catalog (the bug pattern each ship caught + its regression test), end-to-end smoke results, GUI surface (v0.7), region × data-type coverage, what's open / on deck (v0.8.0 / v0.8.1 / v0.8.2 / v1.0.0), and engineering discipline summary.
+    - Read this as the fast onboard for the v0.3 → v0.7 work; reach for `docs/SPEC.md`, `docs/fetch_system.md`, `docs/RELEASE_v0.4.0.md`, or individual ADRs for depth.
 - **v0.7.0 — Studio GUI fetch panel**:
     - `Controller.fetch_data_into_case` — a single dialog wired to a new "⬇ Fetch data into case…" toolbar entry that lets a user pick a target case + select any subset of the 6 fetchers (DEM / watershed / soil / LULC / species / climate) and run them sequentially in a background `QThread`. The canvas stays responsive; status bar shows per-task progress; completion dialog summarises rows/areas/n_tiles per fetcher.
     - Default values smart-pre-fill from the case's `case.bbox` if it's a WEDM v0.2 document, otherwise from the current map canvas extent. The pour-point/centre coordinates default to the bbox centroid so the user can hit OK on the dialog and get sensible fetches without typing.
