@@ -282,6 +282,25 @@ class Case:
                 warnings,
             )
 
+        # 5c. Thermal habitat suitability (v1.1.1). If the case carries
+        # both data.fishbase_traits + data.climate, evaluate a daily
+        # thermal SI series + summary metrics — closes the
+        # fetcher × habitat loop. Both blocks are optional; skip
+        # silently if either is missing (v1.0.x cases without
+        # fetched data still run unchanged).
+        thermal_metrics_dict: dict | None = None
+        try:
+            thermal_metrics_dict = self._maybe_run_thermal_habitat(
+                cfg, case_dir, out_dir, warnings,
+            )
+        except Exception as e:  # noqa: BLE001
+            # Thermal is auxiliary — never fail the run; surface
+            # the error as a warning so reviewers can investigate.
+            warnings.append(
+                f"thermal_habitat step failed: {e!r}. Skipping; "
+                f"the WUA-Q pipeline remains valid."
+            )
+
         # 6. HSI watermarking warning (already computed above for CSV header)
         if wua_quality_grade == "C":
             warnings.append(
@@ -303,6 +322,7 @@ class Case:
                 "cross_section": cross_section_path,
                 "hsi_curve": hsi_path,
             },
+            thermal_metrics_dict=thermal_metrics_dict,
         )
         prov_path.write_text(json.dumps(provenance, indent=2, default=str))
 
@@ -626,6 +646,71 @@ class Case:
             "run `openlimno hsi upgrade` to improve metadata; SPEC §4.2.2.3)\n"
         )
 
+    def _maybe_run_thermal_habitat(
+        self, cfg: dict, case_dir: Path, out_dir: Path,
+        warnings: list[str],
+    ) -> dict | None:
+        """v1.1.1: detect WEDM v0.2 `data.fishbase_traits` +
+        `data.climate` in the case and evaluate per-day thermal SI.
+
+        Writes `thermal_hsi.csv` to ``out_dir`` and returns the
+        summary metrics dict (or ``None`` if either input is missing
+        so the run remains valid for v1.0.x cases without fetched
+        data).
+        """
+        data_block = cfg.get("data", {}) or {}
+        fb = data_block.get("fishbase_traits")
+        clim = data_block.get("climate")
+        if not isinstance(fb, dict) or not isinstance(clim, dict):
+            return None
+        # Require the FishBase traits to carry a usable preferred range.
+        t_min = fb.get("temperature_min_C")
+        t_max = fb.get("temperature_max_C")
+        if t_min is None or t_max is None:
+            warnings.append(
+                "data.fishbase_traits missing temperature_min_C / "
+                "temperature_max_C — skipping thermal_habitat step."
+            )
+            return None
+        clim_uri = clim.get("uri")
+        if not clim_uri:
+            warnings.append(
+                "data.climate.uri missing — skipping thermal_habitat step."
+            )
+            return None
+
+        clim_path = (case_dir / clim_uri).resolve()
+        if not clim_path.is_file():
+            warnings.append(
+                f"data.climate.uri ({clim_uri}) not found at "
+                f"{clim_path} — skipping thermal_habitat step."
+            )
+            return None
+
+        from openlimno.habitat.thermal import (
+            ThermalRange, thermal_metrics, thermal_suitability_series,
+        )
+        clim_df = pd.read_csv(clim_path)
+        if "T_water_C_stefan" not in clim_df.columns:
+            warnings.append(
+                f"climate CSV {clim_path.name} lacks T_water_C_stefan "
+                f"column — skipping thermal_habitat step. (cols: "
+                f"{list(clim_df.columns)})"
+            )
+            return None
+
+        tr = ThermalRange.from_fishbase(
+            float(t_min), float(t_max),
+            source=(
+                f"FishBase via data.fishbase_traits "
+                f"({fb.get('scientific_name', '?')})"
+            ),
+        )
+        thermal_df = thermal_suitability_series(clim_df, tr)
+        out_path = out_dir / "thermal_hsi.csv"
+        thermal_df.to_csv(out_path, index=False)
+        return thermal_metrics(thermal_df)
+
     @staticmethod
     def _write_csv_with_header(df: pd.DataFrame, path: Path, header_line: str | None) -> None:
         if header_line:
@@ -766,6 +851,7 @@ class Case:
         studyplan: object | None = None,
         wua_quality_grade: str = "A",
         data_paths: dict[str, Path] | None = None,
+        thermal_metrics_dict: dict | None = None,
     ) -> dict[str, Any]:
         case_yaml_text = self.case_yaml_path.read_bytes()
         case_sha = hashlib.sha256(case_yaml_text).hexdigest()
@@ -907,6 +993,7 @@ class Case:
             },
             "external_sources": external_sources,  # v0.3 P0
             "fetch_summary": fetch_summary,  # v0.6 (WEDM v0.2 data blocks)
+            "thermal_metrics": thermal_metrics_dict,  # v1.1.1 (None if no climate × FishBase)
             "dependencies": {
                 "pixi_lock_sha256": pixi_lock_sha,
                 "container_image_sha": None,  # M3 beta: extract from SCHISM run

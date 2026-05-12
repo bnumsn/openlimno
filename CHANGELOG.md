@@ -5,6 +5,12 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v1.1.1 — thermal habitat in `Case.run` pipeline**:
+    - `Case.run` now auto-detects WEDM v0.2 `data.fishbase_traits` + `data.climate` blocks in the case and, when both are present, evaluates the thermal-SI series via the v1.1.0 module + writes `thermal_hsi.csv` next to `wua_q.csv` in the output directory. The summary metrics dict folds into `provenance.thermal_metrics`.
+    - New `Case._maybe_run_thermal_habitat(...)` helper. Returns ``None`` silently when either input is missing → v1.0.x cases without fetched data continue to run unchanged.
+    - Catches the auxiliary failure mode loudly: any exception in the thermal step is recorded as a `provenance.warnings` entry but never fails the main WUA-Q pipeline.
+    - **Schema bugfix**: case `data.fishbase_traits` block was emitted by the v0.8.1 CLI but never declared in `case.schema.json`. v1.1.1 adds the full block (scientific_name / common_name / temperature_min_C/max_C / depth_min_m/max_m / water_type enum / length_max_cm / iucn_status enum / fishbase_url). Existing v0.8.1 + v0.8.2 cases that had this block were validating successfully ONLY because `additionalProperties` wasn't enforced consistently — now they fail loud + correctly when the block is malformed.
+    - 3 new tests: thermal pipeline emits 10-day all-optimal CSV for Rainbow trout × constant 12 °C climate; `_maybe_run_thermal_habitat` returns None when FishBase block missing; `provenance.thermal_metrics` key always present (even None on v1.0.x cases).
 - **v1.1.0 — thermal habitat suitability (first fetcher × habitat coupling)**:
     - New module `openlimno.habitat.thermal` closes the v0.6 loop: fetched data (FishBase temperature preferences + climate-derived water-temperature series) finally drives a habitat-suitability output rather than just sitting in `provenance.fetch_summary` metadata.
     - `ThermalRange(T_opt_min, T_opt_max, T_lethal_min, T_lethal_max)` dataclass + `ThermalRange.from_fishbase(T_opt_min, T_opt_max, *, lethal_margin_C=5.0)` convenience builder. Default lethal margin = ±5 °C around the FishBase preferred range (literature-standard for stream salmonids + cyprinids).

@@ -170,6 +170,30 @@
             "start_year": { "type": "integer", "minimum": 1940 },
             "end_year": { "type": "integer", "minimum": 1940 }
           }
+        },
+        "fishbase_traits": {
+          "type": "object",
+          "description": "v0.8.1: curated FishBase species traits patched in by --fetch-fishbase. Consumed by thermal habitat module (v1.1.0+).",
+          "additionalProperties": false,
+          "required": ["scientific_name"],
+          "properties": {
+            "scientific_name": { "type": "string", "minLength": 1 },
+            "common_name": { "type": "string" },
+            "temperature_min_C": { "type": "number" },
+            "temperature_max_C": { "type": "number" },
+            "depth_min_m": { "type": "number", "minimum": 0 },
+            "depth_max_m": { "type": "number", "minimum": 0 },
+            "water_type": {
+              "type": "string",
+              "enum": ["freshwater", "brackish", "marine", "anadromous", "catadromous"]
+            },
+            "length_max_cm": { "type": "number", "minimum": 0 },
+            "iucn_status": {
+              "type": "string",
+              "enum": ["LC", "NT", "VU", "EN", "CR", "EW", "EX", "DD", "NE"]
+            },
+            "fishbase_url": { "type": "string", "format": "uri-reference" }
+          }
         }
       }
     },
