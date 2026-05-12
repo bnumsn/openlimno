@@ -791,6 +791,18 @@ class Case:
             except OSError:
                 input_data_sha[label] = "unreadable"
 
+        # v0.3 P0: external-source sidecar (auto-fetched datasets from
+        # USGS NWIS / Copernicus DEM / etc.). Carries source URL +
+        # fetch_time + SHA-256 so `openlimno reproduce` can verify
+        # auto-fetched data hasn't been mutated.
+        external_sources: list[dict] = []
+        try:
+            from openlimno.preprocess.fetch.sidecar import read_sidecar
+            external_sources = read_sidecar(self.case_yaml_path.parent)
+        except ImportError:
+            # fetch module optional in case of stripped install
+            pass
+
         # Hash pixi.lock if present (dependency lock fingerprint)
         pixi_lock_sha = None
         for candidate in [
@@ -833,6 +845,7 @@ class Case:
                 "stages": stages,
                 "input_data_sha256": input_data_sha,  # SPEC §1 P7
             },
+            "external_sources": external_sources,  # v0.3 P0
             "dependencies": {
                 "pixi_lock_sha256": pixi_lock_sha,
                 "container_image_sha": None,  # M3 beta: extract from SCHISM run

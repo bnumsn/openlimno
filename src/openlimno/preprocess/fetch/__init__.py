@@ -28,6 +28,12 @@ from openlimno.preprocess.fetch.nwis import (
     fetch_nwis_rating_curve,
     find_nwis_stations_near,
 )
+from openlimno.preprocess.fetch.sidecar import (
+    ExternalSourceRecord,
+    read_sidecar,
+    record_fetch,
+    verify_sidecar,
+)
 
 __all__ = [
     "CacheEntry",
@@ -41,4 +47,8 @@ __all__ = [
     "fetch_nwis_daily_discharge",
     "fetch_nwis_rating_curve",
     "find_nwis_stations_near",
+    "ExternalSourceRecord",
+    "read_sidecar",
+    "record_fetch",
+    "verify_sidecar",
 ]

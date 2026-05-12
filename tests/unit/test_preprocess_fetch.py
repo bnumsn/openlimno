@@ -220,3 +220,117 @@ def test_nwis_rating_curve_emits_clear_migration_error():
     from openlimno.preprocess.fetch.nwis import fetch_nwis_rating_curve
     with pytest.raises(NotImplementedError, match="migration"):
         fetch_nwis_rating_curve("13305000")
+
+
+# ---------------------------------------------------------------------
+# sidecar.py — external-source provenance
+# ---------------------------------------------------------------------
+def test_sidecar_record_writes_json_with_sha(tmp_path):
+    """record_fetch writes a JSON list with the file's actual SHA-256."""
+    from openlimno.preprocess.fetch import record_fetch, read_sidecar
+    (tmp_path / "data").mkdir()
+    produced = tmp_path / "data" / "Q.csv"
+    produced.write_text("time,Q\n2024-01-01,1.0\n")
+    rec = record_fetch(
+        tmp_path,
+        label="discharge", source_type="usgs_nwis",
+        source_url="https://example.org/nwis", fetch_time="2026-05-12T00:00:00",
+        produced_file="data/Q.csv",
+        params={"site_id": "13305000"}, notes="hello",
+    )
+    import hashlib
+    expected = hashlib.sha256(b"time,Q\n2024-01-01,1.0\n").hexdigest()
+    assert rec.produced_sha256 == expected
+    records = read_sidecar(tmp_path)
+    assert len(records) == 1
+    assert records[0]["label"] == "discharge"
+    assert records[0]["produced_sha256"] == expected
+
+
+def test_sidecar_record_is_idempotent_by_label(tmp_path):
+    """Re-recording the same label REPLACES the earlier entry (so
+    re-running init-from-osm doesn't stack stale records).
+    """
+    from openlimno.preprocess.fetch import record_fetch, read_sidecar
+    (tmp_path / "data").mkdir()
+    f = tmp_path / "data" / "Q.csv"
+    f.write_text("a")
+    record_fetch(tmp_path, label="d", source_type="x",
+                source_url="u1", fetch_time="t1", produced_file="data/Q.csv")
+    f.write_text("b")
+    record_fetch(tmp_path, label="d", source_type="x",
+                source_url="u2", fetch_time="t2", produced_file="data/Q.csv")
+    records = read_sidecar(tmp_path)
+    assert len(records) == 1, (
+        f"REGRESSION: duplicate records for label 'd' — re-running "
+        f"init-from-osm against an existing case_dir should overwrite, "
+        f"not append. Got {len(records)} records."
+    )
+    assert records[0]["source_url"] == "u2"
+
+
+def test_sidecar_record_raises_on_missing_file(tmp_path):
+    """If caller forgets to write produced_file before recording,
+    error out clearly instead of recording an empty-file hash that
+    will silently fail reproduce later.
+    """
+    from openlimno.preprocess.fetch import record_fetch
+    (tmp_path / "data").mkdir()
+    with pytest.raises(FileNotFoundError, match="produced_file"):
+        record_fetch(tmp_path, label="x", source_type="y",
+                    source_url="u", fetch_time="t",
+                    produced_file="data/does_not_exist.csv")
+
+
+def test_sidecar_missing_returns_empty_list(tmp_path):
+    """Cases built without --fetch-* flags have no sidecar; reader
+    must return [] rather than raise — Case._build_provenance calls
+    this unconditionally.
+    """
+    from openlimno.preprocess.fetch import read_sidecar
+    assert read_sidecar(tmp_path) == []
+
+
+def test_sidecar_verify_detects_file_drift(tmp_path):
+    """verify_sidecar must catch mutation of produced files — pinned
+    because that's what makes ``openlimno reproduce`` useful for
+    auto-fetched data.
+    """
+    from openlimno.preprocess.fetch import record_fetch, verify_sidecar
+    (tmp_path / "data").mkdir()
+    f = tmp_path / "data" / "Q.csv"
+    f.write_text("original content")
+    record_fetch(tmp_path, label="d", source_type="x",
+                source_url="u", fetch_time="t", produced_file="data/Q.csv")
+    # Tamper
+    f.write_text("tampered content")
+    results = verify_sidecar(tmp_path)
+    assert len(results) == 1
+    label, ok, reason = results[0]
+    assert label == "d"
+    assert ok is False
+    assert "SHA mismatch" in reason
+
+
+def test_sidecar_verify_detects_missing_file(tmp_path):
+    from openlimno.preprocess.fetch import record_fetch, verify_sidecar
+    (tmp_path / "data").mkdir()
+    f = tmp_path / "data" / "Q.csv"
+    f.write_text("x")
+    record_fetch(tmp_path, label="d", source_type="x",
+                source_url="u", fetch_time="t", produced_file="data/Q.csv")
+    f.unlink()
+    results = verify_sidecar(tmp_path)
+    assert results[0][1] is False
+    assert "missing" in results[0][2]
+
+
+def test_sidecar_verify_passes_on_unmodified(tmp_path):
+    from openlimno.preprocess.fetch import record_fetch, verify_sidecar
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "Q.csv").write_text("x")
+    record_fetch(tmp_path, label="d", source_type="x",
+                source_url="u", fetch_time="t", produced_file="data/Q.csv")
+    results = verify_sidecar(tmp_path)
+    assert results[0][1] is True
+    assert results[0][2] == ""

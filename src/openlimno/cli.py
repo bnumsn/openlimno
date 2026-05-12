@@ -351,6 +351,35 @@ def reproduce(provenance_json: str, check_only: bool) -> None:
         else:
             console.print(f"[green]✓[/] {label} SHA matches")
 
+    # v0.3 P0: verify external-source SHAs (auto-fetched datasets)
+    external = prov.get("external_sources", [])
+    if external:
+        console.print(f"\n[bold]External sources ({len(external)}):[/]")
+        for rec in external:
+            label = rec.get("label", "?")
+            stype = rec.get("source_type", "?")
+            produced = rec.get("produced_file", "")
+            url = rec.get("source_url", "")
+            ftime = rec.get("fetch_time", "")
+            expected_sha = rec.get("produced_sha256", "")
+            file_path = case_yaml.parent / produced
+            if not file_path.exists():
+                console.print(
+                    f"  [yellow]?[/] {label} ({stype}): file missing {produced}"
+                )
+                continue
+            actual_sha = hashlib.sha256(file_path.read_bytes()).hexdigest()
+            if actual_sha != expected_sha:
+                console.print(
+                    f"  [red]✗[/] {label} ({stype}) drift: "
+                    f"{expected_sha[:12]}… → {actual_sha[:12]}…"
+                )
+            else:
+                console.print(
+                    f"  [green]✓[/] {label} ({stype}) — {produced} "
+                    f"SHA matches  ↳ origin: {url}  ({ftime})"
+                )
+
     if check_only:
         return
 
@@ -650,7 +679,7 @@ def init_from_osm(
             )
         from openlimno.preprocess.fetch import (
             clip_centerline_to_bbox, cut_cross_sections_from_dem,
-            fetch_copernicus_dem,
+            fetch_copernicus_dem, record_fetch,
         )
         from openlimno.preprocess.osm_builder import fetch_river_polyline
         console.print(f"[bold]Fetching Copernicus GLO-30 DEM for bbox...[/]")
@@ -662,20 +691,41 @@ def init_from_osm(
         console.print(f"  → centerline clipped to bbox: {len(polyline)} verts")
         xs_df = cut_cross_sections_from_dem(
             dem.path, polyline, n_sections=n_sections,
-            section_width_m=valley_width,  # reuse --valley-width as sample width
+            section_width_m=valley_width,
             points_per_section=21,
         )
-        # Overwrite synthesized cross_section.parquet with real DEM-cut xs
         xs_df.to_parquet(paths["cross_section"], index=False)
         console.print(
             f"  → cross_section.parquet replaced with {xs_df['station_m'].nunique()} "
             f"real DEM-cut sections (z range "
             f"{xs_df['elevation_m'].min():.0f}–{xs_df['elevation_m'].max():.0f} m)"
         )
+        # Record into sidecar for provenance.json
+        primary_ce = dem.cache_entries[0]
+        record_fetch(
+            output_dir,
+            label="cross_section_dem",
+            source_type="copernicus_dem",
+            source_url=primary_ce.source_url,
+            fetch_time=primary_ce.fetch_time,
+            produced_file=Path(paths["cross_section"]).relative_to(output_dir),
+            params={
+                "bbox": list(bbox_tuple),
+                "n_sections": n_sections,
+                "section_width_m": valley_width,
+                "n_tiles": dem.n_tiles,
+            },
+            notes=(
+                f"Copernicus GLO-30 DEM, {dem.n_tiles} tile(s); "
+                f"perpendicular xs cut along OSM centerline "
+                f"({len(polyline)} verts after bbox clip)"
+            ),
+        )
 
     if fetch_discharge:
-        from openlimno.preprocess.fetch import fetch_nwis_daily_discharge
-        # Parse: 'usgs-nwis:SITE:START:END'
+        from openlimno.preprocess.fetch import (
+            fetch_nwis_daily_discharge, record_fetch,
+        )
         parts = fetch_discharge.split(":")
         if len(parts) != 4 or parts[0] != "usgs-nwis":
             raise click.UsageError(
@@ -689,11 +739,26 @@ def init_from_osm(
             f"  → station: {nwis.station_name} "
             f"({nwis.station_lat:.4f}, {nwis.station_lon:.4f})"
         )
-        # Write into case data dir (matches Lemhi convention Q_YYYY.csv)
-        from pathlib import Path
         q_path = Path(output_dir) / "data" / f"Q_{start[:4]}_{end[:4]}.csv"
         nwis.df.to_csv(q_path, index=False)
         console.print(f"  → discharge: {len(nwis.df)} days → {q_path.name}")
+        record_fetch(
+            output_dir,
+            label="discharge_nwis",
+            source_type="usgs_nwis",
+            source_url=nwis.cache.source_url,
+            fetch_time=nwis.cache.fetch_time,
+            produced_file=q_path.relative_to(output_dir),
+            params={
+                "site_id": site, "start_date": start, "end_date": end,
+                "parameterCd": "00060",
+            },
+            notes=(
+                f"USGS NWIS station {site} "
+                f"({nwis.station_name} {nwis.station_lat:.4f},{nwis.station_lon:.4f}); "
+                f"{len(nwis.df)} daily values"
+            ),
+        )
 
     console.print()
     console.print(f"[green]✓[/] case built in {output_dir}")
