@@ -582,10 +582,22 @@ def preprocess_dem_info(dem_path: str) -> None:
 @click.option("--bank-elev", default=1500.0, type=float, help="Upstream bank elevation (m).")
 @click.option("--slope", default=0.002, type=float, help="Bed slope along reach.")
 @click.option("--species", default="oncorhynchus_mykiss", help="Default target species.")
+@click.option("--fetch-dem", type=click.Choice(["none", "cop30"]), default="none",
+                help="Auto-fetch real cross-section bathymetry: "
+                     "'cop30' streams Copernicus GLO-30 DEM from AWS S3 and "
+                     "cuts perpendicular xs along the centerline. Overrides "
+                     "--valley-width / --thalweg-depth / --bank-elev synthesis. "
+                     "Requires --bbox (no global lookup with --river).")
+@click.option("--fetch-discharge", default=None,
+                help="Auto-fetch discharge time series. Format: "
+                     "'usgs-nwis:SITE_ID:START:END' (US gauges, no auth). "
+                     "Example: 'usgs-nwis:13305000:2020-01-01:2024-12-31' "
+                     "for Lemhi River at Lemhi, ID.")
 def init_from_osm(
     river: str | None, region: str, bbox: str | None, polyline_path: str | None,
     output_dir: str, n_sections: int, reach_km: float, valley_width: float,
     thalweg_depth: float, bank_elev: float, slope: float, species: str,
+    fetch_dem: str, fetch_discharge: str | None,
 ) -> None:
     """Build a complete OpenLimno case from OSM data (SPEC §4.0).
 
@@ -625,6 +637,64 @@ def init_from_osm(
                     else f"'{river}' in {region}")
     console.print(f"[bold]Fetching geometry from {descriptor}...[/]")
     paths = build_case(spec, output_dir)
+
+    # v0.3 P0: optional online fetches that REPLACE the synthesized
+    # V-section cross_section.parquet and the placeholder Q_2024.csv
+    # with real-world data.
+    if fetch_dem != "none":
+        if not bbox_tuple:
+            raise click.UsageError(
+                "--fetch-dem requires --bbox (DEM tile selection needs an "
+                "explicit lat/lon footprint). River-name mode would need "
+                "an extra geocoding step we haven't wired."
+            )
+        from openlimno.preprocess.fetch import (
+            clip_centerline_to_bbox, cut_cross_sections_from_dem,
+            fetch_copernicus_dem,
+        )
+        from openlimno.preprocess.osm_builder import fetch_river_polyline
+        console.print(f"[bold]Fetching Copernicus GLO-30 DEM for bbox...[/]")
+        dem = fetch_copernicus_dem(*bbox_tuple)
+        console.print(f"  → DEM {dem.n_tiles} tile(s), bounds {dem.bounds}")
+        polyline = clip_centerline_to_bbox(
+            fetch_river_polyline(bbox=bbox_tuple), *bbox_tuple
+        )
+        console.print(f"  → centerline clipped to bbox: {len(polyline)} verts")
+        xs_df = cut_cross_sections_from_dem(
+            dem.path, polyline, n_sections=n_sections,
+            section_width_m=valley_width,  # reuse --valley-width as sample width
+            points_per_section=21,
+        )
+        # Overwrite synthesized cross_section.parquet with real DEM-cut xs
+        xs_df.to_parquet(paths["cross_section"], index=False)
+        console.print(
+            f"  → cross_section.parquet replaced with {xs_df['station_m'].nunique()} "
+            f"real DEM-cut sections (z range "
+            f"{xs_df['elevation_m'].min():.0f}–{xs_df['elevation_m'].max():.0f} m)"
+        )
+
+    if fetch_discharge:
+        from openlimno.preprocess.fetch import fetch_nwis_daily_discharge
+        # Parse: 'usgs-nwis:SITE:START:END'
+        parts = fetch_discharge.split(":")
+        if len(parts) != 4 or parts[0] != "usgs-nwis":
+            raise click.UsageError(
+                "--fetch-discharge must be 'usgs-nwis:SITE_ID:START:END' "
+                f"(got {fetch_discharge!r})"
+            )
+        _, site, start, end = parts
+        console.print(f"[bold]Fetching USGS NWIS site {site}, {start}..{end}...[/]")
+        nwis = fetch_nwis_daily_discharge(site, start, end)
+        console.print(
+            f"  → station: {nwis.station_name} "
+            f"({nwis.station_lat:.4f}, {nwis.station_lon:.4f})"
+        )
+        # Write into case data dir (matches Lemhi convention Q_YYYY.csv)
+        from pathlib import Path
+        q_path = Path(output_dir) / "data" / f"Q_{start[:4]}_{end[:4]}.csv"
+        nwis.df.to_csv(q_path, index=False)
+        console.print(f"  → discharge: {len(nwis.df)} days → {q_path.name}")
+
     console.print()
     console.print(f"[green]✓[/] case built in {output_dir}")
     for k, v in paths.items():
