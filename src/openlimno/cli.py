@@ -622,6 +622,13 @@ def preprocess_dem_info(dem_path: str) -> None:
                      "'usgs-nwis:SITE_ID:START:END' (US gauges, no auth). "
                      "Example: 'usgs-nwis:13305000:2020-01-01:2024-12-31' "
                      "for Lemhi River at Lemhi, ID.")
+@click.option("--fetch-species", default=None,
+                help="Auto-fetch GBIF species match + nearby "
+                     "georeferenced occurrences. Format: "
+                     "'gbif:SCIENTIFIC_NAME:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX'. "
+                     "Writes data/species_<key>.csv and records "
+                     "taxonomy match in the sidecar. Example: "
+                     "'gbif:Salmo trutta:100.10:38.10:100.30:38.30'.")
 @click.option("--fetch-soil", default=None,
                 help="Auto-fetch SoilGrids 250 m soil properties at a "
                      "point. Format: 'soilgrids:LAT:LON' — pulls the "
@@ -662,8 +669,9 @@ def init_from_osm(
     output_dir: str, n_sections: int, reach_km: float, valley_width: float,
     thalweg_depth: float, bank_elev: float, slope: float, species: str,
     fetch_dem: str, fetch_discharge: str | None,
-    fetch_watershed: str | None, fetch_soil: str | None,
-    fetch_lulc: str | None, fetch_climate: str | None,
+    fetch_watershed: str | None, fetch_species: str | None,
+    fetch_soil: str | None, fetch_lulc: str | None,
+    fetch_climate: str | None,
 ) -> None:
     """Build a complete OpenLimno case from OSM data (SPEC §4.0).
 
@@ -966,6 +974,94 @@ def init_from_osm(
                 f"{w_region.upper()}. Upstream catchment derived by "
                 f"walking NEXT_DOWN topology from pour-point basin "
                 f"HYBAS_ID={pour_id}. Citation: {layer.citation}"
+            ),
+        )
+
+    if fetch_species:
+        from openlimno.preprocess.fetch import (
+            fetch_gbif_occurrences,
+            match_species,
+            record_fetch as _rfsp,
+        )
+        # Format: gbif:SCIENTIFIC_NAME:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX
+        # Scientific names contain spaces but never colons, so naive
+        # split-by-':' works. We expect exactly 6 parts.
+        spparts = fetch_species.split(":")
+        if len(spparts) != 6 or spparts[0] != "gbif":
+            raise click.UsageError(
+                "--fetch-species must be "
+                "'gbif:SCIENTIFIC_NAME:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX' "
+                f"(got {fetch_species!r})"
+            )
+        sp_name = spparts[1].strip()
+        try:
+            sp_bbox = (
+                float(spparts[2]), float(spparts[3]),
+                float(spparts[4]), float(spparts[5]),
+            )
+        except ValueError as e:
+            raise click.UsageError(
+                f"--fetch-species bbox values must be decimal; got "
+                f"{fetch_species!r}"
+            ) from e
+        console.print(f"[bold]Matching GBIF taxon for {sp_name!r}…[/]")
+        m = match_species(sp_name)
+        if m.usage_key is None or m.match_type == "NONE":
+            raise click.ClickException(
+                f"GBIF could not match {sp_name!r} "
+                f"(match_type={m.match_type}). Check spelling."
+            )
+        console.print(
+            f"  → usageKey={m.usage_key} ({m.canonical_name}, "
+            f"{m.match_type}, confidence {m.confidence}); "
+            f"family={m.family}, order={m.order}"
+        )
+        console.print(
+            f"[bold]Fetching GBIF occurrences in bbox {sp_bbox}…[/]"
+        )
+        occ = fetch_gbif_occurrences(m.usage_key, sp_bbox)
+        sp_path = (
+            Path(output_dir) / "data" /
+            f"species_gbif_{m.usage_key}.csv"
+        )
+        sp_path.parent.mkdir(parents=True, exist_ok=True)
+        occ.df.to_csv(sp_path, index=False)
+        console.print(
+            f"  → {len(occ.df)} occurrences pulled "
+            f"(GBIF total in bbox: {occ.total_matched:,} across "
+            f"{occ.n_pages_fetched} page(s)) → {sp_path.name}"
+        )
+        # First page's cache entry stands in as the canonical fetch
+        # record; subsequent pages' SHAs go in params for audit.
+        primary_cache = occ.cache[0] if occ.cache else None
+        _rfsp(
+            output_dir,
+            label=f"species_gbif_{m.usage_key}",
+            source_type="gbif_occurrence",
+            source_url=(
+                primary_cache.source_url if primary_cache else
+                "https://api.gbif.org/v1/occurrence/search"
+            ),
+            fetch_time=primary_cache.fetch_time if primary_cache else "",
+            produced_file=sp_path.relative_to(output_dir),
+            params={
+                "scientific_name": sp_name,
+                "canonical_name": m.canonical_name,
+                "usage_key": m.usage_key,
+                "match_type": m.match_type,
+                "confidence": m.confidence,
+                "family": m.family, "order": m.order,
+                "bbox": list(sp_bbox),
+                "occurrence_count_returned": len(occ.df),
+                "occurrence_count_total": occ.total_matched,
+                "pages_fetched": occ.n_pages_fetched,
+                "page_shas": [c.sha256[:16] for c in occ.cache],
+            },
+            notes=(
+                f"GBIF taxon match + occurrence search inside bbox. "
+                f"Per-row license varies by source dataset — see "
+                f"data/species_*.csv 'license' column for re-use "
+                f"terms. Citation: {m.citation}"
             ),
         )
 

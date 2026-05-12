@@ -914,6 +914,312 @@ def test_hydrosheds_does_not_enable_global_ogr_exceptions():
 
 
 # ---------------------------------------------------------------------
+# fetch/__init__.py — API surface guard (regression pin against
+# accidental removal of any fetcher)
+# ---------------------------------------------------------------------
+def test_fetch_package_exposes_all_fetchers_at_top_level():
+    """Importing ``openlimno.preprocess.fetch`` MUST expose every
+    fetcher's primary entry point. Any future module split/rename that
+    drops one of these names breaks downstream users without a
+    ``__all__`` ImportError to flag it.
+    """
+    from openlimno.preprocess import fetch
+    expected_callables = [
+        # v0.3.0
+        "fetch_copernicus_dem", "fetch_nwis_daily_discharge",
+        "fetch_nwis_rating_curve", "find_nwis_stations_near",
+        "cached_fetch", "record_fetch", "read_sidecar", "verify_sidecar",
+        # v0.3.1
+        "fetch_daymet_daily",
+        # v0.3.2
+        "fetch_open_meteo_daily",
+        # v0.3.3
+        "fetch_hydrobasins", "fetch_hydrorivers", "find_basin_at",
+        "upstream_basin_ids", "write_watershed_geojson",
+        # v0.3.4
+        "fetch_esa_worldcover",
+        # v0.3.5
+        "fetch_soilgrids",
+        # v0.3.6
+        "match_species", "fetch_gbif_occurrences",
+    ]
+    for name in expected_callables:
+        attr = getattr(fetch, name, None)
+        assert callable(attr), (
+            f"REGRESSION: openlimno.preprocess.fetch.{name} missing or "
+            f"non-callable — somebody removed/renamed a fetcher entry "
+            f"point. Update this pin if intentional."
+        )
+        assert name in fetch.__all__, (
+            f"REGRESSION: {name!r} not in fetch.__all__ — it'll be "
+            f"invisible to `from openlimno.preprocess.fetch import *` "
+            f"and to tooling that introspects __all__."
+        )
+
+
+def test_fetch_package_exposes_all_result_dataclasses():
+    """Same pin for the result dataclasses — downstream type
+    annotations (`OpenMeteoFetchResult`, etc.) rely on these being
+    re-exported at the package root."""
+    from openlimno.preprocess import fetch
+    expected_types = [
+        "CacheEntry", "DEMFetchResult", "NWISFetchResult",
+        "DaymetFetchResult", "OpenMeteoFetchResult",
+        "HydroshedsLayerResult", "WorldCoverFetchResult",
+        "SoilGridsFetchResult",
+        "SpeciesMatchResult", "SpeciesOccurrencesResult",
+        "ExternalSourceRecord",
+    ]
+    for name in expected_types:
+        assert isinstance(getattr(fetch, name, None), type), (
+            f"REGRESSION: {name} not exported as a type at "
+            f"openlimno.preprocess.fetch"
+        )
+        assert name in fetch.__all__
+
+
+# ---------------------------------------------------------------------
+# species.py — GBIF taxonomy match + occurrence search
+# ---------------------------------------------------------------------
+def test_species_match_rejects_empty_name():
+    from openlimno.preprocess.fetch import match_species
+    with pytest.raises(ValueError, match="non-empty"):
+        match_species("")
+    with pytest.raises(ValueError, match="non-empty"):
+        match_species("   ")
+
+
+def _fake_gbif_match_response(name="Salmo trutta", usage_key=8215487):
+    """Build a minimal /species/match response."""
+    return json.dumps({
+        "usageKey": usage_key,
+        "scientificName": f"{name} Linnaeus, 1758",
+        "canonicalName": name,
+        "rank": "SPECIES",
+        "status": "ACCEPTED",
+        "confidence": 99,
+        "matchType": "EXACT",
+        "kingdom": "Animalia",
+        "phylum": "Chordata",
+        "class": "Actinopterygii",
+        "order": "Salmoniformes",
+        "family": "Salmonidae",
+        "genus": "Salmo",
+        "species": name,
+    }).encode()
+
+
+def test_species_match_parses_response(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+    class _Resp:
+        content = _fake_gbif_match_response()
+        def raise_for_status(self): pass
+
+    monkeypatch.setattr(
+        "openlimno.preprocess.fetch.species.requests.get",
+        lambda url, params=None, timeout=None: _Resp(),
+    )
+    from openlimno.preprocess.fetch import match_species
+    res = match_species("Salmo trutta")
+    assert res.usage_key == 8215487
+    assert res.canonical_name == "Salmo trutta"
+    assert res.match_type == "EXACT"
+    assert res.confidence == 99
+    assert res.family == "Salmonidae"
+    assert res.class_name == "Actinopterygii"
+
+
+def test_species_match_handles_no_match(monkeypatch, tmp_path):
+    """A typo / unknown name must NOT raise — return usage_key=None +
+    match_type='NONE' so the CLI can prompt for correction without
+    try/except."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+    class _Resp:
+        content = json.dumps({
+            "confidence": 80, "matchType": "NONE",
+            "synonym": False, "note": "no match",
+        }).encode()
+        def raise_for_status(self): pass
+
+    monkeypatch.setattr(
+        "openlimno.preprocess.fetch.species.requests.get",
+        lambda url, params=None, timeout=None: _Resp(),
+    )
+    from openlimno.preprocess.fetch import match_species
+    res = match_species("Frabnitzia notarealius")
+    assert res.usage_key is None
+    assert res.match_type == "NONE"
+    assert res.family is None
+
+
+def test_species_occurrence_rejects_bad_bbox():
+    from openlimno.preprocess.fetch import fetch_gbif_occurrences
+    with pytest.raises(ValueError, match="Invalid bbox"):
+        fetch_gbif_occurrences(123, (10.0, 20.0, 5.0, 25.0))  # lon_max < lon_min
+    with pytest.raises(ValueError, match="latitudes outside"):
+        fetch_gbif_occurrences(123, (10.0, -100.0, 11.0, -99.0))
+
+
+def test_species_occurrence_rejects_limit_out_of_range():
+    from openlimno.preprocess.fetch import fetch_gbif_occurrences
+    with pytest.raises(ValueError, match="GBIF cap"):
+        fetch_gbif_occurrences(123, (10.0, 20.0, 11.0, 21.0), limit=500)
+    with pytest.raises(ValueError, match="GBIF cap"):
+        fetch_gbif_occurrences(123, (10.0, 20.0, 11.0, 21.0), limit=0)
+
+
+def test_species_bbox_to_wkt_format():
+    """GBIF wants counter-clockwise POLYGON((lon lat, ...)) with
+    explicit closure. Pin the string so an API change is a visible
+    diff."""
+    from openlimno.preprocess.fetch.species import _bbox_to_wkt
+    wkt = _bbox_to_wkt((100.10, 38.10, 100.30, 38.30))
+    assert wkt == (
+        "POLYGON(("
+        "100.1 38.1, 100.3 38.1, 100.3 38.3, 100.1 38.3, 100.1 38.1"
+        "))"
+    )
+
+
+def _fake_gbif_occurrence_page(count=2, total=2, end=True, offset=0):
+    """Build a minimal /occurrence/search response page."""
+    results = []
+    for i in range(count):
+        results.append({
+            "scientificName": "Salmo trutta Linnaeus, 1758",
+            "decimalLatitude": 38.15 + 0.01 * i,
+            "decimalLongitude": 100.15 + 0.01 * i,
+            "eventDate": f"2024-0{i+1}-15T10:00:00",
+            "basisOfRecord": "HUMAN_OBSERVATION",
+            "datasetName": "iNaturalist",
+            "country": "China",
+            "license": "CC_BY_NC_4_0",
+        })
+    return json.dumps({
+        "offset": offset, "limit": 300, "endOfRecords": end,
+        "count": total, "results": results,
+    }).encode()
+
+
+def test_species_occurrence_single_page(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+    class _Resp:
+        content = _fake_gbif_occurrence_page(count=2, total=2, end=True)
+        def raise_for_status(self): pass
+
+    monkeypatch.setattr(
+        "openlimno.preprocess.fetch.species.requests.get",
+        lambda url, params=None, timeout=None: _Resp(),
+    )
+    from openlimno.preprocess.fetch import fetch_gbif_occurrences
+    res = fetch_gbif_occurrences(8215487, (100.1, 38.1, 100.3, 38.3))
+    assert list(res.df.columns) == [
+        "scientific_name", "decimal_latitude", "decimal_longitude",
+        "event_date", "basis_of_record", "dataset_name", "country",
+        "license",
+    ]
+    assert len(res.df) == 2
+    assert res.total_matched == 2
+    assert res.n_pages_fetched == 1
+    assert res.df.iloc[0]["decimal_latitude"] == pytest.approx(38.15)
+
+
+def test_species_occurrence_filters_null_coordinates(monkeypatch, tmp_path):
+    """Despite hasCoordinate=true, GBIF occasionally returns null lat/lon.
+    Filter defensively so downstream geometry never sees NaN."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+    payload = json.dumps({
+        "offset": 0, "limit": 300, "endOfRecords": True, "count": 2,
+        "results": [
+            {"scientificName": "X", "decimalLatitude": 38.1,
+             "decimalLongitude": 100.1, "basisOfRecord": "OBS"},
+            {"scientificName": "X", "decimalLatitude": None,
+             "decimalLongitude": None, "basisOfRecord": "OBS"},
+        ],
+    }).encode()
+
+    class _Resp:
+        content = payload
+        def raise_for_status(self): pass
+
+    monkeypatch.setattr(
+        "openlimno.preprocess.fetch.species.requests.get",
+        lambda url, params=None, timeout=None: _Resp(),
+    )
+    from openlimno.preprocess.fetch import fetch_gbif_occurrences
+    res = fetch_gbif_occurrences(123, (100.0, 38.0, 100.5, 38.5))
+    assert len(res.df) == 1, (
+        "REGRESSION: null-coordinate row leaked into the occurrence df"
+    )
+
+
+def test_species_occurrence_paginates_until_end_of_records(
+    monkeypatch, tmp_path,
+):
+    """When endOfRecords=False, the fetcher walks subsequent pages.
+    Pin the loop so a future refactor that drops pagination would
+    silently truncate at the first page."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+    pages = [
+        _fake_gbif_occurrence_page(count=2, total=5, end=False, offset=0),
+        _fake_gbif_occurrence_page(count=2, total=5, end=False, offset=2),
+        _fake_gbif_occurrence_page(count=1, total=5, end=True,  offset=4),
+    ]
+    call = {"n": 0}
+
+    class _Resp:
+        def __init__(self, content):
+            self.content = content
+        def raise_for_status(self): pass
+
+    def fake_get(url, params=None, timeout=None):
+        idx = call["n"]
+        call["n"] += 1
+        return _Resp(pages[idx])
+
+    monkeypatch.setattr(
+        "openlimno.preprocess.fetch.species.requests.get", fake_get,
+    )
+    from openlimno.preprocess.fetch import fetch_gbif_occurrences
+    res = fetch_gbif_occurrences(
+        8215487, (100.1, 38.1, 100.3, 38.3), limit=2, max_pages=10,
+    )
+    assert call["n"] == 3, f"expected 3 page calls, got {call['n']}"
+    assert res.n_pages_fetched == 3
+    assert len(res.df) == 5
+    assert res.total_matched == 5
+
+
+def test_species_occurrence_respects_max_pages_cap(monkeypatch, tmp_path):
+    """If max_pages=1 and there are more pages, we stop after 1 to
+    avoid runaway API usage."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+    class _Resp:
+        content = _fake_gbif_occurrence_page(
+            count=2, total=1000, end=False, offset=0,
+        )
+        def raise_for_status(self): pass
+
+    monkeypatch.setattr(
+        "openlimno.preprocess.fetch.species.requests.get",
+        lambda url, params=None, timeout=None: _Resp(),
+    )
+    from openlimno.preprocess.fetch import fetch_gbif_occurrences
+    res = fetch_gbif_occurrences(
+        8215487, (100.1, 38.1, 100.3, 38.3), limit=2, max_pages=1,
+    )
+    assert res.n_pages_fetched == 1
+    assert res.total_matched == 1000  # GBIF says more, but we stopped
+    assert len(res.df) == 2
+
+
+# ---------------------------------------------------------------------
 # soilgrids.py — input validation + response parsing
 # ---------------------------------------------------------------------
 def test_soilgrids_rejects_invalid_lat_lon():
