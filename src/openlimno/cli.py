@@ -622,11 +622,17 @@ def preprocess_dem_info(dem_path: str) -> None:
                      "'usgs-nwis:SITE_ID:START:END' (US gauges, no auth). "
                      "Example: 'usgs-nwis:13305000:2020-01-01:2024-12-31' "
                      "for Lemhi River at Lemhi, ID.")
+@click.option("--fetch-climate", default=None,
+                help="Auto-fetch daily climate time series. Format: "
+                     "'daymet:LAT:LON:START_YEAR:END_YEAR' (North America, "
+                     "1 km daily, no auth). Provides air tmax/tmin + "
+                     "water-temp estimate (Stefan 1993). Example: "
+                     "'daymet:44.94:-113.93:2024:2024'.")
 def init_from_osm(
     river: str | None, region: str, bbox: str | None, polyline_path: str | None,
     output_dir: str, n_sections: int, reach_km: float, valley_width: float,
     thalweg_depth: float, bank_elev: float, slope: float, species: str,
-    fetch_dem: str, fetch_discharge: str | None,
+    fetch_dem: str, fetch_discharge: str | None, fetch_climate: str | None,
 ) -> None:
     """Build a complete OpenLimno case from OSM data (SPEC §4.0).
 
@@ -856,6 +862,66 @@ def init_from_osm(
         case_yaml_path.write_text(_yaml.safe_dump(case_doc, sort_keys=False))
         console.print(
             f"  → wired into case.yaml: data.rating_curve + regulatory_export"
+        )
+
+    if fetch_climate:
+        import re as _re
+        from openlimno.preprocess.fetch import (
+            fetch_daymet_daily, record_fetch as _rfc,
+        )
+        cparts = fetch_climate.split(":")
+        if len(cparts) != 5 or cparts[0] != "daymet":
+            raise click.UsageError(
+                "--fetch-climate must be 'daymet:LAT:LON:START_YEAR:END_YEAR' "
+                f"(got {fetch_climate!r})"
+            )
+        _, lat_s, lon_s, sy_s, ey_s = cparts
+        try:
+            c_lat = float(lat_s); c_lon = float(lon_s)
+            c_sy = int(sy_s); c_ey = int(ey_s)
+        except ValueError as e:
+            raise click.UsageError(
+                f"--fetch-climate lat/lon must be decimal, years must be "
+                f"integer; got {fetch_climate!r}"
+            ) from e
+        if c_sy > c_ey:
+            raise click.UsageError(
+                f"--fetch-climate start_year ({c_sy}) must be ≤ end_year ({c_ey})"
+            )
+        console.print(
+            f"[bold]Fetching Daymet ({c_lat:.4f}, {c_lon:.4f}) {c_sy}–{c_ey}…[/]"
+        )
+        dm = fetch_daymet_daily(c_lat, c_lon, c_sy, c_ey)
+        console.print(
+            f"  → snapped to Daymet pixel ({dm.lat:.4f}, {dm.lon:.4f}), "
+            f"tile {dm.tile_id}, elev {dm.elevation_m:.0f} m"
+        )
+        clim_path = Path(output_dir) / "data" / f"climate_{c_sy}_{c_ey}.csv"
+        dm.df.to_csv(clim_path, index=False)
+        console.print(
+            f"  → climate: {len(dm.df)} days "
+            f"(air mean {dm.df['T_air_C_mean'].mean():.1f} °C, "
+            f"peak water {dm.df['T_water_C_stefan'].max():.1f} °C "
+            f"via Stefan 1993) → {clim_path.name}"
+        )
+        _rfc(
+            output_dir,
+            label="climate_daymet",
+            source_type="daymet_v4",
+            source_url=dm.cache.source_url,
+            fetch_time=dm.cache.fetch_time,
+            produced_file=clim_path.relative_to(output_dir),
+            params={
+                "lat": c_lat, "lon": c_lon,
+                "start_year": c_sy, "end_year": c_ey,
+                "vars": ["tmax", "tmin"],
+            },
+            notes=(
+                f"Daymet v4 (Thornton et al. ORNL DAAC, tile {dm.tile_id}). "
+                f"T_water column = Stefan & Preud'homme 1993 air→water "
+                f"linear model (a=5.0, b=0.75) — unshaded mid-latitude "
+                f"default; basin-specific calibration recommended."
+            ),
         )
 
     console.print()

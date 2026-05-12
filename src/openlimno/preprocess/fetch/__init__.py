@@ -16,6 +16,10 @@ from openlimno.preprocess.fetch.cache import (
     cache_dir,
     cached_fetch,
 )
+from openlimno.preprocess.fetch.daymet import (
+    DaymetFetchResult,
+    fetch_daymet_daily,
+)
 from openlimno.preprocess.fetch.dem import (
     DEMFetchResult,
     clip_centerline_to_bbox,
@@ -40,6 +44,8 @@ __all__ = [
     "cache_dir",
     "cached_fetch",
     "DEMFetchResult",
+    "DaymetFetchResult",
+    "fetch_daymet_daily",
     "clip_centerline_to_bbox",
     "cut_cross_sections_from_dem",
     "fetch_copernicus_dem",

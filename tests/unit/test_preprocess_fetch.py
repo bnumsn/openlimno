@@ -419,6 +419,38 @@ def test_sidecar_rejects_relative_path_escaping_case_dir(tmp_path):
         (tmp_path.parent / "evil.txt").unlink()
 
 
+# ---------------------------------------------------------------------
+# daymet.py — input validation (no network needed)
+# ---------------------------------------------------------------------
+def test_daymet_rejects_inverted_year_range():
+    """Start > end would yield empty Daymet results + a confusing
+    upstream error. Reject at module entry with a clear message."""
+    from openlimno.preprocess.fetch import fetch_daymet_daily
+    with pytest.raises(ValueError, match="start_year"):
+        fetch_daymet_daily(44.9, -113.9, start_year=2024, end_year=2020)
+
+
+def test_daymet_rejects_out_of_domain_lat():
+    """Daymet's domain is North America (-49.5 to +83.5 lat). A user
+    passing a European or African lat would otherwise hit a generic
+    HTTP 400; reject locally with a pointer at ERA5-Land instead."""
+    from openlimno.preprocess.fetch import fetch_daymet_daily
+    with pytest.raises(ValueError, match="Daymet"):
+        fetch_daymet_daily(48.85, 2.35, 2024, 2024)  # Paris
+
+
+def test_daymet_stefan_constants_are_named():
+    """Stefan & Preud'homme (1993) air→water linear regression
+    constants must be module-level (not magic numbers). Future
+    calibration / sensitivity work needs them as exported names.
+    """
+    from openlimno.preprocess.fetch.daymet import (
+        STEFAN_AIR_TO_WATER_A, STEFAN_AIR_TO_WATER_B,
+    )
+    assert STEFAN_AIR_TO_WATER_A == 5.0
+    assert STEFAN_AIR_TO_WATER_B == 0.75
+
+
 def test_overpass_query_function_matches_actual_fetch():
     """Round-5 fix: ``build_overpass_query`` (exposed for sidecar
     recording) must produce the EXACT same string the
