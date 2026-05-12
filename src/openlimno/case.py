@@ -950,7 +950,18 @@ class Case:
                 f"The downstream habitat / HSI results assume this species "
                 f"identity is valid — verify the spelling before publishing."
             )
-        if sp_block.get("occurrence_count_total") == 0:
+        # v1.1.2: layered occurrence-density warnings + density class
+        # tag for reporting. The thresholds bracket what's reasonable
+        # for inferring "the habitat model is being run in territory
+        # the species actually inhabits":
+        #   * 0           — see v0.6 warning above (full miss)
+        #   * 1..9        — "sparse": modelled habitat is extrapolation,
+        #                   not validation. Worth flagging loudly.
+        #   * 10..99      — "thin": OK but acknowledge data limitation.
+        #   * 100+        — "dense": confidence-building cross-check.
+        sp_total = sp_block.get("occurrence_count_total")
+        if sp_total == 0:
+            density_class = "absent"
             warnings.append(
                 f"Species {sp_block.get('scientific_name', '?')!r} has "
                 f"ZERO GBIF occurrences inside the case bbox. The "
@@ -958,6 +969,27 @@ class Case:
                 f"no observed records in the area — confirm this is "
                 f"intentional (e.g., restoration / introduction case)."
             )
+        elif isinstance(sp_total, int) and sp_total < 10:
+            density_class = "sparse"
+            warnings.append(
+                f"Species {sp_block.get('scientific_name', '?')!r} has "
+                f"only {sp_total} GBIF occurrence(s) inside the case "
+                f"bbox — the habitat / HSI results are extrapolating "
+                f"beyond observed range. Treat any quantitative "
+                f"recommendation downstream as TENTATIVE."
+            )
+        elif isinstance(sp_total, int) and sp_total < 100:
+            density_class = "thin"
+        elif isinstance(sp_total, int):
+            density_class = "dense"
+        else:
+            density_class = "unknown"
+        # Tag the species block in fetch_summary so downstream
+        # reporting / dashboard rendering can colour-code without
+        # re-thresholding.
+        fetch_summary.setdefault("species_occurrences", {})[
+            "density_class"
+        ] = density_class
 
         # Parameter fingerprint = sha256(yaml + studyplan + sorted discharges)
         param_blob = case_yaml_text + b"\n"

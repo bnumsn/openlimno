@@ -255,6 +255,103 @@ output:
     assert metrics is None
 
 
+# ---------------------------------------------------------------------
+# v1.1.2: occurrence-density tiers + species_occurrences.density_class
+# ---------------------------------------------------------------------
+def _make_v02_case_with_species_count(tmp_path: Path, count_total: int) -> Path:
+    yaml_text = f"""openlimno: '0.2'
+case:
+  name: density_check
+  crs: EPSG:4326
+mesh:
+  uri: nonexistent.nc
+hydrodynamics:
+  backend: builtin-1d
+habitat:
+  species: [oncorhynchus_mykiss]
+  stages: [spawning]
+  metric: wua-q
+  composite: min
+data:
+  species_occurrences:
+    uri: data/sp.csv
+    scientific_name: Salmo trutta
+    usage_key: 8215487
+    match_type: EXACT
+    confidence: 99
+    occurrence_count_total: {count_total}
+    occurrence_count_returned: {min(count_total, 300)}
+output:
+  dir: ./out
+  formats: [csv]
+"""
+    yp = tmp_path / f"case_{count_total}.yaml"
+    yp.write_text(yaml_text)
+    return yp
+
+
+def test_v112_density_class_dense_above_100(tmp_path):
+    import yaml as _yaml
+    yp = _make_v02_case_with_species_count(tmp_path, 5000)
+    cfg = _yaml.safe_load(yp.read_text())
+    case = Case(config=cfg, case_yaml_path=yp)
+    prov = case._build_provenance(
+        discharges=[3.0], sections=[],
+        species=["oncorhynchus_mykiss"], stages=["spawning"],
+        warnings=[],
+    )
+    assert prov["fetch_summary"]["species_occurrences"]["density_class"] == "dense"
+
+
+def test_v112_density_class_thin_between_10_and_99(tmp_path):
+    import yaml as _yaml
+    yp = _make_v02_case_with_species_count(tmp_path, 50)
+    cfg = _yaml.safe_load(yp.read_text())
+    case = Case(config=cfg, case_yaml_path=yp)
+    prov = case._build_provenance(
+        discharges=[3.0], sections=[],
+        species=["oncorhynchus_mykiss"], stages=["spawning"],
+        warnings=[],
+    )
+    assert prov["fetch_summary"]["species_occurrences"]["density_class"] == "thin"
+    # No sparse / absent warning at 50 records
+    joined = " ".join(prov["warnings"])
+    assert "ZERO GBIF" not in joined
+    assert "extrapolating beyond observed range" not in joined
+
+
+def test_v112_density_class_sparse_below_10_warns(tmp_path):
+    import yaml as _yaml
+    yp = _make_v02_case_with_species_count(tmp_path, 5)
+    cfg = _yaml.safe_load(yp.read_text())
+    case = Case(config=cfg, case_yaml_path=yp)
+    prov = case._build_provenance(
+        discharges=[3.0], sections=[],
+        species=["oncorhynchus_mykiss"], stages=["spawning"],
+        warnings=[],
+    )
+    assert prov["fetch_summary"]["species_occurrences"]["density_class"] == "sparse"
+    joined = " ".join(prov["warnings"])
+    assert "extrapolating beyond observed range" in joined
+    assert "TENTATIVE" in joined
+
+
+def test_v112_density_class_absent_at_zero_keeps_v06_warning(tmp_path):
+    import yaml as _yaml
+    yp = _make_v02_case_with_species_count(tmp_path, 0)
+    cfg = _yaml.safe_load(yp.read_text())
+    case = Case(config=cfg, case_yaml_path=yp)
+    prov = case._build_provenance(
+        discharges=[3.0], sections=[],
+        species=["oncorhynchus_mykiss"], stages=["spawning"],
+        warnings=[],
+    )
+    assert prov["fetch_summary"]["species_occurrences"]["density_class"] == "absent"
+    # v0.6 warning still fires
+    joined = " ".join(prov["warnings"])
+    assert "ZERO GBIF occurrences" in joined
+
+
 def test_v111_provenance_always_contains_thermal_metrics_key():
     """Same regression-pin philosophy as fetch_summary: the key must
     exist even when None, so downstream tooling can rely on it."""

@@ -5,6 +5,14 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v1.1.2 — occurrence-density tiers + reporting tag**:
+    - `Case._build_provenance` extends the v0.6 species-validation pass with **4-tier density classification** based on `data.species_occurrences.occurrence_count_total`:
+        - `absent` (0) — keeps the v0.6 loud warning ("no observed records, confirm restoration / introduction").
+        - `sparse` (1-9) — NEW warning: "habitat results extrapolate beyond observed range; treat quantitative recommendations as TENTATIVE".
+        - `thin` (10-99) — no warning; tag only.
+        - `dense` (100+) — confidence-building cross-check, tag only.
+    - Tier label written to `provenance.fetch_summary.species_occurrences.density_class` so downstream reporting / dashboard rendering can colour-code without re-thresholding.
+    - 4 new tests cover all 4 tiers + verify the v0.6 zero-occurrence warning still fires at `absent`.
 - **v1.1.1 — thermal habitat in `Case.run` pipeline**:
     - `Case.run` now auto-detects WEDM v0.2 `data.fishbase_traits` + `data.climate` blocks in the case and, when both are present, evaluates the thermal-SI series via the v1.1.0 module + writes `thermal_hsi.csv` next to `wua_q.csv` in the output directory. The summary metrics dict folds into `provenance.thermal_metrics`.
     - New `Case._maybe_run_thermal_habitat(...)` helper. Returns ``None`` silently when either input is missing → v1.0.x cases without fetched data continue to run unchanged.
