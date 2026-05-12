@@ -680,24 +680,21 @@ def init_from_osm(
     # place.
     if not polyline_path:  # only when we actually hit OSM Overpass
         from openlimno.preprocess.fetch import record_fetch as _rf
-        # Re-derive what build_case actually queried. Same construction
-        # as osm_builder._build_query so the recorded params let users
-        # replay the same Overpass call later.
+        from openlimno.preprocess.osm_builder import build_overpass_query
+        # Round-5 fix: use osm_builder's canonical query string instead
+        # of re-deriving it here — the previous reconstruction
+        # diverged (`way["waterway"~"^(river|stream)$"]` vs the actual
+        # `way["waterway"]`, different output format), so the recorded
+        # query in provenance.json wouldn't actually replay the same
+        # Overpass call. Now we read it from the same source the real
+        # fetch uses; if osm_builder ever changes the query, this
+        # automatically stays in sync.
+        overpass_query = build_overpass_query(
+            bbox=bbox_tuple, river_name=river, region_name=region,
+        )
         if bbox_tuple:
-            overpass_query = (
-                f'[out:json][timeout:60];'
-                f'way["waterway"~"^(river|stream)$"]'
-                f'({bbox_tuple[1]},{bbox_tuple[0]},{bbox_tuple[3]},{bbox_tuple[2]});'
-                f'(._;>;);out;'
-            )
             osm_params = {"bbox": list(bbox_tuple)}
         else:
-            overpass_query = (
-                f'[out:json][timeout:60];'
-                f'area["name"="{region}"]->.searchArea;'
-                f'way["name"="{river}"]["waterway"](area.searchArea);'
-                f'(._;>;);out;'
-            )
             osm_params = {"river_name": river, "region_name": region}
         _rf(
             output_dir,

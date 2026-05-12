@@ -67,6 +67,42 @@ class OSMCaseSpec:
     case_name: str | None = None             # default = sluggified river name
 
 
+def build_overpass_query(
+    *,
+    bbox: tuple[float, float, float, float] | None = None,
+    river_name: str | None = None,
+    region_name: str | None = None,
+    timeout: float = 60.0,
+) -> str:
+    """Build the exact Overpass QL query ``fetch_river_polyline``
+    sends — exposed so callers (e.g., the v0.3 P0 provenance sidecar)
+    can record the canonical query string instead of trying to
+    reconstruct it elsewhere and silently drifting out of sync.
+    """
+    if bbox is not None:
+        lon_min, lat_min, lon_max, lat_max = bbox
+        # Overpass uses (south, west, north, east) order
+        bbox_clause = f"{lat_min},{lon_min},{lat_max},{lon_max}"
+        name_filter = f'["name"="{river_name}"]' if river_name else ""
+        return (
+            f"\n        [out:json][timeout:{int(timeout)}];\n"
+            f"        (\n"
+            f'          way["waterway"]{name_filter}({bbox_clause});\n'
+            f"        );\n"
+            f"        out geom;\n        "
+        )
+    if not (river_name and region_name):
+        raise ValueError("Provide bbox, or river_name + region_name")
+    return (
+        f"\n        [out:json][timeout:{int(timeout)}];\n"
+        f'        area["name"="{region_name}"]["admin_level"~"4|6"]->.a;\n'
+        f"        (\n"
+        f'          way["waterway"]["name"="{river_name}"](area.a);\n'
+        f"        );\n"
+        f"        out geom;\n        "
+    )
+
+
 def fetch_river_polyline(
     river_name: str | None = None,
     region_name: str | None = None,
@@ -86,29 +122,10 @@ def fetch_river_polyline(
     from shapely.geometry import LineString, MultiLineString
     from shapely.ops import linemerge
 
-    if bbox is not None:
-        lon_min, lat_min, lon_max, lat_max = bbox
-        # Overpass uses (south, west, north, east) order
-        bbox_clause = f"{lat_min},{lon_min},{lat_max},{lon_max}"
-        name_filter = f'["name"="{river_name}"]' if river_name else ""
-        query = f"""
-        [out:json][timeout:{int(timeout)}];
-        (
-          way["waterway"]{name_filter}({bbox_clause});
-        );
-        out geom;
-        """
-    else:
-        if not (river_name and region_name):
-            raise ValueError("Provide bbox, or river_name + region_name")
-        query = f"""
-        [out:json][timeout:{int(timeout)}];
-        area["name"="{region_name}"]["admin_level"~"4|6"]->.a;
-        (
-          way["waterway"]["name"="{river_name}"](area.a);
-        );
-        out geom;
-        """
+    query = build_overpass_query(
+        bbox=bbox, river_name=river_name, region_name=region_name,
+        timeout=timeout,
+    )
 
     # Split timeout into connect (fail fast if Overpass / DNS unreachable)
     # vs read (give the server time to do the spatial query). Without a

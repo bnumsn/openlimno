@@ -419,6 +419,35 @@ def test_sidecar_rejects_relative_path_escaping_case_dir(tmp_path):
         (tmp_path.parent / "evil.txt").unlink()
 
 
+def test_overpass_query_function_matches_actual_fetch():
+    """Round-5 fix: ``build_overpass_query`` (exposed for sidecar
+    recording) must produce the EXACT same string the
+    ``fetch_river_polyline`` function sends — otherwise the recorded
+    query in provenance.json diverges silently and users who try to
+    replay the same Overpass call get different results.
+
+    We verify by inspecting the source: both code paths must reference
+    the same function. (Stronger version would mock requests.get and
+    check params['data'], but that's a network-shape integration test.)
+    """
+    import inspect
+    from openlimno.preprocess.osm_builder import (
+        build_overpass_query, fetch_river_polyline,
+    )
+    # Sanity: build_overpass_query is called from fetch_river_polyline
+    src = inspect.getsource(fetch_river_polyline)
+    assert "build_overpass_query(" in src, (
+        "REGRESSION: fetch_river_polyline no longer uses "
+        "build_overpass_query — sidecar's recorded query will drift "
+        "from what the real fetch sends. Both must share the source."
+    )
+    # And: bbox variant produces the expected structure
+    q = build_overpass_query(bbox=(-114.0, 44.92, -113.85, 45.0))
+    assert '["waterway"]' in q
+    assert "44.92,-114.0,45.0,-113.85" in q  # Overpass S,W,N,E order
+    assert "out geom;" in q
+
+
 def test_dem_accepts_3deg_bbox():
     """Just under the cap should not raise (no network call here —
     we trigger the upfront bbox check, then the next step would be
