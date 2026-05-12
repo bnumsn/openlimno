@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openlimno"
-version = "0.8.2"
+version = "1.0.0"
 description = "Open-source water ecology modeling platform — PHABSIM/IFIM modernization with SCHISM 2D wrapping"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
@@ -17,7 +17,7 @@ keywords = [
     "ecological-flow", "WUA", "HSI", "river2d", "SCHISM",
 ]
 classifiers = [
-    "Development Status :: 1 - Planning",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",

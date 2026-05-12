@@ -156,6 +156,39 @@ def smoke_species() -> str:
     )
 
 
+def smoke_fishbase() -> str:
+    """v0.8.1: starter-table lookup. No network — bundled CSV."""
+    from openlimno.preprocess.fetch import fetch_fishbase_traits
+    t = fetch_fishbase_traits("Salmo trutta")
+    assert t is not None, "Salmo trutta missing from FishBase starter"
+    assert t.temperature_min_C < t.temperature_max_C
+    return (
+        f"{t.common_name} ({t.iucn_status}); "
+        f"T ∈ [{t.temperature_min_C}, {t.temperature_max_C}]°C"
+    )
+
+
+def smoke_cn_hydro_guard() -> str:
+    """v0.8.2: assert the charter pin holds — calling
+    fetch_china_discharge without a registered adapter MUST raise
+    ChinaHydroNotEnabledError, not silently attempt a crawler."""
+    from openlimno.preprocess.fetch import (
+        ChinaHydroNotEnabledError, fetch_china_discharge,
+        list_registered_adapters,
+    )
+    assert list_registered_adapters() == [], (
+        "REGRESSION: openlimno wheel has a registered ChinaHydroAdapter "
+        "— that violates the v0.4 fetch-system charter."
+    )
+    try:
+        fetch_china_discharge("any", "0", "2024-01-01", "2024-01-07")
+    except ChinaHydroNotEnabledError:
+        return "charter pin OK (no adapter; raises ChinaHydroNotEnabledError)"
+    raise AssertionError(
+        "REGRESSION: fetch_china_discharge did not raise without an adapter"
+    )
+
+
 def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
     sys.path.insert(0, str(repo_root / "src"))
@@ -174,6 +207,8 @@ def main() -> int:
         ("worldcover",      smoke_worldcover),
         ("soilgrids",       smoke_soilgrids),
         ("species (gbif)",  smoke_species),
+        ("fishbase",        smoke_fishbase),
+        ("cn_hydro guard",  smoke_cn_hydro_guard),
     ]
     fails = 0
     for name, fn in cases:

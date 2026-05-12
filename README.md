@@ -2,11 +2,12 @@
 
 > Open-source water ecology modeling platform — a modern replacement for PHABSIM with IFIM five-step workflow support, multi-scale habitat assessment (cell / HMU / reach), and SCHISM-backed 2D capability.
 
-**Status (v0.4.0)**: 1.0 code layer complete + fetch-system stable, **311 tests pass**.
+**Status (v1.0.0)**: **production-stable**, **338 tests pass**, **10/10 fetcher e2e PASS** against live APIs.
 All 1.0-scope modules implemented end-to-end; case YAML drives the full pipeline:
 hydraulics → HSI/WUA cell+HMU → drift egg → regulatory export (CN-SL712 / US-FERC / EU-WFD) → provenance.
-**v0.3.0–v0.4.0 added a subscription-free fetch surface** (9 fetchers, global coverage, see below).
-See [`tools/m0_checklist/M0_CHECKLIST.md`](./tools/m0_checklist/M0_CHECKLIST.md) for remaining real-world items
+v0.3 → v0.8 added a subscription-free fetch surface (9 fetchers, global coverage, see below).
+1.0.x will not break the user-facing fetch / case-schema / habitat surfaces; see [`docs/RELEASE_v1.0.0.md`](./docs/RELEASE_v1.0.0.md) for the stability commitments.
+See [`tools/m0_checklist/M0_CHECKLIST.md`](./tools/m0_checklist/M0_CHECKLIST.md) for the deployment checklist
 (maintainer signing, real SCHISM container build, QGIS LTS testing, real basin study).
 
 ## What it is

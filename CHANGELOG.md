@@ -5,6 +5,12 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v1.0.0 — production-stable release**:
+    - No new code surface vs. v0.8.2; v1.0.0 is the **stability commitment**. The fetch package (9 active fetchers + cn_hydro charter-pinned stub), WEDM 0.2 case schema, habitat / hydraulics / passage / regulatory-export modules, and CLI / GUI surfaces are all frozen for the 1.0.x line.
+    - PyPI classifier bumped `Development Status :: 1 - Planning` → `Development Status :: 5 - Production/Stable`.
+    - `tools/fetch_all_smoke.py` extended to 10 cases: real-API checks for DEM / NWIS / Daymet / Open-Meteo / HydroSHEDS / WorldCover / SoilGrids / GBIF + the v0.8.1 FishBase starter-table lookup + the v0.8.2 cn_hydro charter pin (asserts the wheel never registers an adapter + raises `ChinaHydroNotEnabledError` cleanly). **10/10 PASS** on v1.0.0.
+    - `docs/RELEASE_v1.0.0.md` — narrative release notes: frozen fetch + schema + CLI + GUI surfaces, headline numbers (19 tags v0.3.0 → v1.0.0, 338 tests, 8 defensive-design pins), real-data correctness checks (texture conservation 100.1%, HydroSHEDS UP_AREA 0.012% err), engineering discipline summary, what's NOT in 1.0 (live FishBase REST, GRDC, native 2D/3D solver, GPU, IBM — all deferred to 1.x / research roadmap), acknowledgements.
+    - README status line bumped to v1.0.0 / 338 tests / 10/10 e2e PASS.
 - **v0.8.2 — `cn_hydro` adapter INTERFACE (no crawler code)**:
     - New module `openlimno.preprocess.fetch.cn_hydro` exposes the pluggable interface for Chinese discharge data sources: `ChinaHydroAdapter` ABC + `ChinaDischargeResult` dataclass + `register_adapter(adapter) / list_registered_adapters() / fetch_china_discharge(source_key, station_id, start, end)`. The OpenLimno wheel **never** registers a concrete adapter — by design.
     - `fetch_china_discharge(...)` raises `ChinaHydroNotEnabledError` with a clear pointer at the v0.4 fetch-system charter ("no crawler code in the OpenLimno wheel; install a third-party `openlimno-cn`-style plugin") when called without a registered adapter.
