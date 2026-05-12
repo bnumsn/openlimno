@@ -622,6 +622,14 @@ def preprocess_dem_info(dem_path: str) -> None:
                      "'usgs-nwis:SITE_ID:START:END' (US gauges, no auth). "
                      "Example: 'usgs-nwis:13305000:2020-01-01:2024-12-31' "
                      "for Lemhi River at Lemhi, ID.")
+@click.option("--fetch-watershed", default=None,
+                help="Auto-fetch upstream watershed via HydroSHEDS. "
+                     "Format: 'hydrosheds:REGION:LAT:LON[:LEVEL]' where "
+                     "REGION ∈ {af,ar,as,au,eu,gr,na,sa,si} and LEVEL "
+                     "∈ 1-12 (default 12, finest). Writes "
+                     "data/watershed.geojson with the contributing-"
+                     "area polygon + drainage area in km². Example: "
+                     "'hydrosheds:as:31.23:121.47' (Yangtze estuary).")
 @click.option("--fetch-climate", default=None,
                 help="Auto-fetch daily climate time series. Formats: "
                      "'daymet:LAT:LON:SY:EY' (North America, 1 km, "
@@ -639,7 +647,8 @@ def init_from_osm(
     river: str | None, region: str, bbox: str | None, polyline_path: str | None,
     output_dir: str, n_sections: int, reach_km: float, valley_width: float,
     thalweg_depth: float, bank_elev: float, slope: float, species: str,
-    fetch_dem: str, fetch_discharge: str | None, fetch_climate: str | None,
+    fetch_dem: str, fetch_discharge: str | None,
+    fetch_watershed: str | None, fetch_climate: str | None,
 ) -> None:
     """Build a complete OpenLimno case from OSM data (SPEC §4.0).
 
@@ -869,6 +878,80 @@ def init_from_osm(
         case_yaml_path.write_text(_yaml.safe_dump(case_doc, sort_keys=False))
         console.print(
             f"  → wired into case.yaml: data.rating_curve + regulatory_export"
+        )
+
+    if fetch_watershed:
+        from openlimno.preprocess.fetch import (
+            fetch_hydrobasins,
+            find_basin_at,
+            record_fetch as _rfw,
+            upstream_basin_ids,
+            write_watershed_geojson,
+        )
+        wparts = fetch_watershed.split(":")
+        if not (4 <= len(wparts) <= 5) or wparts[0] != "hydrosheds":
+            raise click.UsageError(
+                "--fetch-watershed must be "
+                "'hydrosheds:REGION:LAT:LON[:LEVEL]' "
+                f"(got {fetch_watershed!r})"
+            )
+        w_region = wparts[1]
+        try:
+            w_lat = float(wparts[2])
+            w_lon = float(wparts[3])
+            w_level = int(wparts[4]) if len(wparts) == 5 else 12
+        except ValueError as e:
+            raise click.UsageError(
+                f"--fetch-watershed lat/lon must be decimal, "
+                f"level must be integer; got {fetch_watershed!r}"
+            ) from e
+        console.print(
+            f"[bold]Fetching HydroBASINS lev{w_level:02d} {w_region.upper()} "
+            f"@({w_lat:.4f}, {w_lon:.4f})…[/]"
+        )
+        layer = fetch_hydrobasins(region=w_region, level=w_level)
+        console.print(
+            f"  → shapefile {layer.shp_path.name} "
+            f"({'cache' if layer.cache.cache_hit else 'downloaded'})"
+        )
+        pour = find_basin_at(layer.shp_path, w_lat, w_lon)
+        if pour is None:
+            raise click.ClickException(
+                f"(lat={w_lat}, lon={w_lon}) falls outside HydroBASINS "
+                f"region {w_region.upper()} — check the region code."
+            )
+        pour_id = int(pour["HYBAS_ID"])
+        console.print(
+            f"  → pour-point basin HYBAS_ID={pour_id}, "
+            f"SUB_AREA={pour.get('SUB_AREA', 'n/a')} km²"
+        )
+        upstream = upstream_basin_ids(layer.shp_path, pour_id)
+        ws_path = Path(output_dir) / "data" / "watershed.geojson"
+        summary = write_watershed_geojson(layer.shp_path, upstream, ws_path)
+        console.print(
+            f"  → watershed: {summary['n_basins']} basins, "
+            f"{summary['area_km2']:.1f} km² → {ws_path.name}"
+        )
+        _rfw(
+            output_dir,
+            label="watershed_hydrosheds",
+            source_type="hydrosheds_hydrobasins",
+            source_url=layer.cache.source_url,
+            fetch_time=layer.cache.fetch_time,
+            produced_file=ws_path.relative_to(output_dir),
+            params={
+                "region": w_region, "level": w_level,
+                "pour_lat": w_lat, "pour_lon": w_lon,
+                "pour_hybas_id": pour_id,
+                "n_basins": summary["n_basins"],
+                "area_km2": summary["area_km2"],
+            },
+            notes=(
+                f"HydroSHEDS HydroBASINS v1c level {w_level} for "
+                f"{w_region.upper()}. Upstream catchment derived by "
+                f"walking NEXT_DOWN topology from pour-point basin "
+                f"HYBAS_ID={pour_id}. Citation: {layer.citation}"
+            ),
         )
 
     if fetch_climate:

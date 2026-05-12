@@ -8,9 +8,10 @@ Submodules:
     nwis      — USGS NWIS (US discharge + rating curve)
     dem       — Copernicus GLO-30 (global) / NASA SRTM (60°N–56°S) DEM tiles
     daymet    — Daymet v4 daily climate (North America, 1 km)
-    openmeteo — Open-Meteo archive (global, ~11 km ERA5-Land backend)
-    cache     — XDG-cache-aware on-disk cache shared by all fetchers
-    sidecar   — external-source provenance sidecar in case_dir/data/
+    openmeteo  — Open-Meteo archive (global, ~11 km ERA5-Land backend)
+    hydrosheds — HydroBASINS + HydroRIVERS continental shapefiles
+    cache      — XDG-cache-aware on-disk cache shared by all fetchers
+    sidecar    — external-source provenance sidecar in case_dir/data/
 """
 from __future__ import annotations
 
@@ -22,6 +23,16 @@ from openlimno.preprocess.fetch.cache import (
 from openlimno.preprocess.fetch.daymet import (
     DaymetFetchResult,
     fetch_daymet_daily,
+)
+from openlimno.preprocess.fetch.hydrosheds import (
+    HYDROBASINS_LEVELS,
+    HYDROSHEDS_REGIONS,
+    HydroshedsLayerResult,
+    fetch_hydrobasins,
+    fetch_hydrorivers,
+    find_basin_at,
+    upstream_basin_ids,
+    write_watershed_geojson,
 )
 from openlimno.preprocess.fetch.openmeteo import (
     OpenMeteoFetchResult,
@@ -55,6 +66,14 @@ __all__ = [
     "fetch_daymet_daily",
     "OpenMeteoFetchResult",
     "fetch_open_meteo_daily",
+    "HYDROBASINS_LEVELS",
+    "HYDROSHEDS_REGIONS",
+    "HydroshedsLayerResult",
+    "fetch_hydrobasins",
+    "fetch_hydrorivers",
+    "find_basin_at",
+    "upstream_basin_ids",
+    "write_watershed_geojson",
     "clip_centerline_to_bbox",
     "cut_cross_sections_from_dem",
     "fetch_copernicus_dem",

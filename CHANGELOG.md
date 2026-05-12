@@ -5,6 +5,12 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v0.3.3 — HydroSHEDS watershed delineation**:
+    - `openlimno.preprocess.fetch.hydrosheds` — `fetch_hydrobasins(region, level)` + `fetch_hydrorivers(region)` against `https://data.hydrosheds.org/file/` (Lehner & Grill 2013, doi:10.1002/hyp.9740). Subscription-free, no key, global coverage via 9 continental zips (af/ar/as/au/eu/gr/na/sa/si). Continental zip cached under XDG with the existing `cached_fetch` machinery.
+    - Topology helpers using OGR streaming (no geopandas dependency, no in-memory pre-load): `find_basin_at(shp, lat, lon)` for pour-point lookup; `upstream_basin_ids(shp, hybas_id)` walks `NEXT_DOWN` BFS to enumerate the contributing area; `write_watershed_geojson(shp, ids, out)` cascaded-union → single MultiPolygon GeoJSON with `area_km2` + `n_basins` attributes.
+    - Defensive `_safe_extract_zip` with zip-slip rejection (paths escaping the destination directory raise `RuntimeError`).
+    - CLI `init-from-osm --fetch-watershed hydrosheds:REGION:LAT:LON[:LEVEL]`; sidecar records label `watershed_hydrosheds`, source_type `hydrosheds_hydrobasins`, full HydroSHEDS citation, `pour_hybas_id` + `area_km2` + `n_basins` for audit.
+    - 10 new unit tests covering input validation (unknown region, invalid level), zip-slip guard, hand-rolled mini-shapefile topology (4-basin chain), find_basin_at hit/miss, write_watershed_geojson area aggregation, and the missing-basin failure mode.
 - **v0.3.2 — global climate via Open-Meteo**:
     - `openlimno.preprocess.fetch.openmeteo` — `fetch_open_meteo_daily(lat, lon, start_year, end_year, *, include_precip)` against `https://archive-api.open-meteo.com/v1/archive` (ERA5/ERA5-Land reanalysis, Hersbach et al. 2020). Subscription-free, no key, global coverage 1940-present.
     - DataFrame schema identical to Daymet (`tmax_C`/`tmin_C`/`T_air_C_mean`/`T_water_C_stefan` + optional `prcp_mm`); reuses `STEFAN_AIR_TO_WATER_A`/`B` from `daymet.py` so the air→water transform is single-sourced across both fetchers.

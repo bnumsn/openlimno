@@ -721,3 +721,177 @@ def test_open_meteo_cache_key_includes_bbox_like_params(monkeypatch, tmp_path):
         "REGRESSION: cache reused Shanghai entry for NYC — cache key "
         "doesn't include lat/lon"
     )
+
+
+# ---------------------------------------------------------------------
+# hydrosheds.py — input validation + topology (no network)
+# ---------------------------------------------------------------------
+def test_hydrosheds_rejects_unknown_region():
+    from openlimno.preprocess.fetch import fetch_hydrobasins
+    with pytest.raises(ValueError, match="not a HydroSHEDS continental code"):
+        fetch_hydrobasins(region="xx", level=12)
+
+
+def test_hydrosheds_rejects_invalid_level():
+    from openlimno.preprocess.fetch import fetch_hydrobasins
+    with pytest.raises(ValueError, match="supported range"):
+        fetch_hydrobasins(region="as", level=13)
+    with pytest.raises(ValueError, match="supported range"):
+        fetch_hydrobasins(region="as", level=0)
+
+
+def test_hydrosheds_safe_extract_rejects_zip_slip(tmp_path):
+    """Defensive zip-slip guard: a malicious zip with a path that
+    escapes the destination (``../escape.txt``) must be refused —
+    even though HydroSHEDS' own zips are trusted, the extraction
+    helper is reusable infra."""
+    import zipfile
+    from openlimno.preprocess.fetch.hydrosheds import _safe_extract_zip
+
+    bad_zip = tmp_path / "evil.zip"
+    with zipfile.ZipFile(bad_zip, "w") as zf:
+        zf.writestr("../escape.txt", b"pwned")
+
+    dest = tmp_path / "unpack"
+    with pytest.raises(RuntimeError, match="zip-slip"):
+        _safe_extract_zip(bad_zip, dest)
+
+
+def _build_mini_hydrobasins(shp_dir, basins):
+    """Hand-roll a tiny HydroBASINS-shaped shapefile for unit tests.
+
+    Args:
+        shp_dir: Path of directory to write into.
+        basins: list of dicts {hybas_id, next_down, sub_area, wkt}.
+
+    Returns the .shp Path.
+    """
+    from osgeo import ogr, osr
+    shp_path = shp_dir / "hybas_xx_lev12_v1c.shp"
+    drv = ogr.GetDriverByName("ESRI Shapefile")
+    ds = drv.CreateDataSource(str(shp_path))
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    layer = ds.CreateLayer("hybas", srs, ogr.wkbPolygon)
+    layer.CreateField(ogr.FieldDefn("HYBAS_ID", ogr.OFTInteger64))
+    layer.CreateField(ogr.FieldDefn("NEXT_DOWN", ogr.OFTInteger64))
+    layer.CreateField(ogr.FieldDefn("SUB_AREA", ogr.OFTReal))
+    defn = layer.GetLayerDefn()
+    for b in basins:
+        feat = ogr.Feature(defn)
+        feat.SetField("HYBAS_ID", b["hybas_id"])
+        feat.SetField("NEXT_DOWN", b["next_down"])
+        feat.SetField("SUB_AREA", b["sub_area"])
+        geom = ogr.CreateGeometryFromWkt(b["wkt"])
+        feat.SetGeometry(geom)
+        layer.CreateFeature(feat)
+        feat = None
+    ds = None  # flush
+    return shp_path
+
+
+def test_hydrosheds_upstream_walk_simple_chain(tmp_path):
+    """4-basin layout: 1 ← 2 ← 3 ; 4 is independent.
+    upstream(1) = {1,2,3}; upstream(4) = {4}.
+    """
+    basins = [
+        {"hybas_id": 1, "next_down": 0, "sub_area": 100.0,
+         "wkt": "POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))"},
+        {"hybas_id": 2, "next_down": 1, "sub_area":  50.0,
+         "wkt": "POLYGON((1 0, 2 0, 2 1, 1 1, 1 0))"},
+        {"hybas_id": 3, "next_down": 2, "sub_area":  20.0,
+         "wkt": "POLYGON((2 0, 3 0, 3 1, 2 1, 2 0))"},
+        {"hybas_id": 4, "next_down": 0, "sub_area": 999.0,
+         "wkt": "POLYGON((10 10, 11 10, 11 11, 10 11, 10 10))"},
+    ]
+    shp = _build_mini_hydrobasins(tmp_path, basins)
+    from openlimno.preprocess.fetch import upstream_basin_ids
+    assert upstream_basin_ids(shp, 1) == [1, 2, 3]
+    assert upstream_basin_ids(shp, 2) == [2, 3]
+    assert upstream_basin_ids(shp, 3) == [3]
+    assert upstream_basin_ids(shp, 4) == [4]
+
+
+def test_hydrosheds_upstream_walk_unknown_id_raises(tmp_path):
+    basins = [
+        {"hybas_id": 1, "next_down": 0, "sub_area": 1.0,
+         "wkt": "POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))"},
+    ]
+    shp = _build_mini_hydrobasins(tmp_path, basins)
+    from openlimno.preprocess.fetch import upstream_basin_ids
+    with pytest.raises(ValueError, match="not found"):
+        upstream_basin_ids(shp, 999)
+
+
+def test_hydrosheds_find_basin_at_inside(tmp_path):
+    basins = [
+        {"hybas_id": 7, "next_down": 0, "sub_area": 10.0,
+         "wkt": "POLYGON((10 20, 11 20, 11 21, 10 21, 10 20))"},
+    ]
+    shp = _build_mini_hydrobasins(tmp_path, basins)
+    from openlimno.preprocess.fetch import find_basin_at
+    hit = find_basin_at(shp, lat=20.5, lon=10.5)
+    assert hit is not None
+    assert hit["HYBAS_ID"] == 7
+    assert "geometry_wkt" in hit and "POLYGON" in hit["geometry_wkt"]
+
+
+def test_hydrosheds_find_basin_at_outside_returns_none(tmp_path):
+    basins = [
+        {"hybas_id": 7, "next_down": 0, "sub_area": 10.0,
+         "wkt": "POLYGON((10 20, 11 20, 11 21, 10 21, 10 20))"},
+    ]
+    shp = _build_mini_hydrobasins(tmp_path, basins)
+    from openlimno.preprocess.fetch import find_basin_at
+    assert find_basin_at(shp, lat=0.0, lon=0.0) is None
+
+
+def test_hydrosheds_write_watershed_geojson_aggregates_area(tmp_path):
+    basins = [
+        {"hybas_id": 1, "next_down": 0, "sub_area": 100.0,
+         "wkt": "POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))"},
+        {"hybas_id": 2, "next_down": 1, "sub_area":  50.0,
+         "wkt": "POLYGON((1 0, 2 0, 2 1, 1 1, 1 0))"},
+        {"hybas_id": 3, "next_down": 2, "sub_area":  20.0,
+         "wkt": "POLYGON((2 0, 3 0, 3 1, 2 1, 2 0))"},
+    ]
+    shp = _build_mini_hydrobasins(tmp_path, basins)
+    from openlimno.preprocess.fetch import write_watershed_geojson
+    out = tmp_path / "ws.geojson"
+    summary = write_watershed_geojson(shp, [1, 2, 3], out)
+    assert out.exists()
+    assert summary["n_basins"] == 3
+    assert summary["area_km2"] == pytest.approx(170.0)
+    # Bbox should span the union of the three side-by-side unit squares.
+    assert summary["bbox"] == pytest.approx((0.0, 0.0, 3.0, 1.0))
+    # GeoJSON file is valid + the single feature has matching attrs.
+    payload = json.loads(out.read_text())
+    assert payload["type"] == "FeatureCollection"
+    assert len(payload["features"]) == 1
+    feat = payload["features"][0]
+    assert feat["properties"]["n_basins"] == 3
+    assert feat["properties"]["area_km2"] == pytest.approx(170.0)
+
+
+def test_hydrosheds_write_watershed_geojson_missing_basin_raises(tmp_path):
+    """If the caller passes a HYBAS_ID that isn't in the shapefile, we
+    must FAIL — otherwise the produced watershed is a silent
+    under-estimate and downstream stats are wrong."""
+    basins = [
+        {"hybas_id": 1, "next_down": 0, "sub_area": 100.0,
+         "wkt": "POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))"},
+    ]
+    shp = _build_mini_hydrobasins(tmp_path, basins)
+    from openlimno.preprocess.fetch import write_watershed_geojson
+    with pytest.raises(RuntimeError, match="Missing first 5"):
+        write_watershed_geojson(shp, [1, 99], tmp_path / "ws.geojson")
+
+
+def test_hydrosheds_url_format_matches_provider_convention():
+    """Pin the URL template — HydroSHEDS occasionally restructures their
+    distribution; a silent 404 would re-fetch on every cache miss.
+    """
+    import openlimno.preprocess.fetch.hydrosheds as h
+    assert "data.hydrosheds.org" in h.HYDROSHEDS_BASE
+    assert "Asia" == h.HYDROSHEDS_REGIONS["as"]
+    assert 12 in h.HYDROBASINS_LEVELS
