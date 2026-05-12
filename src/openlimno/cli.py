@@ -695,6 +695,14 @@ def init_from_osm(
     if not (river or bbox_tuple or polyline_path):
         raise click.UsageError("Provide --river, --bbox, or --polyline")
 
+    # WEDM v0.2: collect fetch-system data pointers so we can patch
+    # case.yaml at the end of init_from_osm. Each fetcher's branch
+    # populates the matching dict key; the final pass writes the v0.2
+    # data block + bumps openlimno to '0.2'.
+    _wedm_patches: dict[str, dict] = {"data": {}}
+    if bbox_tuple:
+        _wedm_patches["case_bbox"] = list(bbox_tuple)
+
     spec = OSMCaseSpec(
         river_name=river, region_name=region,
         bbox=bbox_tuple, polyline_geojson=polyline_path,
@@ -816,6 +824,10 @@ def init_from_osm(
                 f"({len(polyline)} verts after bbox clip)"
             ),
         )
+        # WEDM v0.2: record raw DEM path under data.dem. The merged
+        # GeoTIFF lives in the cache; we don't copy it into case_dir
+        # (it'd duplicate ~50MB), but the path is still resolvable.
+        _wedm_patches["data"]["dem"] = str(dem.path)
 
     if fetch_discharge:
         import re
@@ -976,6 +988,14 @@ def init_from_osm(
                 f"HYBAS_ID={pour_id}. Citation: {layer.citation}"
             ),
         )
+        _wedm_patches["data"]["watershed"] = {
+            "uri": str(ws_path.relative_to(output_dir)),
+            "pour_lat": w_lat, "pour_lon": w_lon,
+            "pour_hybas_id": pour_id,
+            "region": w_region, "level": w_level,
+            "n_basins": summary["n_basins"],
+            "area_km2": round(summary["area_km2"], 3),
+        }
 
     if fetch_species:
         from openlimno.preprocess.fetch import (
@@ -1064,6 +1084,17 @@ def init_from_osm(
                 f"terms. Citation: {m.citation}"
             ),
         )
+        _wedm_patches["data"]["species_occurrences"] = {
+            "uri": str(sp_path.relative_to(output_dir)),
+            "scientific_name": sp_name,
+            "canonical_name": m.canonical_name,
+            "usage_key": int(m.usage_key),
+            "family": m.family, "order": m.order,
+            "match_type": m.match_type,
+            "confidence": int(m.confidence) if m.confidence is not None else 0,
+            "occurrence_count_returned": len(occ.df),
+            "occurrence_count_total": int(occ.total_matched),
+        }
 
     if fetch_soil:
         from openlimno.preprocess.fetch import (
@@ -1124,6 +1155,15 @@ def init_from_osm(
                 f"{sg.citation}"
             ),
         )
+        _wedm_patches["data"]["soil"] = {
+            "uri": str(soil_path.relative_to(output_dir)),
+            "lat": s_lat, "lon": s_lon,
+            "properties": sorted(sg.df["property"].unique().tolist()),
+            "depths": sorted(sg.df["depth"].unique().tolist()),
+            "statistic": (
+                str(sg.df["statistic"].iloc[0]) if len(sg.df) else "mean"
+            ),
+        }
 
     if fetch_lulc:
         from openlimno.preprocess.fetch import (
@@ -1200,6 +1240,13 @@ def init_from_osm(
                 f"Citation: {wc.citation}"
             ),
         )
+        _wedm_patches["data"]["lulc"] = {
+            "uri": str(lulc_path.relative_to(output_dir)),
+            "year": l_year, "version": wc.version,
+            "class_km2": {
+                str(k): round(v, 6) for k, v in wc.class_km2.items()
+            },
+        }
 
     if fetch_climate:
         from openlimno.preprocess.fetch import (
@@ -1285,6 +1332,34 @@ def init_from_osm(
                 "start_year": c_sy, "end_year": c_ey,
             },
             notes=notes,
+        )
+        _wedm_patches["data"]["climate"] = {
+            "uri": str(clim_path.relative_to(output_dir)),
+            "source": source,
+            "lat": c_lat, "lon": c_lon,
+            "start_year": c_sy, "end_year": c_ey,
+        }
+
+    # WEDM v0.2 patch pass: fold collected fetch outputs into case.yaml
+    # so the case self-describes the data it was built from. v0.1
+    # cases that didn't use any fetcher remain on '0.1' (no patch).
+    if _wedm_patches["data"] or "case_bbox" in _wedm_patches:
+        import yaml as _yaml_v02
+        case_yaml_path = Path(paths["case_yaml"])
+        case_doc = _yaml_v02.safe_load(case_yaml_path.read_text()) or {}
+        case_doc["openlimno"] = "0.2"
+        if "case_bbox" in _wedm_patches:
+            case_doc.setdefault("case", {})["bbox"] = (
+                _wedm_patches["case_bbox"]
+            )
+        if _wedm_patches["data"]:
+            case_doc.setdefault("data", {}).update(_wedm_patches["data"])
+        case_yaml_path.write_text(
+            _yaml_v02.safe_dump(case_doc, sort_keys=False, allow_unicode=True)
+        )
+        console.print(
+            f"  → case.yaml bumped to WEDM 0.2 with "
+            f"{len(_wedm_patches['data'])} fetched data block(s)"
         )
 
     console.print()

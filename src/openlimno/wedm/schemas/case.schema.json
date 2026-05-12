@@ -2,15 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://openlimno.org/wedm/0.1/case.schema.json",
   "title": "OpenLimno Case Configuration",
-  "description": "Top-level case YAML/JSON. SPEC v0.5 §3.1.5.",
+  "description": "Top-level case YAML/JSON. SPEC v0.5 §3.1.5. v0.2 adds optional fetch-system data pointers (LULC, soil, watershed, species, climate) and a case-level bbox; all v0.1 cases remain valid (version enum accepts both).",
   "type": "object",
   "required": ["openlimno", "case", "mesh", "hydrodynamics", "habitat", "output"],
   "additionalProperties": false,
   "properties": {
     "openlimno": {
       "type": "string",
-      "enum": ["0.1"],
-      "description": "WEDM schema version"
+      "enum": ["0.1", "0.2"],
+      "description": "WEDM schema version (v0.2 adds fetch-system data pointers; v0.1 cases still validate)"
     },
     "case": {
       "type": "object",
@@ -23,6 +23,13 @@
           "type": "string",
           "pattern": "^EPSG:[0-9]+$",
           "description": "EPSG code, e.g. EPSG:32612"
+        },
+        "bbox": {
+          "type": "array",
+          "description": "Optional geographic bounding box in EPSG:4326 as [lon_min, lat_min, lon_max, lat_max]. Set by init-from-osm; consumed by downstream regional-statistics modules. WEDM v0.2.",
+          "items": { "type": "number" },
+          "minItems": 4,
+          "maxItems": 4
         }
       }
     },
@@ -46,14 +53,124 @@
     "data": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Pointers to WEDM data files used by this case (Parquet / NetCDF). M2+ may consolidate into a single project archive.",
+      "description": "Pointers to WEDM data files used by this case (Parquet / NetCDF / CSV / GeoJSON / GeoTIFF). M2+ may consolidate into a single project archive. v0.2 adds fetch-system pointers (dem, lulc, soil, watershed, species_occurrences, climate); all v0.1 fields remain valid.",
       "properties": {
         "cross_section": { "type": "string", "format": "uri-reference" },
         "hsi_curve": { "type": "string", "format": "uri-reference" },
         "hsi_evidence": { "type": "string", "format": "uri-reference" },
         "species": { "type": "string", "format": "uri-reference" },
         "life_stage": { "type": "string", "format": "uri-reference" },
-        "rating_curve": { "type": "string", "format": "uri-reference" }
+        "rating_curve": { "type": "string", "format": "uri-reference" },
+        "dem": {
+          "type": "string",
+          "format": "uri-reference",
+          "description": "v0.2: merged DEM GeoTIFF produced by --fetch-dem. EPSG:4326, float32 elevation."
+        },
+        "lulc": {
+          "type": "object",
+          "description": "v0.2: ESA WorldCover 10 m LULC produced by --fetch-lulc.",
+          "additionalProperties": false,
+          "required": ["uri"],
+          "properties": {
+            "uri": { "type": "string", "format": "uri-reference" },
+            "year": { "type": "integer", "enum": [2020, 2021] },
+            "version": { "type": "string", "enum": ["v100", "v200"] },
+            "class_km2": {
+              "type": "object",
+              "description": "WorldCover class code (string) -> area in km². 11-class LCCS schema.",
+              "patternProperties": {
+                "^(10|20|30|40|50|60|70|80|90|95|100)$": { "type": "number", "minimum": 0 }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "soil": {
+          "type": "object",
+          "description": "v0.2: ISRIC SoilGrids 2.0 point sample produced by --fetch-soil.",
+          "additionalProperties": false,
+          "required": ["uri", "lat", "lon"],
+          "properties": {
+            "uri": { "type": "string", "format": "uri-reference" },
+            "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+            "lon": { "type": "number", "minimum": -180, "maximum": 180 },
+            "properties": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1
+            },
+            "depths": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["0-5cm", "5-15cm", "15-30cm", "30-60cm", "60-100cm", "100-200cm"]
+              },
+              "minItems": 1
+            },
+            "statistic": {
+              "type": "string",
+              "enum": ["Q0.05", "Q0.5", "Q0.95", "mean", "uncertainty"],
+              "default": "mean"
+            }
+          }
+        },
+        "watershed": {
+          "type": "object",
+          "description": "v0.2: HydroSHEDS upstream-catchment GeoJSON produced by --fetch-watershed.",
+          "additionalProperties": false,
+          "required": ["uri", "pour_lat", "pour_lon"],
+          "properties": {
+            "uri": { "type": "string", "format": "uri-reference" },
+            "pour_lat": { "type": "number", "minimum": -90, "maximum": 90 },
+            "pour_lon": { "type": "number", "minimum": -180, "maximum": 180 },
+            "pour_hybas_id": { "type": "integer", "minimum": 0 },
+            "region": {
+              "type": "string",
+              "enum": ["af", "ar", "as", "au", "eu", "gr", "na", "sa", "si"]
+            },
+            "level": { "type": "integer", "minimum": 1, "maximum": 12 },
+            "n_basins": { "type": "integer", "minimum": 1 },
+            "area_km2": { "type": "number", "minimum": 0 }
+          }
+        },
+        "species_occurrences": {
+          "type": "object",
+          "description": "v0.2: GBIF taxon match + bbox occurrence CSV produced by --fetch-species.",
+          "additionalProperties": false,
+          "required": ["uri", "usage_key", "scientific_name"],
+          "properties": {
+            "uri": { "type": "string", "format": "uri-reference" },
+            "scientific_name": { "type": "string", "minLength": 1 },
+            "canonical_name": { "type": "string" },
+            "usage_key": { "type": "integer", "minimum": 1 },
+            "family": { "type": "string" },
+            "order": { "type": "string" },
+            "match_type": {
+              "type": "string",
+              "enum": ["EXACT", "FUZZY", "HIGHERRANK", "NONE"]
+            },
+            "confidence": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "occurrence_count_returned": { "type": "integer", "minimum": 0 },
+            "occurrence_count_total": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "climate": {
+          "type": "object",
+          "description": "v0.2: daily-climate CSV produced by --fetch-climate.",
+          "additionalProperties": false,
+          "required": ["uri", "source"],
+          "properties": {
+            "uri": { "type": "string", "format": "uri-reference" },
+            "source": {
+              "type": "string",
+              "enum": ["daymet", "open-meteo"]
+            },
+            "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+            "lon": { "type": "number", "minimum": -180, "maximum": 180 },
+            "start_year": { "type": "integer", "minimum": 1940 },
+            "end_year": { "type": "integer", "minimum": 1940 }
+          }
+        }
       }
     },
     "hydrodynamics": {

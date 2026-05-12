@@ -5,6 +5,19 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v0.5.0 — WEDM schema v0.2 (fetch-system data pointers)**:
+    - `src/openlimno/wedm/schemas/case.schema.json` accepts `openlimno: '0.2'` (and still accepts `'0.1'` — v0.1 documents continue to validate unchanged).
+    - New optional `case.bbox` field: `[lon_min, lat_min, lon_max, lat_max]` in EPSG:4326. Populated by `init-from-osm` so downstream regional-statistics modules can find the case extent without re-parsing OSM/mesh files.
+    - Six new optional `data.*` blocks for fetch-system outputs:
+        - `data.dem` — path to merged Copernicus GLO-30 GeoTIFF.
+        - `data.lulc` — ESA WorldCover with `year` / `version` / per-class `class_km2` histogram (validated against the 11 LCCS codes).
+        - `data.soil` — ISRIC SoilGrids with `lat` / `lon` / property + depth + statistic enumerations (validated against the 6 known SoilGrids depths + 5 statistics).
+        - `data.watershed` — HydroSHEDS catchment GeoJSON with `pour_lat` / `pour_lon` / `pour_hybas_id` / `region` (validated against the 9 continent codes) / `level` (1-12) / `n_basins` / `area_km2`.
+        - `data.species_occurrences` — GBIF CSV with full taxonomic match (usage_key / family / order / match_type validated against {EXACT,FUZZY,HIGHERRANK,NONE} / confidence 0-100) + occurrence counts.
+        - `data.climate` — Daymet or Open-Meteo CSV with `source` (enum) / `lat` / `lon` / `start_year` / `end_year`.
+    - `init-from-osm` collects per-branch fetcher outputs in a `_wedm_patches` dict and emits a single end-of-command patch pass that bumps the case to `openlimno: '0.2'` + folds in `case.bbox` + the matching `data.*` block. v0.1 cases that don't use any fetcher remain on `'0.1'`.
+    - 9 new schema unit tests pin: v0.2 version-string acceptance, bbox 4-element requirement, full v0.2 data block validation, and 5 enum-rejection paths (unknown WorldCover class code 35, unknown climate source 'openweathermap', unknown HydroSHEDS region 'xx', unknown SoilGrids depth '0-3cm', unknown GBIF match_type 'PARTIAL').
+    - All v0.4 tests still pass (320 unit tests after this ship vs 311 before). v0.1 case schema `$id` deliberately retained at `0.1` to preserve the relative `$ref` graph between `case.schema.json` and `builtin_1d_config.schema.json` / `passage_config.schema.json` / `schism_config.schema.json` / `studyplan.schema.json` — a `0.2` `$id` would have broken every existing case's reproduce-path. WEDM "schema version" here is the case-document language version (carried in `openlimno: '0.2'`), not the JSON-Schema-document `$id`.
 - **v0.4.1 — README + release notes sediment**:
     - README.md updated: status line bumped to v0.4.0 / 311 tests; quickstart split into "run the bundled example" + "build a case from scratch" with the full 7-flag `init-from-osm` command for arbitrary bboxes; new "Data fetcher matrix" table covering all 9 fetcher flags with source/coverage/notes; link to `docs/fetch_system.md` added under Documentation.
     - `docs/RELEASE_v0.4.0.md` — narrative release notes for the v0.3.0→v0.4.0 arc: TL;DR, per-tag changelog, stability guarantees, coverage matrix, real-data correctness checks (SoilGrids texture sum 100.1%, HydroSHEDS UP_AREA agreement 0.012%, WorldCover biome match), engineering quality summary (defensive-design pins, 5-round critique discipline, real-data smoke per ship), what's next (v0.5 → v0.7 roadmap), migration notes (none — no breaking changes from v0.3.6).
