@@ -5,6 +5,16 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v1.3.0 — LULC riparian cover SI (second fetcher × habitat coupling)**:
+    - New module `openlimno.habitat.cover` closes the LULC → habitat loop alongside v1.1.0's FishBase thermal coupling. Maps the 11 ESA WorldCover LCCS classes to a literature-informed cover-suitability table (tree=1.0, mangroves=0.9, shrubland=0.8, herbaceous wetland=0.7, water=0.5, grassland=0.4, moss/lichen=0.3, cropland=0.2, bare=0.1, built-up=0.0, snow=0.0) and aggregates either a riparian buffer or a watershed polygon into a pixel-weighted mean SI ∈ [0, 1].
+    - `cover_si_from_lulc_raster(tif, geometry, cover_si_table=None)` — generic mask + aggregate. Loud `RuntimeError` on all-nodata regions instead of silent NaN.
+    - `riparian_buffer_from_polyline(coords, buffer_m=50)` — builds a metric buffer around an EPSG:4326 polyline using cos(lat) rescaling. 50 m default = literature-standard riparian-zone width.
+    - `cover_si_from_polyline(tif, coords, buffer_m=50)` — end-to-end riparian path.
+    - `watershed_cover_si(tif, watershed_geojson)` — end-to-end watershed path (consumes the `write_watershed_geojson` output from v0.3.3).
+    - `cover_si_summary(class_pixels)` — DataFrame for reporting, sorted by descending pixel count + carries the default cover_si column.
+    - Per-case customisation via `cover_si_table` kwarg on every function — site-specific calibration (e.g., grazing-adapted species where grassland = high cover) overrides defaults.
+    - 11 new unit tests pin: WorldCover-class mapping completeness (no class drops out silently), cover-SI prior monotonicity (tree ≥ shrub ≥ grass ≥ crop ≥ built), polygon-mask aggregation arithmetic, custom-table override, all-nodata loud failure, buffer geometry size sanity (50 m buffer ≈ 17-20k m² area at the equator), polyline 50/50 cover boundary case, watershed end-to-end, summary DataFrame ordering, empty-histogram edge case.
+    - Real-data smoke (Heihe mid-basin, real v0.3.4 WorldCover GeoTIFF × v0.3.3 watershed GeoJSON): **cover SI = 0.4255** with 67% grassland + 13% tree + 15% bare/sparse + 1.9% cropland + 1.2% built-up + 0.8% moss/lichen — matches Qilian-piedmont alpine-meadow + valley-agriculture ground truth.
 - **v1.2.0 — watershed-aware climate aggregator**:
     - New module `openlimno.preprocess.fetch.watershed_climate` aggregates any one-point climate fetcher over a watershed: `fetch_watershed_climate(watershed_geojson, fetcher, start_year, end_year)` samples 5 points (centroid + 4 inset corners) and emits a daily series with `T_water_C_mean / T_water_C_sd / n_samples`. SD column surfaces the basin's internal climate gradient as a confidence proxy.
     - Source-agnostic interface: any callable matching `(lat, lon, sy, ey) → result_with_.df_attribute` plugs in — both `fetch_daymet_daily` and `fetch_open_meteo_daily` satisfy it unchanged.

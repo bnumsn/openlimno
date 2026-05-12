@@ -23,6 +23,14 @@ from .hmu import (
     classify_reach,
 )
 from .hsi import HSICurve, composite_csi, load_hsi_from_parquet, require_independence_ack
+from .cover import (
+    DEFAULT_RIPARIAN_COVER_SI,
+    cover_si_from_lulc_raster,
+    cover_si_from_polyline,
+    cover_si_summary,
+    riparian_buffer_from_polyline,
+    watershed_cover_si,
+)
 from .thermal import (
     DEFAULT_LETHAL_MARGIN_C,
     ThermalRange,
@@ -54,4 +62,10 @@ __all__ = [
     "thermal_hsi",
     "thermal_metrics",
     "thermal_suitability_series",
+    "DEFAULT_RIPARIAN_COVER_SI",
+    "cover_si_from_lulc_raster",
+    "cover_si_from_polyline",
+    "cover_si_summary",
+    "riparian_buffer_from_polyline",
+    "watershed_cover_si",
 ]
