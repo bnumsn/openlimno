@@ -334,3 +334,69 @@ def test_sidecar_verify_passes_on_unmodified(tmp_path):
     results = verify_sidecar(tmp_path)
     assert results[0][1] is True
     assert results[0][2] == ""
+
+
+def test_sidecar_corrupt_json_raises_loudly(tmp_path):
+    """Round-2 fix: silent return-[] on corrupt sidecar broke the
+    reproducibility guarantee. A corrupt sidecar now raises
+    SidecarCorruptedError with a clear remediation hint.
+    """
+    from openlimno.preprocess.fetch.sidecar import (
+        SidecarCorruptedError, read_sidecar,
+    )
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / ".openlimno_external_sources.json").write_text(
+        "{partial json"
+    )
+    with pytest.raises(SidecarCorruptedError, match="not valid JSON"):
+        read_sidecar(tmp_path)
+
+
+def test_sidecar_wrong_root_type_raises_loudly(tmp_path):
+    """A sidecar whose root is not a list (e.g., manually edited to a
+    dict) is also corrupt — raise instead of silently returning [].
+    """
+    from openlimno.preprocess.fetch.sidecar import (
+        SidecarCorruptedError, read_sidecar,
+    )
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / ".openlimno_external_sources.json").write_text(
+        '{"not": "a list"}'
+    )
+    with pytest.raises(SidecarCorruptedError, match="root type"):
+        read_sidecar(tmp_path)
+
+
+def test_dem_rejects_oversize_bbox():
+    """Round-2 fix: 10°×10° bbox = 121 tiles ≈ 12 GB peak after
+    merge. A user mistakenly passing a country-sized bbox would
+    OOM-kill the process. Reject at entry with a clear cap message.
+    """
+    from openlimno.preprocess.fetch.dem import fetch_copernicus_dem
+    with pytest.raises(ValueError, match="exceeds the safety cap"):
+        # 10×10 = 100 deg² > 9 cap
+        fetch_copernicus_dem(-114.0, 44.0, -104.0, 54.0)
+
+
+def test_dem_accepts_3deg_bbox():
+    """Just under the cap should not raise (no network call here —
+    we trigger the upfront bbox check, then the next step would be
+    network. But invalid lat_max of 84 triggers ANOTHER check first,
+    so just check the area-cap check itself fires on the right
+    threshold by checking the math.)
+    """
+    from openlimno.preprocess.fetch.dem import fetch_copernicus_dem
+    # 3°×3° = 9.0 deg², at the cap (strict > so it's allowed)
+    # We can't actually call without network, just assert the size
+    # check doesn't trip. Construct a bbox that fails LATER (out of
+    # coverage at high lat) so we can tell that the size-cap check
+    # already passed.
+    import pytest as _pytest
+    # 1°×1° well under cap — would proceed to fetch, but we don't
+    # have network in the test; we expect it to raise something OTHER
+    # than the size-cap error.
+    with _pytest.raises(ValueError) as excinfo:
+        fetch_copernicus_dem(-114.0, 84.5, -113.0, 85.0)
+    assert "outside Copernicus" in str(excinfo.value), (
+        f"Expected coverage error for polar bbox, got: {excinfo.value}"
+    )

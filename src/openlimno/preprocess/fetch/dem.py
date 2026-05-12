@@ -108,6 +108,20 @@ def fetch_copernicus_dem(
             f"(84°S to 84°N). Got lat_min={lat_min}, lat_max={lat_max}. "
             f"For polar areas, use a different DEM source (not yet wired)."
         )
+    # Memory guard: each 30m tile is 3600×3600 px × 4 B = 51 MB raw +
+    # ~2× during merge. A 10°×10° bbox = 121 tiles → ~12 GB peak. A
+    # CONUS-sized bbox would OOMkill the process. Cap at MAX_BBOX_DEG²
+    # of total area; v0.3 P0 targets reach-scale cases (a few km).
+    MAX_BBOX_DEG2 = 9.0  # ≈ 3°×3° max, ~100 tiles peak
+    bbox_area = (lon_max - lon_min) * (lat_max - lat_min)
+    if bbox_area > MAX_BBOX_DEG2:
+        raise ValueError(
+            f"DEM bbox area {bbox_area:.2f} deg² exceeds the safety cap "
+            f"of {MAX_BBOX_DEG2:.0f} deg² (~100 tiles, ~5 GB peak). "
+            f"OpenLimno targets reach-scale cases; for continent-scale "
+            f"DEM mosaics use a dedicated tool like `eio` (elevation) "
+            f"or GDAL's `gdal_merge` directly."
+        )
 
     tile_corners = _tiles_for_bbox(lon_min, lat_min, lon_max, lat_max)
 

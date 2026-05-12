@@ -797,11 +797,21 @@ class Case:
         # auto-fetched data hasn't been mutated.
         external_sources: list[dict] = []
         try:
-            from openlimno.preprocess.fetch.sidecar import read_sidecar
+            from openlimno.preprocess.fetch.sidecar import (
+                SidecarCorruptedError, read_sidecar,
+            )
             external_sources = read_sidecar(self.case_yaml_path.parent)
         except ImportError:
             # fetch module optional in case of stripped install
             pass
+        except SidecarCorruptedError as e:
+            # Surface in run warnings so the user knows the provenance
+            # trail is broken — but don't crash the run (the science
+            # results are still valid; only the audit trail is lost).
+            warnings.append(
+                f"external-source sidecar corrupted: {e}. "
+                f"provenance.external_sources will be empty for this run."
+            )
 
         # Hash pixi.lock if present (dependency lock fingerprint)
         pixi_lock_sha = None

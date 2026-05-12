@@ -77,22 +77,44 @@ def _sidecar_path(case_dir: str | Path) -> Path:
     return Path(case_dir) / "data" / SIDECAR_NAME
 
 
+class SidecarCorruptedError(RuntimeError):
+    """The sidecar file exists but its contents are malformed.
+
+    Distinct subclass so callers (case.py / reproduce) can choose
+    whether to fail loudly or warn-and-continue. Default is fail loudly
+    — silent "no external sources" would silently break reproducibility
+    guarantees the sidecar exists to provide.
+    """
+
+
 def read_sidecar(case_dir: str | Path) -> list[dict]:
     """Load the external-sources sidecar.
 
-    Returns an empty list if the sidecar doesn't exist (case was
-    built without ``--fetch-*`` flags), so callers don't need to
-    branch on existence.
+    Returns an empty list ONLY if the sidecar doesn't exist (case was
+    built without ``--fetch-*`` flags). If the sidecar exists but is
+    corrupt (invalid JSON, wrong root type) raises
+    ``SidecarCorruptedError`` — silently returning [] would orphan the
+    provenance trail without telling the user, which is exactly the
+    failure mode this file exists to prevent.
     """
     path = _sidecar_path(case_dir)
     if not path.exists():
         return []
     try:
         data = json.loads(path.read_text())
-    except json.JSONDecodeError:
-        return []
+    except json.JSONDecodeError as e:
+        raise SidecarCorruptedError(
+            f"External-source sidecar at {path} is not valid JSON: {e}. "
+            f"Either restore from version control or delete the file and "
+            f"re-run `openlimno init-from-osm --fetch-*` to regenerate "
+            f"the provenance trail."
+        ) from e
     if not isinstance(data, list):
-        return []
+        raise SidecarCorruptedError(
+            f"External-source sidecar at {path} root type must be a JSON "
+            f"list, got {type(data).__name__}. Delete the file and re-run "
+            f"`openlimno init-from-osm --fetch-*` to regenerate."
+        )
     return data
 
 
