@@ -5,6 +5,13 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v0.8.1 — FishBase species-traits starter table**:
+    - `openlimno.preprocess.fetch.fishbase` — `fetch_fishbase_traits(scientific_name)` returns a `FishBaseTraits` dataclass (temperature range, depth range, water type, length max, IUCN status, FishBase per-species citation URL) for ~12 commonly-modelled fish species. Curated from canonical FishBase summary pages.
+    - Bundled CSV at `src/openlimno/preprocess/fetch/data/fishbase_traits_starter.csv` — auto-included in the wheel via the existing `[tool.hatch.build] packages` config.
+    - Starter species cover the salmonids (rainbow / brown / brook / chinook / Atlantic salmon), Asian carps (grass / common / silver), Yangtze schizothoracines + bronze gudgeon, Chinese sturgeon, and European eel — all the species referenced in OpenLimno's example cases.
+    - Live FishBase REST integration is post-1.0 P3 (rOpenSci mirror's URL surface is undocumented for non-R clients; FishBase Azure FB-API has uptime swings; coupling to either has a maintenance cost the v0.4 fetch-system charter doesn't accept). The starter-table dataclass + lookup surface here is the contract a future `fetch_fishbase_live(...)` would conform to.
+    - CLI `openlimno fetch --fetch-fishbase starter:SCIENTIFIC_NAME` patches the matched traits into `data.fishbase_traits` in the WEDM v0.2 case document.
+    - 8 new unit tests pin: starter-table common-species coverage (Lemhi + anywhere_bbox + cross-region anchors), case-insensitive lookup, `None` on no-match (no exception), empty-name rejection, every CSV row's `water_type` ∈ `WATER_TYPES` enum, every row's `iucn_status` ∈ `IUCN_STATUSES`, and temperature/depth-range monotonicity (catches transposed-value typos at table-edit time).
 - **v0.8.0 — `openlimno fetch` CLI + QProcess-driven Studio fetch panel**:
     - New `openlimno fetch <case_yaml>` subcommand: runs `--fetch-*` flags against an EXISTING case (additive to its sidecar + WEDM v0.2 `data.*` blocks) instead of re-building mesh/cross-sections like `init-from-osm`. Exact same `--fetch-*` flag surface as `init-from-osm` so callers compose either entry-point freely. End-of-run patches `openlimno: '0.2'` + the matching `data.*` block into `case.yaml`.
     - `Controller.fetch_data_into_case` rewritten to **subprocess via `QProcess`** instead of the v0.7 in-process `QThread`. A fetcher crash (OGR segfault, requests-plumbing AttributeError, etc.) now stays bounded to the subprocess — QGIS itself is never at risk. Trade-off: ~500 ms cold-start to import `openlimno`+`rasterio`+`osgeo` on the first invocation.

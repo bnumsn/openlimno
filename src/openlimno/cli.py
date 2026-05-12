@@ -623,6 +623,11 @@ def preprocess_dem_info(dem_path: str) -> None:
          "'gbif:SCIENTIFIC_NAME:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX'.",
 )
 @click.option(
+    "--fetch-fishbase", default=None,
+    help="Lookup FishBase traits for a species (curated starter "
+         "table of ~12 species). Format: 'starter:SCIENTIFIC_NAME'.",
+)
+@click.option(
     "--fetch-climate", default=None,
     help="Fetch daily climate. Format: 'daymet:LAT:LON:SY:EY' or "
          "'open-meteo:LAT:LON:SY:EY'.",
@@ -631,7 +636,8 @@ def fetch(
     case_yaml: str,
     fetch_dem: str | None, fetch_watershed: str | None,
     fetch_soil: str | None, fetch_lulc: str | None,
-    fetch_species: str | None, fetch_climate: str | None,
+    fetch_species: str | None, fetch_fishbase: str | None,
+    fetch_climate: str | None,
 ) -> None:
     """Run fetchers against an EXISTING case.yaml — additive to its
     sidecar + data.* blocks. Use when you already built the case (via
@@ -912,6 +918,47 @@ def fetch(
             f"  → {m.canonical_name} ({m.family}), "
             f"{len(occ.df)}/{occ.total_matched:,} records"
         )
+        n_ran += 1
+
+    if fetch_fishbase:
+        from openlimno.preprocess.fetch import fetch_fishbase_traits
+        fbparts = fetch_fishbase.split(":", 1)
+        if len(fbparts) != 2 or fbparts[0] != "starter":
+            raise click.UsageError(
+                "--fetch-fishbase must be 'starter:SCIENTIFIC_NAME' "
+                f"(got {fetch_fishbase!r})"
+            )
+        fb_name = fbparts[1].strip()
+        if not fb_name:
+            raise click.UsageError(
+                "--fetch-fishbase scientific name is empty"
+            )
+        console.print(f"[bold]Looking up FishBase traits for {fb_name!r}…[/]")
+        traits = fetch_fishbase_traits(fb_name)
+        if traits is None:
+            console.print(
+                f"[yellow]⚠[/] {fb_name!r} not in the bundled starter "
+                f"table — see openlimno.preprocess.fetch.list_starter_species()"
+            )
+        else:
+            console.print(
+                f"  → {traits.common_name} ({traits.iucn_status}); "
+                f"T ∈ [{traits.temperature_min_C}, {traits.temperature_max_C}] °C; "
+                f"depth ∈ [{traits.depth_min_m}, {traits.depth_max_m}] m; "
+                f"max length {traits.length_max_cm} cm"
+            )
+            _wedm_patches["data"]["fishbase_traits"] = {
+                "scientific_name": traits.scientific_name,
+                "common_name": traits.common_name,
+                "temperature_min_C": traits.temperature_min_C,
+                "temperature_max_C": traits.temperature_max_C,
+                "depth_min_m": traits.depth_min_m,
+                "depth_max_m": traits.depth_max_m,
+                "water_type": traits.water_type,
+                "length_max_cm": traits.length_max_cm,
+                "iucn_status": traits.iucn_status,
+                "fishbase_url": traits.fishbase_url,
+            }
         n_ran += 1
 
     if fetch_climate:

@@ -1,0 +1,13 @@
+scientific_name,common_name,temperature_min_C,temperature_max_C,depth_min_m,depth_max_m,water_type,length_max_cm,iucn_status,fishbase_url
+Oncorhynchus mykiss,Rainbow trout,9.0,18.0,0.5,5.0,freshwater,122.0,LC,https://www.fishbase.se/summary/239
+Salmo trutta,Brown trout,4.0,19.0,0.1,30.0,freshwater,140.0,LC,https://www.fishbase.se/summary/238
+Salvelinus fontinalis,Brook trout,5.0,18.0,0.1,15.0,freshwater,86.0,LC,https://www.fishbase.se/summary/246
+Oncorhynchus tshawytscha,Chinook salmon,5.0,17.0,0.0,400.0,anadromous,150.0,LC,https://www.fishbase.se/summary/244
+Salmo salar,Atlantic salmon,4.0,16.0,0.0,210.0,anadromous,150.0,LC,https://www.fishbase.se/summary/236
+Ctenopharyngodon idella,Grass carp,0.0,38.0,0.0,30.0,freshwater,150.0,LC,https://www.fishbase.se/summary/79
+Cyprinus carpio,Common carp,3.0,35.0,0.0,30.0,freshwater,150.0,VU,https://www.fishbase.se/summary/1450
+Hypophthalmichthys molitrix,Silver carp,6.0,28.0,0.0,30.0,freshwater,140.0,NT,https://www.fishbase.se/summary/2876
+Coreius guichenoti,Largemouth bronze gudgeon,5.0,28.0,0.0,30.0,freshwater,57.0,VU,https://www.fishbase.se/summary/26302
+Schizothorax prenanti,Prenant's schizothoracin,2.0,22.0,0.0,20.0,freshwater,52.0,LC,https://www.fishbase.se/summary/27092
+Acipenser sinensis,Chinese sturgeon,8.0,25.0,0.0,250.0,anadromous,500.0,CR,https://www.fishbase.se/summary/2076
+Anguilla anguilla,European eel,4.0,30.0,0.0,700.0,catadromous,150.0,CR,https://www.fishbase.se/summary/55

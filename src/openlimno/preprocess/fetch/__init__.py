@@ -13,6 +13,7 @@ Submodules:
     worldcover — ESA WorldCover 10 m global LULC (2020 v100, 2021 v200)
     soilgrids  — ISRIC SoilGrids 250 m soil properties (11 vars × 6 depths)
     species    — GBIF backbone taxon match + georeferenced occurrences
+    fishbase   — curated FishBase species-traits starter table (~12 spp)
     cache      — XDG-cache-aware on-disk cache shared by all fetchers
     sidecar    — external-source provenance sidecar in case_dir/data/
 """
@@ -47,6 +48,14 @@ from openlimno.preprocess.fetch.soilgrids import (
     DEFAULT_PROPERTIES as SOILGRIDS_DEFAULT_PROPERTIES,
     SoilGridsFetchResult,
     fetch_soilgrids,
+)
+from openlimno.preprocess.fetch.fishbase import (
+    FISHBASE_CITATION,
+    IUCN_STATUSES,
+    WATER_TYPES,
+    FishBaseTraits,
+    fetch_fishbase_traits,
+    list_starter_species,
 )
 from openlimno.preprocess.fetch.species import (
     SpeciesMatchResult,
@@ -116,6 +125,12 @@ __all__ = [
     "SpeciesOccurrencesResult",
     "fetch_gbif_occurrences",
     "match_species",
+    "FISHBASE_CITATION",
+    "IUCN_STATUSES",
+    "WATER_TYPES",
+    "FishBaseTraits",
+    "fetch_fishbase_traits",
+    "list_starter_species",
     "ExternalSourceRecord",
     "read_sidecar",
     "record_fetch",

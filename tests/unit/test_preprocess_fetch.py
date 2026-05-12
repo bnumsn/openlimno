@@ -979,6 +979,117 @@ def test_fetch_package_exposes_all_result_dataclasses():
 
 
 # ---------------------------------------------------------------------
+# fishbase.py — bundled starter-table species traits
+# ---------------------------------------------------------------------
+def test_fishbase_starter_table_includes_common_phabsim_species():
+    """The starter table must include the species OpenLimno's own
+    example cases consume. If a species is dropped from the table,
+    `examples/lemhi/quickstart.py` etc. lose their habitat-traits
+    fallback."""
+    from openlimno.preprocess.fetch import list_starter_species
+    species = list_starter_species()
+    # Lemhi case uses Oncorhynchus mykiss; anywhere_bbox uses
+    # Schizothorax prenanti; common carp / Atlantic salmon /
+    # grass carp anchor the cross-region coverage.
+    for required in (
+        "Oncorhynchus mykiss",
+        "Salmo trutta",
+        "Salmo salar",
+        "Cyprinus carpio",
+        "Ctenopharyngodon idella",
+        "Schizothorax prenanti",
+    ):
+        assert required in species, (
+            f"REGRESSION: {required!r} dropped from FishBase starter table"
+        )
+
+
+def test_fishbase_traits_returns_dataclass_for_known_species():
+    from openlimno.preprocess.fetch import (
+        FishBaseTraits, WATER_TYPES, IUCN_STATUSES, fetch_fishbase_traits,
+    )
+    t = fetch_fishbase_traits("Oncorhynchus mykiss")
+    assert t is not None
+    assert isinstance(t, FishBaseTraits)
+    assert t.scientific_name == "Oncorhynchus mykiss"
+    assert t.common_name == "Rainbow trout"
+    assert t.temperature_min_C < t.temperature_max_C
+    assert t.water_type in WATER_TYPES
+    assert t.iucn_status in IUCN_STATUSES
+    assert t.fishbase_url.startswith("http")
+    # Citation field is the top-level FishBase attribution
+    assert "FishBase" in t.citation
+
+
+def test_fishbase_traits_is_case_insensitive():
+    """Latin binomials are sometimes typed lower-case in CLI args;
+    the lookup must be case-insensitive so users don't get false
+    'not in starter table' answers."""
+    from openlimno.preprocess.fetch import fetch_fishbase_traits
+    a = fetch_fishbase_traits("Salmo trutta")
+    b = fetch_fishbase_traits("salmo trutta")
+    c = fetch_fishbase_traits("SALMO TRUTTA")
+    assert a is not None and b is not None and c is not None
+    assert a.scientific_name == b.scientific_name == c.scientific_name
+
+
+def test_fishbase_traits_returns_none_for_unknown():
+    """A no-match return must be ``None`` (callable's responsibility
+    to fall back to a manual species-traits YAML) — NOT a raise."""
+    from openlimno.preprocess.fetch import fetch_fishbase_traits
+    assert fetch_fishbase_traits("Frabnitzia notarealius") is None
+
+
+def test_fishbase_traits_rejects_empty_name():
+    from openlimno.preprocess.fetch import fetch_fishbase_traits
+    with pytest.raises(ValueError, match="non-empty"):
+        fetch_fishbase_traits("")
+    with pytest.raises(ValueError, match="non-empty"):
+        fetch_fishbase_traits("   ")
+
+
+def test_fishbase_starter_csv_water_types_all_valid():
+    """Every row in the bundled CSV must use a value from
+    WATER_TYPES — catches a typo at table-edit time."""
+    from openlimno.preprocess.fetch import (
+        WATER_TYPES, list_starter_species, fetch_fishbase_traits,
+    )
+    for name in list_starter_species():
+        t = fetch_fishbase_traits(name)
+        assert t.water_type in WATER_TYPES, (
+            f"{name}: water_type={t.water_type!r} not in {WATER_TYPES}"
+        )
+
+
+def test_fishbase_starter_csv_iucn_codes_all_valid():
+    from openlimno.preprocess.fetch import (
+        IUCN_STATUSES, list_starter_species, fetch_fishbase_traits,
+    )
+    for name in list_starter_species():
+        t = fetch_fishbase_traits(name)
+        assert t.iucn_status in IUCN_STATUSES, (
+            f"{name}: iucn_status={t.iucn_status!r} not a valid IUCN code"
+        )
+
+
+def test_fishbase_starter_csv_temp_ranges_consistent():
+    """temperature_min_C < temperature_max_C for every row — catches
+    a transposed-value typo at table-edit time."""
+    from openlimno.preprocess.fetch import (
+        list_starter_species, fetch_fishbase_traits,
+    )
+    for name in list_starter_species():
+        t = fetch_fishbase_traits(name)
+        assert t.temperature_min_C < t.temperature_max_C, (
+            f"{name}: T range inverted ({t.temperature_min_C}, "
+            f"{t.temperature_max_C})"
+        )
+        assert t.depth_min_m <= t.depth_max_m, (
+            f"{name}: depth range inverted"
+        )
+
+
+# ---------------------------------------------------------------------
 # species.py — GBIF taxonomy match + occurrence search
 # ---------------------------------------------------------------------
 def test_species_match_rejects_empty_name():
