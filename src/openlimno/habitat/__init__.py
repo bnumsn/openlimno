@@ -23,6 +23,13 @@ from .hmu import (
     classify_reach,
 )
 from .hsi import HSICurve, composite_csi, load_hsi_from_parquet, require_independence_ack
+from .thermal import (
+    DEFAULT_LETHAL_MARGIN_C,
+    ThermalRange,
+    thermal_hsi,
+    thermal_metrics,
+    thermal_suitability_series,
+)
 from .wua import cell_wua, wua_q_curve
 
 __all__ = [
@@ -42,4 +49,9 @@ __all__ = [
     "regulatory_export",
     "require_independence_ack",
     "wua_q_curve",
+    "DEFAULT_LETHAL_MARGIN_C",
+    "ThermalRange",
+    "thermal_hsi",
+    "thermal_metrics",
+    "thermal_suitability_series",
 ]

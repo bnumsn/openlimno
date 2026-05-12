@@ -5,6 +5,13 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v1.1.0 — thermal habitat suitability (first fetcher × habitat coupling)**:
+    - New module `openlimno.habitat.thermal` closes the v0.6 loop: fetched data (FishBase temperature preferences + climate-derived water-temperature series) finally drives a habitat-suitability output rather than just sitting in `provenance.fetch_summary` metadata.
+    - `ThermalRange(T_opt_min, T_opt_max, T_lethal_min, T_lethal_max)` dataclass + `ThermalRange.from_fishbase(T_opt_min, T_opt_max, *, lethal_margin_C=5.0)` convenience builder. Default lethal margin = ±5 °C around the FishBase preferred range (literature-standard for stream salmonids + cyprinids).
+    - `thermal_hsi(T_C, range)` evaluates the trapezoidal SI curve: 0 below `T_lethal_min`, linear ramp 0→1 across the lower shoulder, plateau SI=1 inside the optimum, linear ramp 1→0 across the upper shoulder, 0 above `T_lethal_max`. Scalar or vectorised.
+    - `thermal_suitability_series(temperature_df_or_series, range)` accepts the Daymet / Open-Meteo `T_water_C_stefan` schema directly + emits `[time, T_water_C, thermal_SI]`. Closes the fetcher → habitat pipeline in one call.
+    - `thermal_metrics(df)` summary: `mean_SI`, `days_optimal`, `days_lethal`, `days_total`, `optimal_fraction` — what reporting wants without re-aggregating the daily series downstream.
+    - 11 new unit tests including a real fetcher × habitat coupling pin: take FishBase's `Oncorhynchus mykiss` preferred range, feed it through `ThermalRange.from_fishbase`, evaluate against a synthetic annual sinusoid in the Open-Meteo schema, and assert the optimal-days count + mean SI land in the expected non-trivial band.
 - **v1.0.0 — production-stable release**:
     - No new code surface vs. v0.8.2; v1.0.0 is the **stability commitment**. The fetch package (9 active fetchers + cn_hydro charter-pinned stub), WEDM 0.2 case schema, habitat / hydraulics / passage / regulatory-export modules, and CLI / GUI surfaces are all frozen for the 1.0.x line.
     - PyPI classifier bumped `Development Status :: 1 - Planning` → `Development Status :: 5 - Production/Stable`.
