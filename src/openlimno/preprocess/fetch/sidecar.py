@@ -141,17 +141,34 @@ def record_fetch(
     the same case_dir produces an up-to-date sidecar, not a stack of
     stale entries).
     """
-    case_dir = Path(case_dir)
+    case_dir = Path(case_dir).resolve()
     produced_file = Path(produced_file)
     if not produced_file.is_absolute():
-        full = case_dir / produced_file
+        full = (case_dir / produced_file).resolve()
     else:
-        full = produced_file
-        # Store as case-relative for portability
+        full = produced_file.resolve()
         try:
             produced_file = full.relative_to(case_dir)
         except ValueError:
-            pass  # outside case_dir — keep absolute
+            # Outside case_dir — rejected below for security.
+            pass
+
+    # Round-3 fix: refuse to record files outside case_dir. Without
+    # this guard a caller passing produced_file=".../etc/passwd"
+    # would happily compute a SHA of arbitrary files outside the
+    # case directory + write that SHA into the sidecar, polluting
+    # the provenance trail and (under untrusted-input scenarios)
+    # leaking SHAs of host files. The sidecar is supposed to
+    # describe files INSIDE the case_dir only.
+    try:
+        full.relative_to(case_dir)
+    except ValueError as e:
+        raise ValueError(
+            f"produced_file {full} escapes case_dir {case_dir}. The "
+            f"sidecar can only reference files inside the case "
+            f"directory — record_fetch refuses to compute SHA of "
+            f"out-of-tree files to keep the provenance trail honest."
+        ) from e
 
     if not full.exists():
         raise FileNotFoundError(

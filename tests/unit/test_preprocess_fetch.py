@@ -378,6 +378,47 @@ def test_dem_rejects_oversize_bbox():
         fetch_copernicus_dem(-114.0, 44.0, -104.0, 54.0)
 
 
+def test_sidecar_rejects_produced_file_outside_case_dir(tmp_path):
+    """Round-3 fix: ``record_fetch(produced_file='../etc/passwd')``
+    used to happily compute a SHA of arbitrary host files and write
+    it to the sidecar, polluting the provenance trail (and under
+    untrusted-input scenarios leaking SHA of system files). The
+    sidecar's contract is "files INSIDE this case_dir only" — enforce
+    it at the API boundary.
+    """
+    from openlimno.preprocess.fetch import record_fetch
+    (tmp_path / "data").mkdir()
+    # Create a file OUTSIDE case_dir
+    outside = tmp_path.parent / "outside.txt"
+    outside.write_text("secret")
+    try:
+        with pytest.raises(ValueError, match="escapes case_dir"):
+            record_fetch(
+                tmp_path, label="evil", source_type="x",
+                source_url="u", fetch_time="t",
+                produced_file=str(outside),
+            )
+    finally:
+        outside.unlink()
+
+
+def test_sidecar_rejects_relative_path_escaping_case_dir(tmp_path):
+    """Same protection via ``../`` traversal in the relative path."""
+    from openlimno.preprocess.fetch import record_fetch
+    (tmp_path / "data").mkdir()
+    # Create something accessible via ../
+    (tmp_path.parent / "evil.txt").write_text("secret")
+    try:
+        with pytest.raises(ValueError, match="escapes case_dir"):
+            record_fetch(
+                tmp_path, label="evil", source_type="x",
+                source_url="u", fetch_time="t",
+                produced_file="../evil.txt",
+            )
+    finally:
+        (tmp_path.parent / "evil.txt").unlink()
+
+
 def test_dem_accepts_3deg_bbox():
     """Just under the cap should not raise (no network call here —
     we trigger the upfront bbox check, then the next step would be

@@ -744,6 +744,14 @@ def init_from_osm(
                 "--fetch-discharge dates must be YYYY-MM-DD "
                 f"(got start={start!r} end={end!r})"
             )
+        # Round-3 review: also enforce start <= end. NWIS returns
+        # a HTTP 400 for inverted ranges which surfaces as a noisy
+        # requests traceback; users get a much clearer local error.
+        if start > end:  # lexicographic OK for YYYY-MM-DD
+            raise click.UsageError(
+                f"--fetch-discharge start_date ({start}) must be on or "
+                f"before end_date ({end})"
+            )
         # Site IDs are USGS station numbers (8–15 digits). Reject
         # anything else upfront so the silent 400 is replaced by a
         # clear local error.
