@@ -5,6 +5,9 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v0.4.1 — README + release notes sediment**:
+    - README.md updated: status line bumped to v0.4.0 / 311 tests; quickstart split into "run the bundled example" + "build a case from scratch" with the full 7-flag `init-from-osm` command for arbitrary bboxes; new "Data fetcher matrix" table covering all 9 fetcher flags with source/coverage/notes; link to `docs/fetch_system.md` added under Documentation.
+    - `docs/RELEASE_v0.4.0.md` — narrative release notes for the v0.3.0→v0.4.0 arc: TL;DR, per-tag changelog, stability guarantees, coverage matrix, real-data correctness checks (SoilGrids texture sum 100.1%, HydroSHEDS UP_AREA agreement 0.012%, WorldCover biome match), engineering quality summary (defensive-design pins, 5-round critique discipline, real-data smoke per ship), what's next (v0.5 → v0.7 roadmap), migration notes (none — no breaking changes from v0.3.6).
 - **v0.4.0 — fetch system milestone + design document**:
     - `docs/fetch_system.md` — single source of truth for the 9-fetcher matrix, cache + sidecar contracts, citation chain, CLI surface (`init-from-osm --fetch-*`), region coverage matrix, end-to-end smoke entry-point (`tools/fetch_all_smoke.py`), and the explicitly-excluded sources (FishBase / GRDC / Sentinel Hub / CDS / Chinese gauges) with reasoning + roadmap pointers.
     - Marks the v0.3.0–v0.3.6 fetch surface as **stable**. No code changes vs v0.3.6; the bump to v0.4.0 signals: existing fetcher entry-points, result-dataclass field names, cache key shape, sidecar JSON schema, and citation contract will not break in the 0.4.x line. New fetchers in 0.4.x arrive as additive minor releases following the same conventions.
