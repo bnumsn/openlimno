@@ -665,7 +665,60 @@ def init_from_osm(
                     else f"bbox {bbox}" if bbox
                     else f"'{river}' in {region}")
     console.print(f"[bold]Fetching geometry from {descriptor}...[/]")
+    import time as _time
+    osm_fetch_time = _time.strftime("%Y-%m-%dT%H:%M:%S%z")
     paths = build_case(spec, output_dir)
+
+    # Round-4 fix: record OSM as an external source. The OSM Overpass
+    # dataset evolves continuously — two users running the same
+    # init-from-osm 6 months apart can get different centerlines, and
+    # the resulting mesh.ugrid.nc / cross_section.parquet will hash
+    # differently. Without an OSM record in the sidecar, ``openlimno
+    # reproduce`` would say "all SHAs match" on day-zero but provenance
+    # silently loses the centerline-source provenance over time. This
+    # is the transparency gap that motivated the sidecar in the first
+    # place.
+    if not polyline_path:  # only when we actually hit OSM Overpass
+        from openlimno.preprocess.fetch import record_fetch as _rf
+        # Re-derive what build_case actually queried. Same construction
+        # as osm_builder._build_query so the recorded params let users
+        # replay the same Overpass call later.
+        if bbox_tuple:
+            overpass_query = (
+                f'[out:json][timeout:60];'
+                f'way["waterway"~"^(river|stream)$"]'
+                f'({bbox_tuple[1]},{bbox_tuple[0]},{bbox_tuple[3]},{bbox_tuple[2]});'
+                f'(._;>;);out;'
+            )
+            osm_params = {"bbox": list(bbox_tuple)}
+        else:
+            overpass_query = (
+                f'[out:json][timeout:60];'
+                f'area["name"="{region}"]->.searchArea;'
+                f'way["name"="{river}"]["waterway"](area.searchArea);'
+                f'(._;>;);out;'
+            )
+            osm_params = {"river_name": river, "region_name": region}
+        _rf(
+            output_dir,
+            label="mesh_osm",
+            source_type="osm_overpass",
+            source_url="https://overpass-api.de/api/interpreter",
+            fetch_time=osm_fetch_time,
+            produced_file=Path(paths["mesh"]).relative_to(output_dir),
+            params={
+                **osm_params,
+                "n_sections": n_sections,
+                "reach_length_m": reach_km * 1000.0,
+                "overpass_query": overpass_query,
+            },
+            notes=(
+                f"OSM Overpass query — mesh.ugrid.nc derived from "
+                f"waterway polyline ({descriptor}). OSM is mutable; "
+                f"this record pins which dataset version produced the "
+                f"current mesh SHA."
+            ),
+        )
 
     # v0.3 P0: optional online fetches that REPLACE the synthesized
     # V-section cross_section.parquet and the placeholder Q_2024.csv
