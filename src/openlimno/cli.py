@@ -622,6 +622,13 @@ def preprocess_dem_info(dem_path: str) -> None:
                      "'usgs-nwis:SITE_ID:START:END' (US gauges, no auth). "
                      "Example: 'usgs-nwis:13305000:2020-01-01:2024-12-31' "
                      "for Lemhi River at Lemhi, ID.")
+@click.option("--fetch-lulc", default=None,
+                help="Auto-fetch ESA WorldCover 10 m LULC. Format: "
+                     "'worldcover:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX[:YEAR]' "
+                     "with YEAR ∈ {2020, 2021}, default 2021. Writes "
+                     "data/lulc.tif (uint8 11-class) + a histogram "
+                     "snapshot to the sidecar. Example: "
+                     "'worldcover:100.10:38.10:100.30:38.30:2021'.")
 @click.option("--fetch-watershed", default=None,
                 help="Auto-fetch upstream watershed via HydroSHEDS. "
                      "Format: 'hydrosheds:REGION:LAT:LON[:LEVEL]' where "
@@ -648,7 +655,8 @@ def init_from_osm(
     output_dir: str, n_sections: int, reach_km: float, valley_width: float,
     thalweg_depth: float, bank_elev: float, slope: float, species: str,
     fetch_dem: str, fetch_discharge: str | None,
-    fetch_watershed: str | None, fetch_climate: str | None,
+    fetch_watershed: str | None, fetch_lulc: str | None,
+    fetch_climate: str | None,
 ) -> None:
     """Build a complete OpenLimno case from OSM data (SPEC §4.0).
 
@@ -951,6 +959,82 @@ def init_from_osm(
                 f"{w_region.upper()}. Upstream catchment derived by "
                 f"walking NEXT_DOWN topology from pour-point basin "
                 f"HYBAS_ID={pour_id}. Citation: {layer.citation}"
+            ),
+        )
+
+    if fetch_lulc:
+        from openlimno.preprocess.fetch import (
+            WORLDCOVER_CLASSES,
+            fetch_esa_worldcover,
+            record_fetch as _rfl,
+        )
+        lparts = fetch_lulc.split(":")
+        if not (5 <= len(lparts) <= 6) or lparts[0] != "worldcover":
+            raise click.UsageError(
+                "--fetch-lulc must be "
+                "'worldcover:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX[:YEAR]' "
+                f"(got {fetch_lulc!r})"
+            )
+        try:
+            l_lon_min = float(lparts[1]); l_lat_min = float(lparts[2])
+            l_lon_max = float(lparts[3]); l_lat_max = float(lparts[4])
+            l_year = int(lparts[5]) if len(lparts) == 6 else 2021
+        except ValueError as e:
+            raise click.UsageError(
+                f"--fetch-lulc bbox values must be decimal, year integer; "
+                f"got {fetch_lulc!r}"
+            ) from e
+        console.print(
+            f"[bold]Fetching ESA WorldCover {l_year} for bbox "
+            f"({l_lon_min:.3f}, {l_lat_min:.3f}, {l_lon_max:.3f}, "
+            f"{l_lat_max:.3f})…[/]"
+        )
+        wc = fetch_esa_worldcover(
+            l_lon_min, l_lat_min, l_lon_max, l_lat_max, year=l_year,
+        )
+        console.print(
+            f"  → {wc.n_tiles} tile(s), version {wc.version}, "
+            f"{sum(wc.class_pixels.values()):,} pixels"
+        )
+        # Move/rename into case_dir/data/lulc.tif so it lives with the case.
+        import shutil as _shutil
+        lulc_path = Path(output_dir) / "data" / f"lulc_{l_year}.tif"
+        lulc_path.parent.mkdir(parents=True, exist_ok=True)
+        if wc.path != lulc_path:
+            _shutil.copy(wc.path, lulc_path)
+        # Top 3 classes for the console summary.
+        top = sorted(
+            wc.class_km2.items(), key=lambda kv: kv[1], reverse=True,
+        )[:3]
+        top_str = ", ".join(
+            f"{WORLDCOVER_CLASSES[c]} {km:.1f} km²" for c, km in top
+        )
+        console.print(f"  → top classes: {top_str}")
+        # Sidecar: store the full histogram for downstream stats.
+        _rfl(
+            output_dir,
+            label=f"lulc_worldcover_{l_year}",
+            source_type="esa_worldcover",
+            source_url=wc.cache_entries[0].source_url if wc.cache_entries
+            else f"https://esa-worldcover.s3.eu-central-1.amazonaws.com/"
+                 f"{wc.version}/{l_year}/map/",
+            fetch_time=wc.cache_entries[0].fetch_time if wc.cache_entries
+            else "",
+            produced_file=lulc_path.relative_to(output_dir),
+            params={
+                "bbox": [l_lon_min, l_lat_min, l_lon_max, l_lat_max],
+                "year": l_year, "version": wc.version,
+                "n_tiles": wc.n_tiles,
+                "class_pixels": {str(k): v for k, v in wc.class_pixels.items()},
+                "class_km2": {str(k): round(v, 6)
+                              for k, v in wc.class_km2.items()},
+            },
+            notes=(
+                f"ESA WorldCover 10 m {l_year} ({wc.version}). 11-class "
+                f"LCCS schema (codes 10..100; see WORLDCOVER_CLASSES). "
+                f"Pixel area uses cos(lat) shrinkage at bbox centroid — "
+                f"adequate for fraction summaries, not equal-area exact. "
+                f"Citation: {wc.citation}"
             ),
         )
 

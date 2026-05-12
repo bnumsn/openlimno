@@ -5,6 +5,15 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v0.3.4 — ESA WorldCover 10 m LULC**:
+    - `openlimno.preprocess.fetch.worldcover` — `fetch_esa_worldcover(lon_min, lat_min, lon_max, lat_max, *, year=2021)` against `https://esa-worldcover.s3.eu-central-1.amazonaws.com/` (Zanaga et al. 2022, CC-BY 4.0). Subscription-free, no key, global 60°S–84°N coverage at 10 m resolution. 11 LCCS-based classes (`tree_cover`/`shrubland`/`grassland`/`cropland`/`built_up`/`bare_sparse_vegetation`/`snow_and_ice`/`permanent_water_bodies`/`herbaceous_wetland`/`mangroves`/`moss_and_lichen`).
+    - Reuses the Copernicus DEM tile-streaming pattern (rasterio `/vsicurl/` window reads from 3°×3° tiles, in-memory mosaic) so a 0.2°×0.2° bbox pulls only KBs even though the source tiles are ~100 MB each. Per-tile cache key folds in the bbox so different sub-bboxes don't reuse the wrong subset.
+    - Class histogram (`class_pixels` + `class_km2`) computed during fetch using cos(lat) pixel-area shrinkage at the bbox centroid. NULL (class 0) excluded from totals so tile-edge masked pixels don't poison the "non-land" fraction.
+    - Both released epochs supported (2020 v100 + 2021 v200) — default 2021.
+    - Hard bbox cap of 25 deg² (~9 tiles, ~3 GB peak merge) to prevent OOM on continent-scale queries; users who really want that should hit `gdal_merge` directly.
+    - CLI `init-from-osm --fetch-lulc worldcover:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX[:YEAR]`; sidecar records label `lulc_worldcover_<year>`, source_type `esa_worldcover`, full per-class pixel counts + km² for audit + downstream stats.
+    - 12 new unit tests: input validation (invalid bbox, out-of-coverage lat, antimeridian crossing, unknown year, oversize cap), tile name decomposition for all 4 hemispheres, 3°-grid tile-for-bbox math (including exact-edge no-extra-tile regression pin), `WORLDCOVER_CLASSES` completeness, `cos(lat)` pixel-area scaling, and histogram-exclude-nodata.
+    - Real-data smoke (Heihe mid-basin 100.1–100.3°E × 38.1–38.3°N, 2021 v200): 1 tile, 5.76 M pixels, 386 km² total of which 74% grassland, 12% bare/sparse, 10% forest — matches the Qilian-piedmont pastoral/agricultural mix on the ground.
 - **v0.3.3 — HydroSHEDS watershed delineation**:
     - `openlimno.preprocess.fetch.hydrosheds` — `fetch_hydrobasins(region, level)` + `fetch_hydrorivers(region)` against `https://data.hydrosheds.org/file/` (Lehner & Grill 2013, doi:10.1002/hyp.9740). Subscription-free, no key, global coverage via 9 continental zips (af/ar/as/au/eu/gr/na/sa/si). Continental zip cached under XDG with the existing `cached_fetch` machinery.
     - Topology helpers using OGR streaming (no geopandas dependency, no in-memory pre-load): `find_basin_at(shp, lat, lon)` for pour-point lookup; `upstream_basin_ids(shp, hybas_id)` walks `NEXT_DOWN` BFS to enumerate the contributing area; `write_watershed_geojson(shp, ids, out)` cascaded-union → single MultiPolygon GeoJSON with `area_km2` + `n_basins` attributes.

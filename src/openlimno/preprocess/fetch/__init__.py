@@ -10,6 +10,7 @@ Submodules:
     daymet    — Daymet v4 daily climate (North America, 1 km)
     openmeteo  — Open-Meteo archive (global, ~11 km ERA5-Land backend)
     hydrosheds — HydroBASINS + HydroRIVERS continental shapefiles
+    worldcover — ESA WorldCover 10 m global LULC (2020 v100, 2021 v200)
     cache      — XDG-cache-aware on-disk cache shared by all fetchers
     sidecar    — external-source provenance sidecar in case_dir/data/
 """
@@ -37,6 +38,12 @@ from openlimno.preprocess.fetch.hydrosheds import (
 from openlimno.preprocess.fetch.openmeteo import (
     OpenMeteoFetchResult,
     fetch_open_meteo_daily,
+)
+from openlimno.preprocess.fetch.worldcover import (
+    WORLDCOVER_CLASSES,
+    WORLDCOVER_EPOCHS,
+    WorldCoverFetchResult,
+    fetch_esa_worldcover,
 )
 from openlimno.preprocess.fetch.dem import (
     DEMFetchResult,
@@ -81,6 +88,10 @@ __all__ = [
     "fetch_nwis_daily_discharge",
     "fetch_nwis_rating_curve",
     "find_nwis_stations_near",
+    "WORLDCOVER_CLASSES",
+    "WORLDCOVER_EPOCHS",
+    "WorldCoverFetchResult",
+    "fetch_esa_worldcover",
     "ExternalSourceRecord",
     "read_sidecar",
     "record_fetch",

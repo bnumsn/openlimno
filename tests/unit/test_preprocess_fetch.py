@@ -913,6 +913,159 @@ def test_hydrosheds_does_not_enable_global_ogr_exceptions():
     )
 
 
+# ---------------------------------------------------------------------
+# worldcover.py — input validation + tile decomposition + histogram
+# ---------------------------------------------------------------------
+def test_worldcover_rejects_invalid_bbox():
+    from openlimno.preprocess.fetch import fetch_esa_worldcover
+    with pytest.raises(ValueError, match="Invalid bbox"):
+        fetch_esa_worldcover(101.0, 38.0, 100.0, 38.5)  # lon_max < lon_min
+
+
+def test_worldcover_rejects_out_of_coverage():
+    """Antarctica falls outside the (60°S, 84°N) ESA WorldCover window."""
+    from openlimno.preprocess.fetch import fetch_esa_worldcover
+    with pytest.raises(ValueError, match="60.S to 84.N"):
+        fetch_esa_worldcover(0.0, -75.0, 1.0, -74.0)
+
+
+def test_worldcover_rejects_antimeridian_crossing():
+    """A bbox spanning lon=190 (or wrapped to -170 → 170 forward) would
+    hit non-existent tiles or pull the wrong half of the world.
+    Reject with a hint at splitting the query."""
+    from openlimno.preprocess.fetch import fetch_esa_worldcover
+    with pytest.raises(ValueError, match="antimeridian"):
+        fetch_esa_worldcover(170.0, 0.0, 190.0, 1.0)
+
+
+def test_worldcover_rejects_unknown_year():
+    from openlimno.preprocess.fetch import fetch_esa_worldcover
+    with pytest.raises(ValueError, match="released WorldCover epoch"):
+        fetch_esa_worldcover(100.0, 38.0, 100.5, 38.5, year=2022)
+
+
+def test_worldcover_rejects_oversized_bbox():
+    """A 30°×30° bbox would pull dozens of 100-MB tiles + OOM the
+    merge step. Enforce a deg² cap at the entry point."""
+    from openlimno.preprocess.fetch import fetch_esa_worldcover
+    with pytest.raises(ValueError, match="safety cap"):
+        fetch_esa_worldcover(0.0, 0.0, 30.0, 30.0)
+
+
+def test_worldcover_tile_name_n36_e114():
+    from openlimno.preprocess.fetch.worldcover import _tile_name
+    assert _tile_name(36, 114) == "N36E114"
+    assert _tile_name(-3, 117) == "S03E117"
+    assert _tile_name(36, -123) == "N36W123"
+    assert _tile_name(-30, -60) == "S30W060"
+
+
+def test_worldcover_tiles_for_bbox_3deg_grid():
+    """ESA WorldCover tiles are 3°×3° aligned on multiples of 3. A
+    small bbox entirely inside one tile must yield exactly that tile,
+    and a bbox straddling a 3° boundary must yield both neighbours.
+    """
+    from openlimno.preprocess.fetch.worldcover import _tiles_for_bbox
+    # Inside the N36-E114 tile
+    assert _tiles_for_bbox(114.5, 36.5, 114.8, 36.8) == [(36, 114)]
+    # Straddle the 117° longitude line → two tiles
+    res = _tiles_for_bbox(116.5, 36.5, 117.5, 36.8)
+    assert sorted(res) == [(36, 114), (36, 117)]
+    # Negative lat in southern hemisphere on the 3-grid (-3, -6, ...)
+    res = _tiles_for_bbox(0.5, -2.5, 0.8, -1.5)
+    assert (-3, 0) in res
+
+
+def test_worldcover_tiles_for_bbox_exact_3deg_edge_no_extra_tile():
+    """A bbox whose lat_max sits exactly on a tile boundary must NOT
+    pull the next-northern tile (which would have zero overlap and
+    waste a download). The implementation snaps the upper edge with a
+    tiny epsilon to avoid the off-by-one.
+    """
+    from openlimno.preprocess.fetch.worldcover import _tiles_for_bbox
+    # lat_max=39.0 is the south edge of the N39 tile; the bbox stays
+    # entirely in N36.
+    res = _tiles_for_bbox(114.5, 36.5, 114.8, 39.0)
+    assert res == [(36, 114)], (
+        f"REGRESSION: exact-edge bbox pulled extra tile(s): {res}"
+    )
+
+
+def test_worldcover_class_codes_are_complete():
+    """11 LCCS classes — pin them so a future addition (or rename) is
+    a visible diff rather than a silent histogram-coverage gap."""
+    from openlimno.preprocess.fetch import WORLDCOVER_CLASSES
+    assert WORLDCOVER_CLASSES[10] == "tree_cover"
+    assert WORLDCOVER_CLASSES[40] == "cropland"
+    assert WORLDCOVER_CLASSES[80] == "permanent_water_bodies"
+    assert WORLDCOVER_CLASSES[95] == "mangroves"
+    assert WORLDCOVER_CLASSES[100] == "moss_and_lichen"
+    assert set(WORLDCOVER_CLASSES) == {10,20,30,40,50,60,70,80,90,95,100}
+
+
+def test_worldcover_epochs_match_versions():
+    from openlimno.preprocess.fetch import WORLDCOVER_EPOCHS
+    assert WORLDCOVER_EPOCHS == {2020: "v100", 2021: "v200"}
+
+
+def test_worldcover_pixel_area_scales_with_cos_lat():
+    """At 60°N a 10 m × 10 m pixel covers ~half the area it does at
+    the equator (cos 60° = 0.5). Pin the cos(lat) correction so an
+    inadvertent removal would show up immediately."""
+    from openlimno.preprocess.fetch.worldcover import _pixel_area_km2
+    eq = _pixel_area_km2(0.0, 1.0 / 12000)  # ESA pixel ≈ 1/12000°
+    hi = _pixel_area_km2(60.0, 1.0 / 12000)
+    assert hi / eq == pytest.approx(0.5, rel=1e-3)
+
+
+def test_worldcover_compute_class_histogram_aggregates_correctly(tmp_path):
+    """End-to-end: build a tiny EPSG:4326 GeoTIFF with known class mix,
+    run the histogram, check counts + km² rough scale."""
+    import numpy as _np
+    import rasterio
+    from rasterio.transform import from_origin
+    from openlimno.preprocess.fetch.worldcover import _compute_class_histogram
+
+    # 10×10 raster, 5 m pixel (5e-5°) — mix of cropland(40) and built(50).
+    arr = _np.array([[40]*5 + [50]*5]*10, dtype=_np.uint8)
+    transform = from_origin(100.0, 38.0, 5e-5, 5e-5)
+    tif = tmp_path / "fake.tif"
+    with rasterio.open(
+        tif, "w", driver="GTiff", height=10, width=10, count=1,
+        dtype="uint8", crs="EPSG:4326", transform=transform,
+    ) as dst:
+        dst.write(arr, 1)
+    counts, km2 = _compute_class_histogram(tif, lat_center=38.0)
+    assert counts == {40: 50, 50: 50}
+    # km2 ratios match pixel counts
+    assert km2[40] == pytest.approx(km2[50])
+    # rough scale: 100 px × ~31 m² each × cos(38°) ≈ 2.4e-3 km² for the
+    # whole raster (sanity-only — exact math is in
+    # test_worldcover_pixel_area_scales_with_cos_lat).
+    assert 1e-4 < sum(km2.values()) < 1e-2
+
+
+def test_worldcover_compute_class_histogram_excludes_nodata(tmp_path):
+    """Class 0 (no-data) MUST NOT show up in the result — otherwise
+    tile-edge masked pixels poison the 'non-land' fraction."""
+    import numpy as _np
+    import rasterio
+    from rasterio.transform import from_origin
+    from openlimno.preprocess.fetch.worldcover import _compute_class_histogram
+
+    arr = _np.array([[0,0,40,40]] * 4, dtype=_np.uint8)
+    transform = from_origin(100.0, 38.0, 5e-5, 5e-5)
+    tif = tmp_path / "fake.tif"
+    with rasterio.open(
+        tif, "w", driver="GTiff", height=4, width=4, count=1,
+        dtype="uint8", crs="EPSG:4326", transform=transform,
+    ) as dst:
+        dst.write(arr, 1)
+    counts, _km2 = _compute_class_histogram(tif, lat_center=38.0)
+    assert 0 not in counts
+    assert counts == {40: 8}
+
+
 def test_hydrosheds_url_format_matches_provider_convention():
     """Pin the URL template — HydroSHEDS occasionally restructures their
     distribution; a silent 404 would re-fetch on every cache miss.
