@@ -595,6 +595,399 @@ def preprocess_dem_info(dem_path: str) -> None:
     console.print(f"  elev range: {dem.elevation.min():.2f} – {dem.elevation.max():.2f}")
 
 
+@main.command("fetch")
+@click.argument(
+    "case_yaml", type=click.Path(exists=True, dir_okay=False),
+)
+@click.option(
+    "--fetch-dem", default=None, type=click.Choice(["cop30"]),
+    help="Fetch Copernicus GLO-30 DEM for the case bbox.",
+)
+@click.option(
+    "--fetch-watershed", default=None,
+    help="Fetch upstream watershed via HydroSHEDS. Format: "
+         "'hydrosheds:REGION:LAT:LON[:LEVEL]'.",
+)
+@click.option(
+    "--fetch-soil", default=None,
+    help="Fetch ISRIC SoilGrids point. Format: 'soilgrids:LAT:LON'.",
+)
+@click.option(
+    "--fetch-lulc", default=None,
+    help="Fetch ESA WorldCover 10 m LULC. Format: "
+         "'worldcover:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX[:YEAR]'.",
+)
+@click.option(
+    "--fetch-species", default=None,
+    help="Fetch GBIF taxon + occurrences. Format: "
+         "'gbif:SCIENTIFIC_NAME:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX'.",
+)
+@click.option(
+    "--fetch-climate", default=None,
+    help="Fetch daily climate. Format: 'daymet:LAT:LON:SY:EY' or "
+         "'open-meteo:LAT:LON:SY:EY'.",
+)
+def fetch(
+    case_yaml: str,
+    fetch_dem: str | None, fetch_watershed: str | None,
+    fetch_soil: str | None, fetch_lulc: str | None,
+    fetch_species: str | None, fetch_climate: str | None,
+) -> None:
+    """Run fetchers against an EXISTING case.yaml — additive to its
+    sidecar + data.* blocks. Use when you already built the case (via
+    ``init-from-osm`` or by hand) and want to pull more layers into it
+    without rebuilding the mesh / cross-sections.
+
+    The case's `case.bbox` is used for bbox-shaped fetchers (DEM /
+    LULC) if no override is given on those flags' own bbox slots.
+
+    Mirrors the ``--fetch-*`` flag surface from ``init-from-osm`` so
+    Studio GUI's QProcess driver can launch this command directly
+    without re-implementing fetcher parsing.
+    """
+    import yaml as _yaml
+    from openlimno.preprocess.fetch import (
+        fetch_copernicus_dem,
+        fetch_daymet_daily,
+        fetch_esa_worldcover,
+        fetch_gbif_occurrences,
+        fetch_hydrobasins,
+        fetch_open_meteo_daily,
+        fetch_soilgrids,
+        find_basin_at,
+        match_species,
+        record_fetch,
+        upstream_basin_ids,
+        write_watershed_geojson,
+    )
+
+    case_yaml_path = Path(case_yaml).resolve()
+    output_dir = case_yaml_path.parent
+    case_doc = _yaml.safe_load(case_yaml_path.read_text()) or {}
+    case_bbox = (case_doc.get("case", {}) or {}).get("bbox")
+    if isinstance(case_bbox, list) and len(case_bbox) == 4:
+        case_bbox_tuple = tuple(float(x) for x in case_bbox)
+    else:
+        case_bbox_tuple = None
+
+    _wedm_patches: dict[str, dict] = {"data": {}}
+    n_ran = 0
+
+    if fetch_dem == "cop30":
+        if not case_bbox_tuple:
+            raise click.UsageError(
+                "--fetch-dem cop30 needs case.bbox set in the case.yaml"
+            )
+        console.print(
+            f"[bold]Fetching Copernicus GLO-30 for bbox {case_bbox_tuple}…[/]"
+        )
+        dem = fetch_copernicus_dem(*case_bbox_tuple)
+        ce = dem.cache_entries[0]
+        record_fetch(
+            output_dir, label="cross_section_dem",
+            source_type="copernicus_dem",
+            source_url=ce.source_url, fetch_time=ce.fetch_time,
+            produced_file=Path(dem.path).name,
+            params={"bbox": list(case_bbox_tuple), "n_tiles": dem.n_tiles},
+            notes=f"CLI `fetch` Copernicus GLO-30 — {dem.n_tiles} tile(s)",
+        )
+        _wedm_patches["data"]["dem"] = str(dem.path)
+        console.print(f"  → {dem.n_tiles} tile(s) merged")
+        n_ran += 1
+
+    if fetch_watershed:
+        wparts = fetch_watershed.split(":")
+        if not (4 <= len(wparts) <= 5) or wparts[0] != "hydrosheds":
+            raise click.UsageError(
+                "--fetch-watershed must be "
+                "'hydrosheds:REGION:LAT:LON[:LEVEL]'"
+            )
+        try:
+            w_region = wparts[1]
+            w_lat = float(wparts[2]); w_lon = float(wparts[3])
+            w_level = int(wparts[4]) if len(wparts) == 5 else 12
+        except ValueError as e:
+            raise click.UsageError(
+                f"--fetch-watershed parse error: {fetch_watershed!r}"
+            ) from e
+        console.print(
+            f"[bold]Fetching HydroSHEDS lev{w_level:02d} {w_region.upper()} "
+            f"@({w_lat:.4f}, {w_lon:.4f})…[/]"
+        )
+        layer = fetch_hydrobasins(region=w_region, level=w_level)
+        pour = find_basin_at(layer.shp_path, w_lat, w_lon)
+        if pour is None:
+            raise click.ClickException(
+                f"(lat={w_lat}, lon={w_lon}) outside HydroSHEDS region "
+                f"{w_region.upper()}"
+            )
+        pour_id = int(pour["HYBAS_ID"])
+        ups = upstream_basin_ids(layer.shp_path, pour_id)
+        ws_path = output_dir / "data" / "watershed.geojson"
+        ws_path.parent.mkdir(parents=True, exist_ok=True)
+        summary = write_watershed_geojson(layer.shp_path, ups, ws_path)
+        record_fetch(
+            output_dir, label="watershed_hydrosheds",
+            source_type="hydrosheds_hydrobasins",
+            source_url=layer.cache.source_url,
+            fetch_time=layer.cache.fetch_time,
+            produced_file=ws_path.relative_to(output_dir),
+            params={
+                "region": w_region, "level": w_level,
+                "pour_lat": w_lat, "pour_lon": w_lon,
+                "pour_hybas_id": pour_id,
+                "n_basins": summary["n_basins"],
+                "area_km2": summary["area_km2"],
+            },
+            notes=f"CLI `fetch` HydroSHEDS — citation: {layer.citation}",
+        )
+        _wedm_patches["data"]["watershed"] = {
+            "uri": str(ws_path.relative_to(output_dir)),
+            "pour_lat": w_lat, "pour_lon": w_lon, "pour_hybas_id": pour_id,
+            "region": w_region, "level": w_level,
+            "n_basins": summary["n_basins"],
+            "area_km2": round(summary["area_km2"], 3),
+        }
+        console.print(
+            f"  → {summary['n_basins']} basins, "
+            f"{summary['area_km2']:.1f} km²"
+        )
+        n_ran += 1
+
+    if fetch_soil:
+        sparts = fetch_soil.split(":")
+        if len(sparts) != 3 or sparts[0] != "soilgrids":
+            raise click.UsageError(
+                "--fetch-soil must be 'soilgrids:LAT:LON'"
+            )
+        try:
+            s_lat = float(sparts[1]); s_lon = float(sparts[2])
+        except ValueError as e:
+            raise click.UsageError(
+                f"--fetch-soil parse error: {fetch_soil!r}"
+            ) from e
+        console.print(f"[bold]Fetching SoilGrids @({s_lat:.4f}, {s_lon:.4f})…[/]")
+        sg = fetch_soilgrids(s_lat, s_lon)
+        soil_path = output_dir / "data" / "soil.csv"
+        soil_path.parent.mkdir(parents=True, exist_ok=True)
+        sg.df.to_csv(soil_path, index=False)
+        record_fetch(
+            output_dir, label="soil_soilgrids",
+            source_type="isric_soilgrids_v2",
+            source_url=sg.cache.source_url,
+            fetch_time=sg.cache.fetch_time,
+            produced_file=soil_path.relative_to(output_dir),
+            params={"lat": s_lat, "lon": s_lon, "n_rows": len(sg.df)},
+            notes=f"CLI `fetch` SoilGrids — citation: {sg.citation}",
+        )
+        _wedm_patches["data"]["soil"] = {
+            "uri": str(soil_path.relative_to(output_dir)),
+            "lat": s_lat, "lon": s_lon,
+            "properties": sorted(sg.df["property"].unique().tolist()),
+            "depths": sorted(sg.df["depth"].unique().tolist()),
+            "statistic": (
+                str(sg.df["statistic"].iloc[0]) if len(sg.df) else "mean"
+            ),
+        }
+        console.print(f"  → {len(sg.df)} rows")
+        n_ran += 1
+
+    if fetch_lulc:
+        lparts = fetch_lulc.split(":")
+        if not (5 <= len(lparts) <= 6) or lparts[0] != "worldcover":
+            raise click.UsageError(
+                "--fetch-lulc must be "
+                "'worldcover:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX[:YEAR]'"
+            )
+        try:
+            l_lon_min = float(lparts[1]); l_lat_min = float(lparts[2])
+            l_lon_max = float(lparts[3]); l_lat_max = float(lparts[4])
+            l_year = int(lparts[5]) if len(lparts) == 6 else 2021
+        except ValueError as e:
+            raise click.UsageError(
+                f"--fetch-lulc parse error: {fetch_lulc!r}"
+            ) from e
+        console.print(
+            f"[bold]Fetching ESA WorldCover {l_year}…[/]"
+        )
+        wc = fetch_esa_worldcover(
+            l_lon_min, l_lat_min, l_lon_max, l_lat_max, year=l_year,
+        )
+        lulc_path = output_dir / "data" / f"lulc_{l_year}.tif"
+        lulc_path.parent.mkdir(parents=True, exist_ok=True)
+        import shutil as _shutil
+        if wc.path != lulc_path:
+            _shutil.copy(wc.path, lulc_path)
+        record_fetch(
+            output_dir, label=f"lulc_worldcover_{l_year}",
+            source_type="esa_worldcover",
+            source_url=wc.cache_entries[0].source_url,
+            fetch_time=wc.cache_entries[0].fetch_time,
+            produced_file=lulc_path.relative_to(output_dir),
+            params={
+                "bbox": [l_lon_min, l_lat_min, l_lon_max, l_lat_max],
+                "year": l_year, "version": wc.version,
+                "n_tiles": wc.n_tiles,
+            },
+            notes=f"CLI `fetch` WorldCover — citation: {wc.citation}",
+        )
+        _wedm_patches["data"]["lulc"] = {
+            "uri": str(lulc_path.relative_to(output_dir)),
+            "year": l_year, "version": wc.version,
+            "class_km2": {
+                str(k): round(v, 6) for k, v in wc.class_km2.items()
+            },
+        }
+        console.print(
+            f"  → {wc.n_tiles} tile(s), "
+            f"{sum(wc.class_pixels.values()):,} px"
+        )
+        n_ran += 1
+
+    if fetch_species:
+        spparts = fetch_species.split(":")
+        if len(spparts) != 6 or spparts[0] != "gbif":
+            raise click.UsageError(
+                "--fetch-species must be "
+                "'gbif:SCIENTIFIC_NAME:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX'"
+            )
+        sp_name = spparts[1].strip()
+        try:
+            sp_bbox = (
+                float(spparts[2]), float(spparts[3]),
+                float(spparts[4]), float(spparts[5]),
+            )
+        except ValueError as e:
+            raise click.UsageError(
+                f"--fetch-species parse error: {fetch_species!r}"
+            ) from e
+        console.print(f"[bold]Matching GBIF taxon {sp_name!r}…[/]")
+        m = match_species(sp_name)
+        if m.usage_key is None or m.match_type == "NONE":
+            raise click.ClickException(
+                f"GBIF could not match {sp_name!r} "
+                f"(match_type={m.match_type})"
+            )
+        occ = fetch_gbif_occurrences(m.usage_key, sp_bbox)
+        sp_path = (
+            output_dir / "data" / f"species_gbif_{m.usage_key}.csv"
+        )
+        sp_path.parent.mkdir(parents=True, exist_ok=True)
+        occ.df.to_csv(sp_path, index=False)
+        primary = occ.cache[0] if occ.cache else None
+        record_fetch(
+            output_dir,
+            label=f"species_gbif_{m.usage_key}",
+            source_type="gbif_occurrence",
+            source_url=(
+                primary.source_url if primary
+                else "https://api.gbif.org/v1/occurrence/search"
+            ),
+            fetch_time=primary.fetch_time if primary else "",
+            produced_file=sp_path.relative_to(output_dir),
+            params={
+                "scientific_name": sp_name,
+                "canonical_name": m.canonical_name,
+                "usage_key": m.usage_key,
+                "family": m.family, "order": m.order,
+                "match_type": m.match_type,
+                "confidence": int(m.confidence) if m.confidence is not None else 0,
+                "occurrence_count_returned": len(occ.df),
+                "occurrence_count_total": int(occ.total_matched),
+            },
+            notes=f"CLI `fetch` GBIF — citation: {m.citation}",
+        )
+        _wedm_patches["data"]["species_occurrences"] = {
+            "uri": str(sp_path.relative_to(output_dir)),
+            "scientific_name": sp_name,
+            "canonical_name": m.canonical_name,
+            "usage_key": int(m.usage_key),
+            "family": m.family, "order": m.order,
+            "match_type": m.match_type,
+            "confidence": int(m.confidence) if m.confidence is not None else 0,
+            "occurrence_count_returned": len(occ.df),
+            "occurrence_count_total": int(occ.total_matched),
+        }
+        console.print(
+            f"  → {m.canonical_name} ({m.family}), "
+            f"{len(occ.df)}/{occ.total_matched:,} records"
+        )
+        n_ran += 1
+
+    if fetch_climate:
+        cparts = fetch_climate.split(":")
+        valid = {"daymet", "open-meteo"}
+        if len(cparts) != 5 or cparts[0] not in valid:
+            raise click.UsageError(
+                "--fetch-climate must be '<source>:LAT:LON:SY:EY' "
+                f"with source ∈ {sorted(valid)}"
+            )
+        c_source, c_lat_s, c_lon_s, sy_s, ey_s = cparts
+        try:
+            c_lat = float(c_lat_s); c_lon = float(c_lon_s)
+            c_sy = int(sy_s); c_ey = int(ey_s)
+        except ValueError as e:
+            raise click.UsageError(
+                f"--fetch-climate parse error: {fetch_climate!r}"
+            ) from e
+        if c_sy > c_ey:
+            raise click.UsageError(
+                f"start_year ({c_sy}) > end_year ({c_ey})"
+            )
+        console.print(
+            f"[bold]Fetching {c_source} ({c_lat:.4f}, {c_lon:.4f}) "
+            f"{c_sy}–{c_ey}…[/]"
+        )
+        if c_source == "daymet":
+            res = fetch_daymet_daily(c_lat, c_lon, c_sy, c_ey)
+            label = "climate_daymet"
+            stype = "daymet_v4"
+        else:
+            res = fetch_open_meteo_daily(c_lat, c_lon, c_sy, c_ey)
+            label = "climate_open_meteo"
+            stype = "open_meteo_archive"
+        clim_path = output_dir / "data" / f"climate_{c_sy}_{c_ey}.csv"
+        clim_path.parent.mkdir(parents=True, exist_ok=True)
+        res.df.to_csv(clim_path, index=False)
+        record_fetch(
+            output_dir, label=label, source_type=stype,
+            source_url=res.cache.source_url,
+            fetch_time=res.cache.fetch_time,
+            produced_file=clim_path.relative_to(output_dir),
+            params={
+                "lat": c_lat, "lon": c_lon,
+                "start_year": c_sy, "end_year": c_ey,
+            },
+            notes=f"CLI `fetch` {c_source} — citation: {res.citation}",
+        )
+        _wedm_patches["data"]["climate"] = {
+            "uri": str(clim_path.relative_to(output_dir)),
+            "source": c_source,
+            "lat": c_lat, "lon": c_lon,
+            "start_year": c_sy, "end_year": c_ey,
+        }
+        console.print(
+            f"  → {len(res.df)} days, "
+            f"peak T_water {res.df['T_water_C_stefan'].max():.1f}°C"
+        )
+        n_ran += 1
+
+    if n_ran == 0:
+        raise click.UsageError(
+            "No fetchers selected — pass at least one --fetch-* flag."
+        )
+
+    # Patch case.yaml WEDM v0.2 data.* blocks.
+    case_doc["openlimno"] = "0.2"
+    case_doc.setdefault("data", {}).update(_wedm_patches["data"])
+    case_yaml_path.write_text(
+        _yaml.safe_dump(case_doc, sort_keys=False, allow_unicode=True)
+    )
+    console.print(
+        f"\n[green]✓[/] ran {n_ran} fetcher(s); case.yaml updated to WEDM 0.2"
+    )
+
+
 @main.command("init-from-osm")
 @click.option("--river", default=None, help="Waterway 'name' tag in OSM (optional if --bbox or --polyline given).")
 @click.option("--region", default="Idaho", help="Admin area to scope the OSM query (used only without --bbox).")

@@ -106,3 +106,26 @@ def test_v07_qgis_plugin_wires_fetch_toolbar_entry():
         "REGRESSION: QGIS plugin no longer wires "
         "ctl.fetch_data_into_case — the toolbar lost its entry point."
     )
+
+
+def test_v08_fetch_data_into_case_uses_qprocess_not_qthread():
+    """v0.8 regression pin: ``fetch_data_into_case`` must use
+    ``QProcess`` (subprocess isolation), not ``QThread`` (in-process).
+    The whole point of the v0.8 refactor is that a fetcher crash
+    can't take the QGIS process with it. If a future refactor
+    swaps back to QThread that crash-isolation goes away."""
+    import inspect
+    from openlimno.gui_core.controller import Controller
+    src = inspect.getsource(Controller.fetch_data_into_case)
+    assert "QProcess" in src, (
+        "REGRESSION: fetch_data_into_case no longer uses QProcess; "
+        "subprocess crash isolation is gone."
+    )
+    # And: the openlimno fetch CLI subcommand it relies on must exist.
+    from openlimno.cli import main as _main
+    fetch_cmd = _main.commands.get("fetch")
+    assert fetch_cmd is not None, (
+        "REGRESSION: `openlimno fetch` CLI subcommand removed — "
+        "fetch_data_into_case's QProcess will fail with "
+        "'No such command' on the next user click."
+    )

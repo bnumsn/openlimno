@@ -5,6 +5,12 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v0.8.0 — `openlimno fetch` CLI + QProcess-driven Studio fetch panel**:
+    - New `openlimno fetch <case_yaml>` subcommand: runs `--fetch-*` flags against an EXISTING case (additive to its sidecar + WEDM v0.2 `data.*` blocks) instead of re-building mesh/cross-sections like `init-from-osm`. Exact same `--fetch-*` flag surface as `init-from-osm` so callers compose either entry-point freely. End-of-run patches `openlimno: '0.2'` + the matching `data.*` block into `case.yaml`.
+    - `Controller.fetch_data_into_case` rewritten to **subprocess via `QProcess`** instead of the v0.7 in-process `QThread`. A fetcher crash (OGR segfault, requests-plumbing AttributeError, etc.) now stays bounded to the subprocess — QGIS itself is never at risk. Trade-off: ~500 ms cold-start to import `openlimno`+`rasterio`+`osgeo` on the first invocation.
+    - GUI streams subprocess stdout to the QGIS status bar live (one line at a time) for per-fetcher progress, captures the full log for the completion dialog, and surfaces non-zero exit codes / crash exits as clear error messages.
+    - Dead v0.7 in-process thunk machinery deleted (~250 LoC of unreachable code removed from `controller.py`).
+    - Two new regression pins: `test_v08_fetch_data_into_case_uses_qprocess_not_qthread` asserts `QProcess` is used (not `QThread`) and that the `openlimno fetch` CLI command exists — together they prevent a future refactor from quietly losing subprocess crash isolation.
 - **v0.7.1 — state snapshot doc**:
     - `docs/STATE_2026_05.md` — single-page inventory of where the project stands after the v0.3 → v0.7 arc: headline numbers (324 tests, 9 fetchers, 8/8 e2e PASS), version history at a glance, full fetcher matrix with pin-test names, WEDM v0.2 schema field map, defensive-design pin catalog (the bug pattern each ship caught + its regression test), end-to-end smoke results, GUI surface (v0.7), region × data-type coverage, what's open / on deck (v0.8.0 / v0.8.1 / v0.8.2 / v1.0.0), and engineering discipline summary.
     - Read this as the fast onboard for the v0.3 → v0.7 work; reach for `docs/SPEC.md`, `docs/fetch_system.md`, `docs/RELEASE_v0.4.0.md`, or individual ADRs for depth.
