@@ -723,6 +723,8 @@ def init_from_osm(
         )
 
     if fetch_discharge:
+        import re
+        import yaml as _yaml
         from openlimno.preprocess.fetch import (
             fetch_nwis_daily_discharge, record_fetch,
         )
@@ -733,6 +735,23 @@ def init_from_osm(
                 f"(got {fetch_discharge!r})"
             )
         _, site, start, end = parts
+        # Validate date format to avoid a silent 400 from NWIS — they
+        # require YYYY-MM-DD and we just pass through what the user
+        # typed (round-1 review).
+        date_pat = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+        if not (date_pat.match(start) and date_pat.match(end)):
+            raise click.UsageError(
+                "--fetch-discharge dates must be YYYY-MM-DD "
+                f"(got start={start!r} end={end!r})"
+            )
+        # Site IDs are USGS station numbers (8–15 digits). Reject
+        # anything else upfront so the silent 400 is replaced by a
+        # clear local error.
+        if not re.match(r"^\d{8,15}$", site):
+            raise click.UsageError(
+                f"--fetch-discharge site_id must be 8–15 digits "
+                f"(got {site!r})"
+            )
         console.print(f"[bold]Fetching USGS NWIS site {site}, {start}..{end}...[/]")
         nwis = fetch_nwis_daily_discharge(site, start, end)
         console.print(
@@ -758,6 +777,27 @@ def init_from_osm(
                 f"({nwis.station_name} {nwis.station_lat:.4f},{nwis.station_lon:.4f}); "
                 f"{len(nwis.df)} daily values"
             ),
+        )
+        # P0 wire-in: edit case.yaml so the fetched CSV is actually
+        # consumed by the model run. Two changes:
+        #   1. data.rating_curve = data/<fetched>.csv  (matches Lemhi
+        #      reference schema; consumed by regulatory_export modules)
+        #   2. regulatory_export: [...]  ENABLED  (without this the
+        #      rating_curve is silently ignored by Case.run because
+        #      the regulatory step is opt-in via this top-level key).
+        # Without both edits the user's auto-fetch from NWIS sits
+        # dead-cold in data/ and `openlimno run` produces no eco-flow
+        # exports.
+        case_yaml_path = Path(paths["case_yaml"])
+        case_doc = _yaml.safe_load(case_yaml_path.read_text())
+        case_doc.setdefault("data", {})["rating_curve"] = (
+            f"data/{q_path.name}"
+        )
+        if "regulatory_export" not in case_doc:
+            case_doc["regulatory_export"] = ["US-FERC-4e", "EU-WFD", "CN-SL712"]
+        case_yaml_path.write_text(_yaml.safe_dump(case_doc, sort_keys=False))
+        console.print(
+            f"  → wired into case.yaml: data.rating_curve + regulatory_export"
         )
 
     console.print()
