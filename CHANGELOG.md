@@ -5,6 +5,11 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v0.6.0 — case ↔ fetch integration + anywhere_bbox example**:
+    - `Case._build_provenance` surfaces the WEDM v0.2 `data.*` blocks (`dem`/`lulc`/`soil`/`watershed`/`species_occurrences`/`climate`) under a new top-level `provenance.fetch_summary` key. Always present (empty dict on v0.1 cases) so downstream tooling can rely on the key existing.
+    - Loud species-match validation: `data.species_occurrences.match_type == "NONE"` or `occurrence_count_total == 0` now emits a `provenance.warnings` entry, surfacing to the user that the case is running with an unverified or unsupported taxon. Catches the common "typo'd Latin name" failure mode before HSI/WUA results get published.
+    - `examples/anywhere_bbox/README.md` — canonical end-to-end workflow showing how to build a fully-provenanced case anywhere on Earth from `(bbox, species_name)` alone, using all 6 fetcher flags in one `init-from-osm` invocation. Walks the produced WEDM v0.2 case + provenance trail.
+    - 2 new tests: `test_provenance_carries_fetch_summary_key` (regression pin: v0.1 cases still get an empty `fetch_summary` dict) + `test_provenance_fetch_summary_picks_up_v02_data_blocks` (synthesised v0.2 case with `match_type=NONE` + zero occurrences → both warnings fire + both data blocks land in `fetch_summary`).
 - **v0.5.0 — WEDM schema v0.2 (fetch-system data pointers)**:
     - `src/openlimno/wedm/schemas/case.schema.json` accepts `openlimno: '0.2'` (and still accepts `'0.1'` — v0.1 documents continue to validate unchanged).
     - New optional `case.bbox` field: `[lon_min, lat_min, lon_max, lat_max]` in EPSG:4326. Populated by `init-from-osm` so downstream regional-statistics modules can find the case extent without re-parsing OSM/mesh files.

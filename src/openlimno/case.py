@@ -823,6 +823,56 @@ class Case:
                 pixi_lock_sha = hashlib.sha256(candidate.read_bytes()).hexdigest()
                 break
 
+        # v0.6: surface WEDM v0.2 fetch-system data blocks in provenance.
+        # This is descriptive metadata — the source-of-truth for re-use
+        # remains the sidecar's per-record SHA. fetch_summary lets a
+        # human reader see at a glance which fetched layers backed
+        # this run, without joining sidecar to case.yaml manually.
+        import yaml as _yaml_v06
+        try:
+            _case_doc = _yaml_v06.safe_load(case_yaml_text) or {}
+        except Exception:  # noqa: BLE001
+            _case_doc = {}
+        fetch_summary: dict[str, dict] = {}
+        case_data_block = _case_doc.get("data", {}) or {}
+        for key in (
+            "dem", "lulc", "soil", "watershed",
+            "species_occurrences", "climate",
+        ):
+            block = case_data_block.get(key)
+            if isinstance(block, dict):
+                # Whitelist primitive scalars only — large arrays
+                # (class_km2 with 11 entries is OK; the histogram lives
+                # in the sidecar too anyway).
+                fetch_summary[key] = {
+                    k: v for k, v in block.items()
+                    if isinstance(v, (str, int, float, bool, list, dict))
+                }
+            elif isinstance(block, str):
+                fetch_summary[key] = {"uri": block}
+
+        # v0.6: species-match validation — surface a loud warning when
+        # the GBIF taxon match for the case species was NONE (the user
+        # wrote a name GBIF couldn't resolve). Anything but NONE is fine
+        # for provenance; downstream habitat scientific work needs the
+        # canonical name + family which are already in fetch_summary.
+        sp_block = fetch_summary.get("species_occurrences", {})
+        if sp_block.get("match_type") == "NONE":
+            warnings.append(
+                f"GBIF could not match species "
+                f"{sp_block.get('scientific_name', '?')!r} (match_type=NONE). "
+                f"The downstream habitat / HSI results assume this species "
+                f"identity is valid — verify the spelling before publishing."
+            )
+        if sp_block.get("occurrence_count_total") == 0:
+            warnings.append(
+                f"Species {sp_block.get('scientific_name', '?')!r} has "
+                f"ZERO GBIF occurrences inside the case bbox. The "
+                f"habitat/HSI model is being run for a species with "
+                f"no observed records in the area — confirm this is "
+                f"intentional (e.g., restoration / introduction case)."
+            )
+
         # Parameter fingerprint = sha256(yaml + studyplan + sorted discharges)
         param_blob = case_yaml_text + b"\n"
         if studyplan is not None and hasattr(studyplan, "config"):
@@ -856,6 +906,7 @@ class Case:
                 "input_data_sha256": input_data_sha,  # SPEC §1 P7
             },
             "external_sources": external_sources,  # v0.3 P0
+            "fetch_summary": fetch_summary,  # v0.6 (WEDM v0.2 data blocks)
             "dependencies": {
                 "pixi_lock_sha256": pixi_lock_sha,
                 "container_image_sha": None,  # M3 beta: extract from SCHISM run
