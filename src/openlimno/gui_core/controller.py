@@ -814,6 +814,435 @@ class Controller:
             f"✓ Run finished.\n\n{summary or ''}{loaded_msg}",
         )
 
+    # ------------------------------------------------------------------
+    # v0.7: Fetcher dialog — pull DEM / watershed / soil / LULC / species
+    # / climate into an existing case directory via the v0.3 fetch
+    # package. Each fetch is recorded in the sidecar and rolled into
+    # case.yaml as a WEDM v0.2 data.* block (handled by the underlying
+    # fetcher helpers via _patch_case_yaml_v02).
+    # ------------------------------------------------------------------
+    def fetch_data_into_case(self) -> None:
+        """Open the Fetch dialog for an existing case + run selected fetchers
+        in a background QThread. Mirror of the CLI ``--fetch-*`` flag set."""
+        from qgis.PyQt.QtCore import QThread, pyqtSignal
+        from qgis.PyQt.QtWidgets import (
+            QDialog, QDialogButtonBox, QDoubleSpinBox,
+            QFileDialog, QFormLayout, QGroupBox, QLabel, QLineEdit,
+            QMessageBox, QSpinBox, QVBoxLayout,
+        )
+
+        # 1. Pick the case dir.
+        case_yaml = self._discover_case_yaml()
+        if not case_yaml:
+            picked, _ = QFileDialog.getOpenFileName(
+                self.host.main_window(),
+                "Pick the case.yaml to fetch data into",
+                str(Path.home() / "openlimno-workspace"),
+                "OpenLimno case (*.yaml *.yml)",
+            )
+            if not picked:
+                return
+            case_yaml = Path(picked)
+        case_dir = case_yaml.parent
+
+        # 2. Default bbox/centre from the case if present, else from canvas.
+        import yaml as _yaml
+        try:
+            cfg = _yaml.safe_load(case_yaml.read_text()) or {}
+        except Exception:  # noqa: BLE001
+            cfg = {}
+        case_bbox = (cfg.get("case", {}) or {}).get("bbox")
+        if isinstance(case_bbox, list) and len(case_bbox) == 4:
+            lo0, la0, lo1, la1 = case_bbox
+        else:
+            ext = self.host.map_canvas().extent()
+            lo0, la0 = ext.xMinimum(), ext.yMinimum()
+            lo1, la1 = ext.xMaximum(), ext.yMaximum()
+        ctr_lat = (la0 + la1) / 2
+        ctr_lon = (lo0 + lo1) / 2
+
+        # 3. Build the dialog. One QGroupBox per fetcher; each group has
+        # a checkbox in its title + inline param widgets. The dialog
+        # stays narrow because of QFormLayout — fits comfortably in a
+        # split QGIS workspace.
+        dlg = QDialog(self.host.main_window())
+        dlg.setWindowTitle(f"Fetch data into {case_dir.name}/")
+        outer = QVBoxLayout(dlg)
+        outer.addWidget(QLabel(
+            f"<b>Case:</b> {case_yaml}<br>"
+            f"<b>Default bbox:</b> ({lo0:.4f}, {la0:.4f}, {lo1:.4f}, {la1:.4f})<br>"
+            f"<b>Default centre:</b> ({ctr_lat:.4f}, {ctr_lon:.4f})"
+        ))
+
+        # DEM group
+        gb_dem = QGroupBox("DEM (Copernicus GLO-30, global)")
+        gb_dem.setCheckable(True); gb_dem.setChecked(False)
+        outer.addWidget(gb_dem)
+        # No params — uses default bbox.
+
+        # Watershed group
+        gb_ws = QGroupBox("Watershed (HydroSHEDS HydroBASINS)")
+        gb_ws.setCheckable(True); gb_ws.setChecked(False)
+        ws_form = QFormLayout(gb_ws)
+        e_ws_region = QLineEdit("as")
+        e_ws_region.setPlaceholderText("af / ar / as / au / eu / gr / na / sa / si")
+        e_ws_lat = QDoubleSpinBox(); e_ws_lat.setRange(-90, 90); e_ws_lat.setDecimals(4); e_ws_lat.setValue(ctr_lat)
+        e_ws_lon = QDoubleSpinBox(); e_ws_lon.setRange(-180, 180); e_ws_lon.setDecimals(4); e_ws_lon.setValue(ctr_lon)
+        e_ws_level = QSpinBox(); e_ws_level.setRange(1, 12); e_ws_level.setValue(12)
+        ws_form.addRow("region:", e_ws_region)
+        ws_form.addRow("pour lat:", e_ws_lat)
+        ws_form.addRow("pour lon:", e_ws_lon)
+        ws_form.addRow("level:", e_ws_level)
+        outer.addWidget(gb_ws)
+
+        # Soil group
+        gb_soil = QGroupBox("Soil (ISRIC SoilGrids 250 m)")
+        gb_soil.setCheckable(True); gb_soil.setChecked(False)
+        soil_form = QFormLayout(gb_soil)
+        e_soil_lat = QDoubleSpinBox(); e_soil_lat.setRange(-90, 90); e_soil_lat.setDecimals(4); e_soil_lat.setValue(ctr_lat)
+        e_soil_lon = QDoubleSpinBox(); e_soil_lon.setRange(-180, 180); e_soil_lon.setDecimals(4); e_soil_lon.setValue(ctr_lon)
+        soil_form.addRow("lat:", e_soil_lat)
+        soil_form.addRow("lon:", e_soil_lon)
+        outer.addWidget(gb_soil)
+
+        # LULC group
+        gb_lulc = QGroupBox("LULC (ESA WorldCover 10 m, uses default bbox)")
+        gb_lulc.setCheckable(True); gb_lulc.setChecked(False)
+        lulc_form = QFormLayout(gb_lulc)
+        e_lulc_year = QSpinBox(); e_lulc_year.setRange(2020, 2021); e_lulc_year.setValue(2021)
+        lulc_form.addRow("year:", e_lulc_year)
+        outer.addWidget(gb_lulc)
+
+        # Species group
+        gb_sp = QGroupBox("Species (GBIF taxonomy + occurrences, uses default bbox)")
+        gb_sp.setCheckable(True); gb_sp.setChecked(False)
+        sp_form = QFormLayout(gb_sp)
+        e_sp_name = QLineEdit("")
+        e_sp_name.setPlaceholderText("e.g., Salmo trutta — Latin binomial")
+        sp_form.addRow("scientific name:", e_sp_name)
+        outer.addWidget(gb_sp)
+
+        # Climate group
+        gb_clim = QGroupBox("Climate (Open-Meteo archive, global)")
+        gb_clim.setCheckable(True); gb_clim.setChecked(False)
+        clim_form = QFormLayout(gb_clim)
+        e_clim_sy = QSpinBox(); e_clim_sy.setRange(1940, 2099); e_clim_sy.setValue(2020)
+        e_clim_ey = QSpinBox(); e_clim_ey.setRange(1940, 2099); e_clim_ey.setValue(2024)
+        clim_form.addRow("start year:", e_clim_sy)
+        clim_form.addRow("end year:", e_clim_ey)
+        outer.addWidget(gb_clim)
+
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
+                              QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
+        outer.addWidget(bb)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        # 4. Snapshot dialog values into a plain dict so the task thunks
+        # close over Python primitives, not over Qt widgets that may be
+        # destroyed by the time the worker thread runs them. This also
+        # keeps the thunks default-arg-free (avoids ruff B008).
+        v = {
+            "bbox": (lo0, la0, lo1, la1),
+            "ctr_lat": ctr_lat, "ctr_lon": ctr_lon,
+            "case_dir": case_dir,
+            "ws_region": e_ws_region.text().strip(),
+            "ws_lat": e_ws_lat.value(), "ws_lon": e_ws_lon.value(),
+            "ws_level": e_ws_level.value(),
+            "soil_lat": e_soil_lat.value(), "soil_lon": e_soil_lon.value(),
+            "lulc_year": e_lulc_year.value(),
+            "sp_name": e_sp_name.text().strip(),
+            "clim_sy": e_clim_sy.value(), "clim_ey": e_clim_ey.value(),
+        }
+
+        tasks: list[tuple[str, Any]] = []
+
+        if gb_dem.isChecked():
+            def _do_dem():
+                from openlimno.preprocess.fetch import (
+                    fetch_copernicus_dem, record_fetch,
+                )
+                res = fetch_copernicus_dem(*v["bbox"])
+                ce = res.cache_entries[0]
+                record_fetch(
+                    v["case_dir"], label="lulc_aware_dem",
+                    source_type="copernicus_dem",
+                    source_url=ce.source_url, fetch_time=ce.fetch_time,
+                    produced_file=Path(res.path).name,
+                    params={"bbox": list(v["bbox"]), "n_tiles": res.n_tiles},
+                    notes="GUI-triggered Copernicus GLO-30 fetch",
+                )
+                return f"DEM: {res.n_tiles} tile(s), bounds {res.bounds}"
+            tasks.append(("DEM", _do_dem))
+
+        if gb_ws.isChecked():
+            def _do_ws():
+                from openlimno.preprocess.fetch import (
+                    fetch_hydrobasins, find_basin_at,
+                    upstream_basin_ids, write_watershed_geojson,
+                    record_fetch,
+                )
+                layer = fetch_hydrobasins(
+                    region=v["ws_region"], level=v["ws_level"],
+                )
+                pour = find_basin_at(layer.shp_path, v["ws_lat"], v["ws_lon"])
+                if pour is None:
+                    raise RuntimeError(
+                        f"watershed: pour point "
+                        f"({v['ws_lat']},{v['ws_lon']}) outside "
+                        f"HydroSHEDS region {v['ws_region'].upper()}"
+                    )
+                ups = upstream_basin_ids(
+                    layer.shp_path, int(pour["HYBAS_ID"]),
+                )
+                out = v["case_dir"] / "data" / "watershed.geojson"
+                summary = write_watershed_geojson(layer.shp_path, ups, out)
+                record_fetch(
+                    v["case_dir"], label="watershed_hydrosheds",
+                    source_type="hydrosheds_hydrobasins",
+                    source_url=layer.cache.source_url,
+                    fetch_time=layer.cache.fetch_time,
+                    produced_file=out.relative_to(v["case_dir"]),
+                    params={
+                        "region": v["ws_region"], "level": v["ws_level"],
+                        "pour_lat": v["ws_lat"], "pour_lon": v["ws_lon"],
+                        "pour_hybas_id": int(pour["HYBAS_ID"]),
+                        "n_basins": summary["n_basins"],
+                        "area_km2": summary["area_km2"],
+                    },
+                    notes=f"GUI-triggered HydroSHEDS fetch ({layer.citation})",
+                )
+                return (
+                    f"Watershed: {summary['n_basins']} basins, "
+                    f"{summary['area_km2']:.1f} km²"
+                )
+            tasks.append(("Watershed", _do_ws))
+
+        if gb_soil.isChecked():
+            def _do_soil():
+                from openlimno.preprocess.fetch import (
+                    fetch_soilgrids, record_fetch,
+                )
+                sg = fetch_soilgrids(v["soil_lat"], v["soil_lon"])
+                out = v["case_dir"] / "data" / "soil.csv"
+                out.parent.mkdir(parents=True, exist_ok=True)
+                sg.df.to_csv(out, index=False)
+                record_fetch(
+                    v["case_dir"], label="soil_soilgrids",
+                    source_type="isric_soilgrids_v2",
+                    source_url=sg.cache.source_url,
+                    fetch_time=sg.cache.fetch_time,
+                    produced_file=out.relative_to(v["case_dir"]),
+                    params={
+                        "lat": v["soil_lat"], "lon": v["soil_lon"],
+                        "n_rows": len(sg.df),
+                    },
+                    notes=f"GUI-triggered SoilGrids fetch ({sg.citation})",
+                )
+                return (
+                    f"Soil: {len(sg.df)} rows at "
+                    f"({v['soil_lat']:.4f},{v['soil_lon']:.4f})"
+                )
+            tasks.append(("Soil", _do_soil))
+
+        if gb_lulc.isChecked():
+            def _do_lulc():
+                from openlimno.preprocess.fetch import (
+                    fetch_esa_worldcover, record_fetch,
+                )
+                wc = fetch_esa_worldcover(*v["bbox"], year=v["lulc_year"])
+                out = v["case_dir"] / "data" / f"lulc_{v['lulc_year']}.tif"
+                out.parent.mkdir(parents=True, exist_ok=True)
+                import shutil as _sh
+                _sh.copy(wc.path, out)
+                record_fetch(
+                    v["case_dir"],
+                    label=f"lulc_worldcover_{v['lulc_year']}",
+                    source_type="esa_worldcover",
+                    source_url=wc.cache_entries[0].source_url,
+                    fetch_time=wc.cache_entries[0].fetch_time,
+                    produced_file=out.relative_to(v["case_dir"]),
+                    params={
+                        "bbox": list(v["bbox"]), "year": v["lulc_year"],
+                        "version": wc.version, "n_tiles": wc.n_tiles,
+                    },
+                    notes=f"GUI-triggered WorldCover fetch ({wc.citation})",
+                )
+                return (
+                    f"LULC: {wc.n_tiles} tile(s), "
+                    f"{sum(wc.class_pixels.values()):,} px"
+                )
+            tasks.append(("LULC", _do_lulc))
+
+        if gb_sp.isChecked():
+            if not v["sp_name"]:
+                QMessageBox.warning(
+                    self.host.main_window(), "OpenLimno",
+                    "Species fetcher checked but no scientific name given.",
+                )
+                return
+            def _do_species():
+                from openlimno.preprocess.fetch import (
+                    fetch_gbif_occurrences, match_species, record_fetch,
+                )
+                m = match_species(v["sp_name"])
+                if m.usage_key is None or m.match_type == "NONE":
+                    raise RuntimeError(
+                        f"species: GBIF could not match {v['sp_name']!r} "
+                        f"(match_type={m.match_type})"
+                    )
+                occ = fetch_gbif_occurrences(m.usage_key, v["bbox"])
+                out = (
+                    v["case_dir"] / "data"
+                    / f"species_gbif_{m.usage_key}.csv"
+                )
+                out.parent.mkdir(parents=True, exist_ok=True)
+                occ.df.to_csv(out, index=False)
+                primary = occ.cache[0] if occ.cache else None
+                record_fetch(
+                    v["case_dir"],
+                    label=f"species_gbif_{m.usage_key}",
+                    source_type="gbif_occurrence",
+                    source_url=primary.source_url if primary else "",
+                    fetch_time=primary.fetch_time if primary else "",
+                    produced_file=out.relative_to(v["case_dir"]),
+                    params={
+                        "scientific_name": v["sp_name"],
+                        "canonical_name": m.canonical_name,
+                        "usage_key": m.usage_key,
+                        "family": m.family, "match_type": m.match_type,
+                        "confidence": m.confidence,
+                        "occurrence_count_returned": len(occ.df),
+                        "occurrence_count_total": occ.total_matched,
+                    },
+                    notes=f"GUI-triggered GBIF fetch ({m.citation})",
+                )
+                return (
+                    f"Species: {m.canonical_name} family {m.family}, "
+                    f"{len(occ.df)}/{occ.total_matched:,} records"
+                )
+            tasks.append(("Species", _do_species))
+
+        if gb_clim.isChecked():
+            def _do_clim():
+                from openlimno.preprocess.fetch import (
+                    fetch_open_meteo_daily, record_fetch,
+                )
+                if v["clim_sy"] > v["clim_ey"]:
+                    raise RuntimeError(
+                        f"climate: start_year {v['clim_sy']} > "
+                        f"end_year {v['clim_ey']}"
+                    )
+                res = fetch_open_meteo_daily(
+                    v["ctr_lat"], v["ctr_lon"],
+                    v["clim_sy"], v["clim_ey"],
+                )
+                out = (
+                    v["case_dir"] / "data"
+                    / f"climate_{v['clim_sy']}_{v['clim_ey']}.csv"
+                )
+                out.parent.mkdir(parents=True, exist_ok=True)
+                res.df.to_csv(out, index=False)
+                record_fetch(
+                    v["case_dir"], label="climate_open_meteo",
+                    source_type="open_meteo_archive",
+                    source_url=res.cache.source_url,
+                    fetch_time=res.cache.fetch_time,
+                    produced_file=out.relative_to(v["case_dir"]),
+                    params={
+                        "lat": v["ctr_lat"], "lon": v["ctr_lon"],
+                        "start_year": v["clim_sy"],
+                        "end_year": v["clim_ey"],
+                    },
+                    notes=f"GUI-triggered Open-Meteo fetch ({res.citation})",
+                )
+                return (
+                    f"Climate: {len(res.df)} days, peak T_water "
+                    f"{res.df['T_water_C_stefan'].max():.1f} °C"
+                )
+            tasks.append(("Climate", _do_clim))
+
+        if not tasks:
+            self.host.message_bar().pushMessage(
+                "OpenLimno", "No fetchers selected.", level=1, duration=3,
+            )
+            return
+
+        # 5. Run the task list sequentially in a worker thread.
+        existing = getattr(self, "_fetch_worker", None)
+        if existing is not None and existing.isRunning():
+            self.host.message_bar().pushMessage(
+                "OpenLimno",
+                "A fetch run is already in progress — wait for it to finish.",
+                level=1, duration=4,
+            )
+            return
+
+        class _FetchWorker(QThread):
+            status = pyqtSignal(str)
+            finished_ok = pyqtSignal(list)  # list[str] summaries
+            failed = pyqtSignal(str)
+
+            def __init__(self, tasks_, parent=None):
+                super().__init__(parent)
+                self._tasks = tasks_
+
+            def run(self_):  # noqa: N805
+                summaries: list[str] = []
+                try:
+                    for i, (label, thunk) in enumerate(self_._tasks, 1):
+                        self_.status.emit(
+                            f"[{i}/{len(self_._tasks)}] fetching {label}…"
+                        )
+                        msg = thunk()
+                        summaries.append(f"✓ {label}: {msg}")
+                    self_.finished_ok.emit(summaries)
+                except Exception:
+                    import traceback
+                    self_.failed.emit(traceback.format_exc())
+
+        self.host.message_bar().pushMessage(
+            "OpenLimno",
+            f"Running {len(tasks)} fetcher(s) — canvas stays responsive…",
+            level=0, duration=3,
+        )
+        worker = _FetchWorker(tasks, self.host.main_window())
+        worker.status.connect(
+            lambda s: self.host.status_bar().showMessage(s)
+        )
+        worker.finished_ok.connect(
+            lambda summaries: self._on_fetch_finished(
+                case_dir, summaries, None
+            )
+        )
+        worker.failed.connect(
+            lambda tb: self._on_fetch_finished(case_dir, None, tb)
+        )
+        self._fetch_worker = worker
+        worker.start()
+
+    def _on_fetch_finished(
+        self, case_dir: Path, summaries: Any, traceback_text: Any,
+    ) -> None:
+        from qgis.PyQt.QtWidgets import QMessageBox
+        self.host.status_bar().clearMessage()
+        if traceback_text is not None:
+            QMessageBox.warning(
+                self.host.main_window(), "OpenLimno",
+                f"Fetch failed:\n\n{traceback_text[-1500:]}",
+            )
+            return
+        text = "\n".join(summaries or []) or "(no fetchers ran)"
+        QMessageBox.information(
+            self.host.main_window(), "OpenLimno",
+            (
+                f"✓ Fetch finished. Files written under "
+                f"{case_dir}/data/. Sidecar updated.\n\n{text}"
+            ),
+        )
+
     def _discover_case_yaml(self) -> Path | None:
         from qgis.core import QgsProject
 

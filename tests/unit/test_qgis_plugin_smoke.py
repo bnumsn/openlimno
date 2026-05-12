@@ -77,3 +77,32 @@ def test_plugin_parquet_helper_returns_list(tmp_path: Path) -> None:
     rows = _read_wua_parquet(str(tmp_path / "wua.parquet"))
     assert len(rows) == 2
     assert rows[0]["discharge_m3s"] == 1.0
+
+
+# ---------------------------------------------------------------------
+# v0.7 — Fetcher integration smoke (no Qt needed; just API surface)
+# ---------------------------------------------------------------------
+def test_v07_fetch_data_into_case_method_exists():
+    """Pin that Controller exposes ``fetch_data_into_case`` so the QGIS
+    plugin's '⬇ Fetch data into case…' toolbar entry has a binding
+    target. Any rename / removal would silently break the plugin
+    (toolbar entry would point at AttributeError on click).
+    """
+    from openlimno.gui_core.controller import Controller
+    ctl = Controller(host=None)  # type: ignore[arg-type]
+    assert hasattr(ctl, "fetch_data_into_case")
+    assert callable(ctl.fetch_data_into_case)
+    assert hasattr(ctl, "_on_fetch_finished")
+    assert callable(ctl._on_fetch_finished)
+
+
+def test_v07_qgis_plugin_wires_fetch_toolbar_entry():
+    """And pin that the plugin file references the method — without
+    this the controller method exists but no GUI surface exposes it."""
+    import inspect
+    from openlimno.qgis.openlimno_qgis_plugin import plugin as _plugin_mod
+    src = inspect.getsource(_plugin_mod)
+    assert "fetch_data_into_case" in src, (
+        "REGRESSION: QGIS plugin no longer wires "
+        "ctl.fetch_data_into_case — the toolbar lost its entry point."
+    )

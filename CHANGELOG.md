@@ -5,6 +5,13 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v0.7.0 — Studio GUI fetch panel**:
+    - `Controller.fetch_data_into_case` — a single dialog wired to a new "⬇ Fetch data into case…" toolbar entry that lets a user pick a target case + select any subset of the 6 fetchers (DEM / watershed / soil / LULC / species / climate) and run them sequentially in a background `QThread`. The canvas stays responsive; status bar shows per-task progress; completion dialog summarises rows/areas/n_tiles per fetcher.
+    - Default values smart-pre-fill from the case's `case.bbox` if it's a WEDM v0.2 document, otherwise from the current map canvas extent. The pour-point/centre coordinates default to the bbox centroid so the user can hit OK on the dialog and get sensible fetches without typing.
+    - Each task thunk captures dialog values into a snapshot dict before submission so the worker thread never touches Qt widgets that may have been destroyed by then. Eliminates a class of "QObject deleted" crashes that the same pattern in `build_case_from_osm` was vulnerable to.
+    - The sidecar is updated through the same `record_fetch` calls the CLI uses, so GUI-triggered fetches show up identically in `provenance.json` and `openlimno reproduce` audits.
+    - QGIS plugin (`plugin.py`) gains the matching `_toolbar_too("⬇ Fetch data into case…", ...)` wiring.
+    - 2 new tests: `test_v07_fetch_data_into_case_method_exists` (Controller-level method surface pin) + `test_v07_qgis_plugin_wires_fetch_toolbar_entry` (plugin source contains the wiring — broken refactor surfaces in CI).
 - **v0.6.0 — case ↔ fetch integration + anywhere_bbox example**:
     - `Case._build_provenance` surfaces the WEDM v0.2 `data.*` blocks (`dem`/`lulc`/`soil`/`watershed`/`species_occurrences`/`climate`) under a new top-level `provenance.fetch_summary` key. Always present (empty dict on v0.1 cases) so downstream tooling can rely on the key existing.
     - Loud species-match validation: `data.species_occurrences.match_type == "NONE"` or `occurrence_count_total == 0` now emits a `provenance.warnings` entry, surfacing to the user that the case is running with an unverified or unsupported taxon. Catches the common "typo'd Latin name" failure mode before HSI/WUA results get published.

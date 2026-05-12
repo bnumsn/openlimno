@@ -105,6 +105,7 @@ class OpenLimnoPlugin:
         self.ctl._pick_action = a_pick  # let controller un-check on cancel
 
         _toolbar_too("🆕 Build case from OSM river…", self.ctl.build_case_from_osm)
+        _toolbar_too("⬇ Fetch data into case…", self.ctl.fetch_data_into_case)
         _toolbar_too("▶ Run case…", self.ctl.run_case)
 
     def unload(self) -> None:
