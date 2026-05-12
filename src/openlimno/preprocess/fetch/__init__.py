@@ -11,6 +11,7 @@ Submodules:
     openmeteo  — Open-Meteo archive (global, ~11 km ERA5-Land backend)
     hydrosheds — HydroBASINS + HydroRIVERS continental shapefiles
     worldcover — ESA WorldCover 10 m global LULC (2020 v100, 2021 v200)
+    soilgrids  — ISRIC SoilGrids 250 m soil properties (11 vars × 6 depths)
     cache      — XDG-cache-aware on-disk cache shared by all fetchers
     sidecar    — external-source provenance sidecar in case_dir/data/
 """
@@ -38,6 +39,13 @@ from openlimno.preprocess.fetch.hydrosheds import (
 from openlimno.preprocess.fetch.openmeteo import (
     OpenMeteoFetchResult,
     fetch_open_meteo_daily,
+)
+from openlimno.preprocess.fetch.soilgrids import (
+    ALL_DEPTHS as SOILGRIDS_ALL_DEPTHS,
+    DEFAULT_DEPTHS as SOILGRIDS_DEFAULT_DEPTHS,
+    DEFAULT_PROPERTIES as SOILGRIDS_DEFAULT_PROPERTIES,
+    SoilGridsFetchResult,
+    fetch_soilgrids,
 )
 from openlimno.preprocess.fetch.worldcover import (
     WORLDCOVER_CLASSES,
@@ -92,6 +100,11 @@ __all__ = [
     "WORLDCOVER_EPOCHS",
     "WorldCoverFetchResult",
     "fetch_esa_worldcover",
+    "SOILGRIDS_ALL_DEPTHS",
+    "SOILGRIDS_DEFAULT_DEPTHS",
+    "SOILGRIDS_DEFAULT_PROPERTIES",
+    "SoilGridsFetchResult",
+    "fetch_soilgrids",
     "ExternalSourceRecord",
     "read_sidecar",
     "record_fetch",

@@ -914,6 +914,180 @@ def test_hydrosheds_does_not_enable_global_ogr_exceptions():
 
 
 # ---------------------------------------------------------------------
+# soilgrids.py — input validation + response parsing
+# ---------------------------------------------------------------------
+def test_soilgrids_rejects_invalid_lat_lon():
+    from openlimno.preprocess.fetch import fetch_soilgrids
+    with pytest.raises(ValueError, match="lat="):
+        fetch_soilgrids(95.0, 100.0)
+    with pytest.raises(ValueError, match="lon="):
+        fetch_soilgrids(38.0, 250.0)
+
+
+def test_soilgrids_rejects_unknown_depth():
+    from openlimno.preprocess.fetch import fetch_soilgrids
+    with pytest.raises(ValueError, match="unknown depth"):
+        fetch_soilgrids(38.0, 100.0, depths=("0-3cm",))
+
+
+def test_soilgrids_rejects_unknown_statistic():
+    from openlimno.preprocess.fetch import fetch_soilgrids
+    with pytest.raises(ValueError, match="statistic="):
+        fetch_soilgrids(38.0, 100.0, statistic="median")
+
+
+def test_soilgrids_rejects_empty_property_list():
+    from openlimno.preprocess.fetch import fetch_soilgrids
+    with pytest.raises(ValueError, match="at least one property"):
+        fetch_soilgrids(38.0, 100.0, properties=())
+
+
+def test_soilgrids_constants_match_api_schema():
+    """Pin the schema enums — a SoilGrids API rename would otherwise
+    silently slip through."""
+    from openlimno.preprocess.fetch.soilgrids import (
+        ALL_DEPTHS, ALL_STATISTICS, DEFAULT_DEPTHS, DEFAULT_PROPERTIES,
+    )
+    assert "0-5cm" in ALL_DEPTHS
+    assert "100-200cm" in ALL_DEPTHS
+    assert "mean" in ALL_STATISTICS
+    assert "Q0.05" in ALL_STATISTICS and "Q0.95" in ALL_STATISTICS
+    assert DEFAULT_DEPTHS == ("0-5cm", "5-15cm", "15-30cm")
+    assert "clay" in DEFAULT_PROPERTIES and "phh2o" in DEFAULT_PROPERTIES
+
+
+def _fake_soilgrids_response(properties=("clay", "sand"), depths=("0-5cm",)):
+    """Build a minimal SoilGrids REST response payload (JSON bytes)."""
+    layers = []
+    # SoilGrids stores values × d_factor (e.g., clay raw 250 → 25.0 g/kg
+    # with d_factor=10). Pin that conversion in the fake payload.
+    for p in properties:
+        d_factor = 10 if p in ("clay", "sand", "silt", "soc", "phh2o") else 100
+        depth_entries = []
+        for d in depths:
+            depth_entries.append({
+                "range": {"top_depth": 0, "bottom_depth": 5, "unit_depth": "cm"},
+                "label": d,
+                "values": {
+                    "Q0.05": 100, "Q0.5": 250, "Q0.95": 400,
+                    "mean": 250, "uncertainty": 50,
+                },
+            })
+        layers.append({
+            "name": p,
+            "unit_measure": {
+                "d_factor": d_factor,
+                "mapped_units": "g/kg" if d_factor == 10 else "cg/cm³",
+                "target_units": "g/kg" if d_factor == 10 else "kg/dm³",
+                "uncertainty_unit": "",
+            },
+            "depths": depth_entries,
+        })
+    payload = {
+        "type": "Feature",
+        "geometry": {"type": "Point", "coordinates": [100.0, 38.0]},
+        "properties": {"layers": layers},
+        "query_time_s": 0.01,
+    }
+    return json.dumps(payload).encode()
+
+
+def test_soilgrids_parses_response_and_applies_d_factor(monkeypatch, tmp_path):
+    """End-to-end: injected response with clay raw=250 d_factor=10 must
+    land as value=25.0 g/kg. Pins the d_factor scaling — without it
+    downstream code would consume 10×-too-large clay fractions."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+    class _Resp:
+        content = _fake_soilgrids_response(("clay",), ("0-5cm",))
+        def raise_for_status(self): pass
+
+    monkeypatch.setattr(
+        "openlimno.preprocess.fetch.soilgrids.requests.get",
+        lambda url, params=None, timeout=None: _Resp(),
+    )
+    from openlimno.preprocess.fetch import fetch_soilgrids
+    res = fetch_soilgrids(38.0, 100.0, properties=("clay",), depths=("0-5cm",))
+    assert list(res.df.columns) == [
+        "property", "depth", "statistic", "value", "unit",
+    ]
+    row = res.df.iloc[0]
+    assert row["property"] == "clay"
+    assert row["depth"] == "0-5cm"
+    assert row["statistic"] == "mean"
+    # 250 (raw) / 10 (d_factor) = 25.0 g/kg
+    assert row["value"] == pytest.approx(25.0)
+    assert row["unit"] == "g/kg"
+    # Convenience accessor
+    assert res.get("clay", "0-5cm") == pytest.approx(25.0)
+
+
+def test_soilgrids_get_raises_on_missing_combo(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+    class _Resp:
+        content = _fake_soilgrids_response(("clay",), ("0-5cm",))
+        def raise_for_status(self): pass
+
+    monkeypatch.setattr(
+        "openlimno.preprocess.fetch.soilgrids.requests.get",
+        lambda url, params=None, timeout=None: _Resp(),
+    )
+    from openlimno.preprocess.fetch import fetch_soilgrids
+    res = fetch_soilgrids(38.0, 100.0, properties=("clay",), depths=("0-5cm",))
+    with pytest.raises(KeyError, match="sand"):
+        res.get("sand", "0-5cm")
+
+
+def test_soilgrids_raises_when_response_empty(monkeypatch, tmp_path):
+    """A point over ocean returns ``properties.layers = []``. Fail loudly
+    so downstream doesn't read an empty DataFrame and silently use NaN
+    soil parameters in calibration."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+    class _Resp:
+        content = json.dumps({
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [0, 0]},
+            "properties": {"layers": []},
+        }).encode()
+        def raise_for_status(self): pass
+
+    monkeypatch.setattr(
+        "openlimno.preprocess.fetch.soilgrids.requests.get",
+        lambda url, params=None, timeout=None: _Resp(),
+    )
+    from openlimno.preprocess.fetch import fetch_soilgrids
+    with pytest.raises(RuntimeError, match="no layers"):
+        fetch_soilgrids(0.0, 0.0)
+
+
+def test_soilgrids_cache_key_distinguishes_points(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    seen: list[dict] = []
+
+    class _Resp:
+        content = _fake_soilgrids_response(("clay",), ("0-5cm",))
+        def raise_for_status(self): pass
+
+    def fake_get(url, params=None, timeout=None):
+        # params is list of tuples here
+        seen.append(dict(params or []))
+        return _Resp()
+
+    monkeypatch.setattr(
+        "openlimno.preprocess.fetch.soilgrids.requests.get", fake_get,
+    )
+    from openlimno.preprocess.fetch import fetch_soilgrids
+    fetch_soilgrids(38.0, 100.0, properties=("clay",), depths=("0-5cm",))
+    fetch_soilgrids(45.0, -73.0, properties=("clay",), depths=("0-5cm",))
+    assert len(seen) == 2, (
+        "REGRESSION: SoilGrids cache reused different point's response — "
+        "cache key must fold in lat/lon"
+    )
+
+
+# ---------------------------------------------------------------------
 # worldcover.py — input validation + tile decomposition + histogram
 # ---------------------------------------------------------------------
 def test_worldcover_rejects_invalid_bbox():

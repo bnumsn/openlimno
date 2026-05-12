@@ -622,6 +622,13 @@ def preprocess_dem_info(dem_path: str) -> None:
                      "'usgs-nwis:SITE_ID:START:END' (US gauges, no auth). "
                      "Example: 'usgs-nwis:13305000:2020-01-01:2024-12-31' "
                      "for Lemhi River at Lemhi, ID.")
+@click.option("--fetch-soil", default=None,
+                help="Auto-fetch SoilGrids 250 m soil properties at a "
+                     "point. Format: 'soilgrids:LAT:LON' — pulls the "
+                     "default 6 properties (bdod/clay/sand/silt/soc/"
+                     "phh2o) × top 3 depths (0-5/5-15/15-30 cm) × mean "
+                     "statistic and writes data/soil.csv plus a "
+                     "sidecar entry. Example: 'soilgrids:38.20:100.20'.")
 @click.option("--fetch-lulc", default=None,
                 help="Auto-fetch ESA WorldCover 10 m LULC. Format: "
                      "'worldcover:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX[:YEAR]' "
@@ -655,8 +662,8 @@ def init_from_osm(
     output_dir: str, n_sections: int, reach_km: float, valley_width: float,
     thalweg_depth: float, bank_elev: float, slope: float, species: str,
     fetch_dem: str, fetch_discharge: str | None,
-    fetch_watershed: str | None, fetch_lulc: str | None,
-    fetch_climate: str | None,
+    fetch_watershed: str | None, fetch_soil: str | None,
+    fetch_lulc: str | None, fetch_climate: str | None,
 ) -> None:
     """Build a complete OpenLimno case from OSM data (SPEC §4.0).
 
@@ -959,6 +966,66 @@ def init_from_osm(
                 f"{w_region.upper()}. Upstream catchment derived by "
                 f"walking NEXT_DOWN topology from pour-point basin "
                 f"HYBAS_ID={pour_id}. Citation: {layer.citation}"
+            ),
+        )
+
+    if fetch_soil:
+        from openlimno.preprocess.fetch import (
+            fetch_soilgrids,
+            record_fetch as _rfs,
+        )
+        sparts = fetch_soil.split(":")
+        if len(sparts) != 3 or sparts[0] != "soilgrids":
+            raise click.UsageError(
+                "--fetch-soil must be 'soilgrids:LAT:LON' "
+                f"(got {fetch_soil!r})"
+            )
+        try:
+            s_lat = float(sparts[1]); s_lon = float(sparts[2])
+        except ValueError as e:
+            raise click.UsageError(
+                f"--fetch-soil lat/lon must be decimal; got {fetch_soil!r}"
+            ) from e
+        console.print(
+            f"[bold]Fetching SoilGrids @({s_lat:.4f}, {s_lon:.4f})…[/]"
+        )
+        sg = fetch_soilgrids(s_lat, s_lon)
+        soil_path = Path(output_dir) / "data" / "soil.csv"
+        soil_path.parent.mkdir(parents=True, exist_ok=True)
+        sg.df.to_csv(soil_path, index=False)
+        # Console summary: clay/sand/silt at the top depth.
+        try:
+            clay = sg.get("clay", "0-5cm")
+            sand = sg.get("sand", "0-5cm")
+            silt = sg.get("silt", "0-5cm")
+            ph = sg.get("phh2o", "0-5cm")
+            console.print(
+                f"  → top 0-5 cm: clay {clay:.0f} g/kg, "
+                f"sand {sand:.0f} g/kg, silt {silt:.0f} g/kg, "
+                f"pH {ph:.1f}"
+            )
+        except KeyError:
+            console.print(f"  → {len(sg.df)} (property, depth) values")
+        _rfs(
+            output_dir,
+            label="soil_soilgrids",
+            source_type="isric_soilgrids_v2",
+            source_url=sg.cache.source_url,
+            fetch_time=sg.cache.fetch_time,
+            produced_file=soil_path.relative_to(output_dir),
+            params={
+                "lat": s_lat, "lon": s_lon,
+                "n_rows": len(sg.df),
+                "properties": sorted(sg.df["property"].unique().tolist()),
+                "depths": sorted(sg.df["depth"].unique().tolist()),
+                "statistic": (
+                    sg.df["statistic"].iloc[0] if len(sg.df) else None
+                ),
+            },
+            notes=(
+                f"ISRIC SoilGrids 2.0 point query (250 m grid). Top "
+                f"0-30 cm layers, posterior mean. Citation: "
+                f"{sg.citation}"
             ),
         )
 

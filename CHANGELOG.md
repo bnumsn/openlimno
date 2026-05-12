@@ -5,6 +5,15 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v0.3.5 — SoilGrids 250 m soil properties**:
+    - `openlimno.preprocess.fetch.soilgrids` — `fetch_soilgrids(lat, lon, *, properties, depths, statistic)` against `https://rest.isric.org/soilgrids/v2.0/properties/query` (Poggio et al. 2021, doi:10.5194/soil-7-217-2021, CC-BY 4.0). Subscription-free, no key, global 250 m posterior summaries for 11 soil properties × 6 depth layers × 5 statistics (Q0.05 / Q0.5 / Q0.95 / mean / uncertainty).
+    - Defaults are the 6 properties most commonly consumed by fish-ecology + rainfall-runoff models (`bdod`/`clay`/`sand`/`silt`/`soc`/`phh2o`) over the top 0-30 cm (`0-5cm`/`5-15cm`/`15-30cm`) at posterior mean. Long-form DataFrame `(property, depth, statistic, value, unit)` — losslessly tidy for multi-property/multi-depth requests.
+    - SoilGrids stores values as int × d_factor on the back-end for compact storage; the fetcher auto-applies the inverse scaling so the returned `value` column is already in `target_units` (e.g., raw 250 + d_factor=10 → 25 % clay). Pinned by a unit test so a future schema rename surfaces as a visible failure.
+    - Convenience accessor `.get(property, depth, statistic)` for single-cell pluck without pandas filtering.
+    - Cache key folds `(lat, lon, properties, depths, statistic)` so distinct points/queries never reuse each other's response.
+    - CLI `init-from-osm --fetch-soil soilgrids:LAT:LON` writes `data/soil.csv` + sidecar entry with full property × depth coverage list.
+    - 10 new unit tests: input validation (lat/lon range, unknown depth, unknown statistic, empty property list); schema-enum pin (`ALL_DEPTHS` / `ALL_STATISTICS` / `DEFAULT_*`); end-to-end parse with injected JSON payload + d_factor scaling verification (raw 250 / d_factor 10 → 25.0); `.get()` KeyError on missing combo; empty-layers ocean-point RuntimeError; cache-key distinguishability across different points.
+    - Real-data smoke: Heihe mid-basin (38.20°N, 100.20°E), 1.8 s, 18 rows. Clay 21% + sand 38% + silt 41% = 100.1% (texture conservation within measurement noise), pH 7.6 microalkaline (consistent with NW calcareous soils), SOC 47.8 g/kg at 0-5 cm tapering to 23.6 g/kg at 15-30 cm (typical alpine-meadow profile).
 - **v0.3.4 — ESA WorldCover 10 m LULC**:
     - `openlimno.preprocess.fetch.worldcover` — `fetch_esa_worldcover(lon_min, lat_min, lon_max, lat_max, *, year=2021)` against `https://esa-worldcover.s3.eu-central-1.amazonaws.com/` (Zanaga et al. 2022, CC-BY 4.0). Subscription-free, no key, global 60°S–84°N coverage at 10 m resolution. 11 LCCS-based classes (`tree_cover`/`shrubland`/`grassland`/`cropland`/`built_up`/`bare_sparse_vegetation`/`snow_and_ice`/`permanent_water_bodies`/`herbaceous_wetland`/`mangroves`/`moss_and_lichen`).
     - Reuses the Copernicus DEM tile-streaming pattern (rasterio `/vsicurl/` window reads from 3°×3° tiles, in-memory mosaic) so a 0.2°×0.2° bbox pulls only KBs even though the source tiles are ~100 MB each. Per-tile cache key folds in the bbox so different sub-bboxes don't reuse the wrong subset.
