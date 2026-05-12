@@ -5,6 +5,9 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v0.4.0 — fetch system milestone + design document**:
+    - `docs/fetch_system.md` — single source of truth for the 9-fetcher matrix, cache + sidecar contracts, citation chain, CLI surface (`init-from-osm --fetch-*`), region coverage matrix, end-to-end smoke entry-point (`tools/fetch_all_smoke.py`), and the explicitly-excluded sources (FishBase / GRDC / Sentinel Hub / CDS / Chinese gauges) with reasoning + roadmap pointers.
+    - Marks the v0.3.0–v0.3.6 fetch surface as **stable**. No code changes vs v0.3.6; the bump to v0.4.0 signals: existing fetcher entry-points, result-dataclass field names, cache key shape, sidecar JSON schema, and citation contract will not break in the 0.4.x line. New fetchers in 0.4.x arrive as additive minor releases following the same conventions.
 - **v0.3.6 — GBIF species API + e2e fetch smoke**:
     - `openlimno.preprocess.fetch.species` — `match_species(scientific_name)` against `https://api.gbif.org/v1/species/match` returns the GBIF backbone usageKey + full taxonomic path (kingdom → species) + match_type/confidence so callers can validate a case-config species name is recognised. `fetch_gbif_occurrences(usage_key, bbox, *, limit, max_pages)` against `https://api.gbif.org/v1/occurrence/search` walks paginated georeferenced records inside a bbox, returns a DataFrame of `[scientific_name, decimal_latitude, decimal_longitude, event_date, basis_of_record, dataset_name, country, license]`.
     - GBIF cap-respecting defaults: `limit ≤ 300` (per-page max), `max_pages=10` (≤ 3 000 records total) to avoid runaway API usage. Pagination loop stops on `endOfRecords` OR `max_pages`, whichever first; pin tests cover both exits.
