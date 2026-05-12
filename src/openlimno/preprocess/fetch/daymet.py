@@ -98,6 +98,20 @@ def fetch_daymet_daily(
         raise ValueError(
             f"start_year ({start_year}) must be ≤ end_year ({end_year})"
         )
+    # Daymet v4 coverage starts 1980-01-01; the upstream API silently
+    # snaps out-of-range requests to its available window (a 1950
+    # request returns 1980+ data — undetectable from the response and
+    # silently mislabels the produced CSV's date column). Pre-validate
+    # locally to fail loudly.
+    DAYMET_FIRST_YEAR = 1980
+    DAYMET_LAST_YEAR_GUARD = 2099  # generous upper bound; raise if needed
+    if start_year < DAYMET_FIRST_YEAR or end_year > DAYMET_LAST_YEAR_GUARD:
+        raise ValueError(
+            f"Daymet v4 coverage is {DAYMET_FIRST_YEAR}-present. Got "
+            f"start_year={start_year}, end_year={end_year}. The upstream "
+            f"API silently returns its default range for out-of-window "
+            f"requests, which would mislabel your CSV — refusing locally."
+        )
     # Daymet's domain is N. America: CONUS+Mexico (lat 14.5-51,
     # lon -125 to -67), Hawaii, Alaska (lat 49.5-72, lon -179 to -130),
     # Puerto Rico. Approximate it with a generous bbox for the

@@ -430,6 +430,17 @@ def test_daymet_rejects_inverted_year_range():
         fetch_daymet_daily(44.9, -113.9, start_year=2024, end_year=2020)
 
 
+def test_daymet_rejects_pre_1980_year():
+    """Round-1 fix: Daymet API silently snaps out-of-window requests
+    to its default range. A user asking for 1950 data would get 1980+
+    data in a file named climate_1950_1950.csv — invisible
+    mislabelling. Pre-validate locally so the user sees the error.
+    """
+    from openlimno.preprocess.fetch import fetch_daymet_daily
+    with pytest.raises(ValueError, match="Daymet v4 coverage"):
+        fetch_daymet_daily(44.9, -113.9, start_year=1950, end_year=1955)
+
+
 def test_daymet_rejects_out_of_domain_lat():
     """Daymet's domain is North America (-49.5 to +83.5 lat). A user
     passing a European or African lat would otherwise hit a generic
