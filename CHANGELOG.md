@@ -5,6 +5,11 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v0.8.2 — `cn_hydro` adapter INTERFACE (no crawler code)**:
+    - New module `openlimno.preprocess.fetch.cn_hydro` exposes the pluggable interface for Chinese discharge data sources: `ChinaHydroAdapter` ABC + `ChinaDischargeResult` dataclass + `register_adapter(adapter) / list_registered_adapters() / fetch_china_discharge(source_key, station_id, start, end)`. The OpenLimno wheel **never** registers a concrete adapter — by design.
+    - `fetch_china_discharge(...)` raises `ChinaHydroNotEnabledError` with a clear pointer at the v0.4 fetch-system charter ("no crawler code in the OpenLimno wheel; install a third-party `openlimno-cn`-style plugin") when called without a registered adapter.
+    - Charter rationale documented in the module docstring: Chinese gauge data is reachable only through provincial / basin-commission HTML portals (no public REST); programmatic access requires reverse-engineered crawlers (Cookie / CSRF / custom font tables drift every few months) that violate publisher ToS for automated retrieval + carry regional-compliance implications OpenLimno's downstream users shouldn't inherit silently by `pip install`.
+    - 5 new unit tests pin: `ChinaHydroNotEnabledError` raised by default; registry empty by default (charter pin — any future PR that quietly registers an adapter in-tree fails CI); end-to-end interface round-trip with a fake adapter; empty-source_key rejection; **and** a regression pin that `cn_hydro.py` contains no `requests` / `httpx` / `bs4` / `lxml` / `fontTools` imports (the libs that would indicate crawler code creep).
 - **v0.8.1 — FishBase species-traits starter table**:
     - `openlimno.preprocess.fetch.fishbase` — `fetch_fishbase_traits(scientific_name)` returns a `FishBaseTraits` dataclass (temperature range, depth range, water type, length max, IUCN status, FishBase per-species citation URL) for ~12 commonly-modelled fish species. Curated from canonical FishBase summary pages.
     - Bundled CSV at `src/openlimno/preprocess/fetch/data/fishbase_traits_starter.csv` — auto-included in the wheel via the existing `[tool.hatch.build] packages` config.

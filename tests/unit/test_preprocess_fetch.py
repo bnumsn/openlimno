@@ -979,6 +979,103 @@ def test_fetch_package_exposes_all_result_dataclasses():
 
 
 # ---------------------------------------------------------------------
+# cn_hydro.py — adapter interface (no crawler code)
+# ---------------------------------------------------------------------
+def test_cn_hydro_fetch_raises_when_no_adapter_registered():
+    """Calling fetch_china_discharge with an unregistered source_key
+    must raise ChinaHydroNotEnabledError, NOT attempt any network
+    call. This is the v0.4 charter pin — OpenLimno's wheel never
+    contains crawler code."""
+    from openlimno.preprocess.fetch import (
+        ChinaHydroNotEnabledError, fetch_china_discharge,
+    )
+    with pytest.raises(ChinaHydroNotEnabledError) as exc:
+        fetch_china_discharge("mwr_river", "60100200", "2024-01-01", "2024-01-07")
+    msg = str(exc.value)
+    assert "v0.4 fetch-system charter" in msg
+    assert "openlimno-cn" in msg
+
+
+def test_cn_hydro_list_registered_adapters_empty_by_default():
+    """OpenLimno itself MUST never register an adapter. Pin the
+    registry empty so a future PR that quietly adds one is caught."""
+    from openlimno.preprocess.fetch import list_registered_adapters
+    assert list_registered_adapters() == []
+
+
+def test_cn_hydro_register_adapter_dispatches_correctly():
+    """End-to-end interface contract: a fake adapter subclass that
+    sets source_key + implements fetch_discharge round-trips through
+    register_adapter → fetch_china_discharge."""
+    import pandas as pd
+    from openlimno.preprocess.fetch import (
+        ChinaDischargeResult, ChinaHydroAdapter,
+        fetch_china_discharge, list_registered_adapters, register_adapter,
+    )
+    from openlimno.preprocess.fetch import cn_hydro as _cn
+
+    class _FakeAdapter(ChinaHydroAdapter):
+        source_key = "test_fake_source"
+        def fetch_discharge(self, station_id, start, end):
+            df = pd.DataFrame({
+                "time": [f"{start} 08:00:00"],
+                "discharge_m3s": [42.0],
+                "water_level_m": [3.14],
+                "station_id": [station_id],
+            })
+            return ChinaDischargeResult(
+                df=df, station_id=station_id,
+                source_name="test_fake_source",
+                citation="Fake citation for unit test",
+            )
+
+    try:
+        register_adapter(_FakeAdapter())
+        assert "test_fake_source" in list_registered_adapters()
+        res = fetch_china_discharge(
+            "test_fake_source", "60100200", "2024-01-01", "2024-01-07",
+        )
+        assert res.station_id == "60100200"
+        assert res.df.iloc[0]["discharge_m3s"] == 42.0
+        assert res.source_name == "test_fake_source"
+    finally:
+        # Restore the registry empty so the next test sees a clean
+        # state (and the empty-by-default pin doesn't false-fail).
+        _cn._REGISTRY.clear()
+    assert list_registered_adapters() == []
+
+
+def test_cn_hydro_register_rejects_empty_source_key():
+    from openlimno.preprocess.fetch import (
+        ChinaDischargeResult, ChinaHydroAdapter, register_adapter,
+    )
+    class _BadAdapter(ChinaHydroAdapter):
+        source_key = ""  # not allowed
+        def fetch_discharge(self, station_id, start, end):
+            raise NotImplementedError
+    with pytest.raises(ValueError, match="non-empty string"):
+        register_adapter(_BadAdapter())
+
+
+def test_cn_hydro_module_contains_no_crawler_imports():
+    """v0.8.2 charter pin: cn_hydro.py must not import requests /
+    httpx / bs4 / lxml / fontTools or any crawler-stack library.
+    The whole point is keeping the OpenLimno wheel free of
+    reverse-engineering code; any future PR that pulls one of those
+    in is a charter violation."""
+    import inspect
+    from openlimno.preprocess.fetch import cn_hydro
+    src = inspect.getsource(cn_hydro)
+    for forbidden in ("import requests", "import httpx", "import bs4",
+                      "import lxml", "import fontTools", "from fontTools"):
+        assert forbidden not in src, (
+            f"REGRESSION: cn_hydro.py contains {forbidden!r} — that "
+            f"violates the v0.4 fetch-system charter (no crawler code "
+            f"in the OpenLimno wheel; ship a third-party plugin instead)."
+        )
+
+
+# ---------------------------------------------------------------------
 # fishbase.py — bundled starter-table species traits
 # ---------------------------------------------------------------------
 def test_fishbase_starter_table_includes_common_phabsim_species():

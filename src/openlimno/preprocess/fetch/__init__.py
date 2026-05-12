@@ -14,6 +14,7 @@ Submodules:
     soilgrids  — ISRIC SoilGrids 250 m soil properties (11 vars × 6 depths)
     species    — GBIF backbone taxon match + georeferenced occurrences
     fishbase   — curated FishBase species-traits starter table (~12 spp)
+    cn_hydro   — Chinese hydrology adapter INTERFACE (no crawler code)
     cache      — XDG-cache-aware on-disk cache shared by all fetchers
     sidecar    — external-source provenance sidecar in case_dir/data/
 """
@@ -48,6 +49,15 @@ from openlimno.preprocess.fetch.soilgrids import (
     DEFAULT_PROPERTIES as SOILGRIDS_DEFAULT_PROPERTIES,
     SoilGridsFetchResult,
     fetch_soilgrids,
+)
+from openlimno.preprocess.fetch.cn_hydro import (
+    CN_HYDRO_CHARTER_NOTE,
+    ChinaDischargeResult,
+    ChinaHydroAdapter,
+    ChinaHydroNotEnabledError,
+    fetch_china_discharge,
+    list_registered_adapters,
+    register_adapter,
 )
 from openlimno.preprocess.fetch.fishbase import (
     FISHBASE_CITATION,
@@ -131,6 +141,13 @@ __all__ = [
     "FishBaseTraits",
     "fetch_fishbase_traits",
     "list_starter_species",
+    "CN_HYDRO_CHARTER_NOTE",
+    "ChinaDischargeResult",
+    "ChinaHydroAdapter",
+    "ChinaHydroNotEnabledError",
+    "fetch_china_discharge",
+    "list_registered_adapters",
+    "register_adapter",
     "ExternalSourceRecord",
     "read_sidecar",
     "record_fetch",
