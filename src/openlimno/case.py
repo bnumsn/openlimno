@@ -1275,20 +1275,27 @@ class Case:
         publish = Path(pub_path_str)
         try:
             writer(publish)
+            # v1.9.1 (5th-review R5-1): chmod the publish tempfile BEFORE
+            # os.replace so content and umask-respecting permissions
+            # become visible to readers atomically together. Previously
+            # (v1.8.3 → v1.9.0) chmod ran after os.replace, leaving a
+            # narrow window where a concurrent non-owner reader could
+            # observe the published file as 0o600 (mkstemp default) and
+            # fail before chmod restored 0o644. Both codex and gemini
+            # flagged this in the 5th-pass review.
+            try:
+                current_umask = os.umask(0)
+                os.umask(current_umask)
+                os.chmod(publish, 0o666 & ~current_umask)
+            except OSError:
+                # chmod can fail on filesystems that don't support
+                # permission bits (some FAT mounts). Continue to
+                # os.replace anyway; the file is still published.
+                pass
             os.replace(publish, target)
         except BaseException:
             publish.unlink(missing_ok=True)
             raise
-        # v1.8.3: restore umask-respecting permissions on the published
-        # target. mkstemp creates 0600 by default; os.replace preserves
-        # that. We want the umask convention (typically 0644) that the
-        # rest of the OpenLimno output suite used pre-v1.8.2.
-        try:
-            current_umask = os.umask(0)
-            os.umask(current_umask)
-            os.chmod(target, 0o666 & ~current_umask)
-        except OSError:
-            pass
 
     @staticmethod
     def _write_csv_with_header(df: pd.DataFrame, path: Path, header_line: str | None) -> None:

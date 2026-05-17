@@ -1712,18 +1712,45 @@ def test_v190_atomic_write_cleans_up_on_writer_exception(tmp_path):
     assert leftover == [], f"v1.9.0 cleanup leftover: {leftover}"
 
 
-def test_v190_provenance_json_routes_through_atomic_write():
+def test_v190_provenance_json_routes_through_atomic_write(monkeypatch):
     """End-to-end pin that Case.run's provenance.json write now goes
-    through the atomic-publish path. Lemhi has no overlays so we can
-    rely on the standard run() to exercise the new code without
-    needing a synthetic overlay fixture."""
+    through the atomic-publish path.
+
+    v1.9.1 (5th-review R5-2): the v1.9.0 form of this test only checked
+    valid JSON + absence of tempfile leftovers — codex correctly noted
+    that a direct ``prov_path.write_text(...)`` would pass the same
+    assertions. This version spies on ``Case._atomic_write`` to assert
+    the helper is actually invoked, and that provenance.json is among
+    the targets routed through it. Lemhi has no overlays, so the
+    standard run() exercises the new path without needing a synthetic
+    overlay fixture.
+    """
+    seen_targets: list[Path] = []
+    real_atomic_write = Case._atomic_write
+
+    def _spy(target, writer):
+        seen_targets.append(target)
+        return real_atomic_write(target, writer)
+
+    monkeypatch.setattr(Case, "_atomic_write", staticmethod(_spy))
+
     case = Case.from_yaml(CASE_YAML)
     result = case.run(discharges_m3s=[3.0])
-    # The file exists and is valid JSON — basic correctness preserved
-    # under the new write path. Atomicity is mechanical (provided by
-    # _atomic_write tests above); this test pins the integration.
+
+    # The helper was invoked, and provenance.json was one of the targets
+    assert seen_targets, (
+        "R5-2: _atomic_write was never called during Case.run — the "
+        "provenance integration is not actually routed through the helper"
+    )
+    target_names = [p.name for p in seen_targets]
+    assert "provenance.json" in target_names, (
+        f"R5-2: provenance.json not in {target_names}"
+    )
+
+    # Basic correctness preserved: file is valid JSON
     import json as _json
     _json.loads(result.provenance_path.read_text())
+
     # And no .publish.*.tmp / .body.*.inprogress leftover next to it
     leftover = [
         p.name for p in result.output_dir.iterdir()
@@ -1731,4 +1758,62 @@ def test_v190_provenance_json_routes_through_atomic_write():
     ]
     assert leftover == [], (
         f"v1.9.0 provenance integration left tempfiles: {leftover}"
+    )
+
+
+def test_v191_atomic_write_publishes_perms_atomically_with_content(tmp_path):
+    """R5-1: chmod must run BEFORE os.replace so the target appears
+    with content and umask-respecting permissions in a single atomic
+    step. Previous (v1.9.0) ordering chmodded AFTER replace, leaving a
+    narrow window where a concurrent non-owner reader could observe
+    0o600.
+
+    The semantic guarantee we want: if the target file is observable
+    on disk, its mode is already the umask-respecting one. Test by
+    asserting that os.chmod is called on the PUBLISH path (the
+    tempfile) BEFORE os.replace renames it onto the target.
+    """
+    import os as _os
+    call_log: list[tuple[str, str]] = []
+    target = tmp_path / "ordered.txt"
+
+    real_chmod = _os.chmod
+    real_replace = _os.replace
+
+    def _logging_chmod(path, mode):
+        call_log.append(("chmod", str(path)))
+        return real_chmod(path, mode)
+
+    def _logging_replace(src, dst):
+        call_log.append(("replace", str(src)))
+        return real_replace(src, dst)
+
+    import unittest.mock as _mock
+    with _mock.patch("os.chmod", side_effect=_logging_chmod), \
+         _mock.patch("os.replace", side_effect=_logging_replace):
+        Case._atomic_write(
+            target,
+            lambda p: p.write_text("ordered v1.9.1\n", encoding="utf-8"),
+        )
+
+    # The chmod must hit the publish tempfile BEFORE the replace.
+    # Filter to the two semantic calls we care about.
+    chmod_calls = [c for c in call_log if c[0] == "chmod"]
+    replace_calls = [c for c in call_log if c[0] == "replace"]
+    assert len(chmod_calls) == 1
+    assert len(replace_calls) == 1
+
+    chmod_idx = call_log.index(chmod_calls[0])
+    replace_idx = call_log.index(replace_calls[0])
+    assert chmod_idx < replace_idx, (
+        f"R5-1: chmod must happen BEFORE replace; got call order "
+        f"{call_log}"
+    )
+
+    # And the chmod was applied to the publish tempfile, not the final
+    # target — that's what makes content + perms atomic together.
+    assert str(target) not in chmod_calls[0][1], (
+        f"R5-1: chmod was applied to the final target {target}, not "
+        f"the publish tempfile. This re-opens the race window — content "
+        f"became visible via os.replace before perms were set."
     )
