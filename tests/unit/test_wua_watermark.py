@@ -362,3 +362,147 @@ def test_v111_provenance_always_contains_thermal_metrics_key():
     assert "thermal_metrics" in prov
     # Lemhi has no FishBase + climate blocks → None
     assert prov["thermal_metrics"] is None
+
+
+# ---------------------------------------------------------------------
+# v1.5.0: Case.run wires cover SI when data.lulc + data.watershed present
+# ---------------------------------------------------------------------
+def _make_cover_test_inputs(tmp_path: Path):
+    """Build a tiny WorldCover GeoTIFF + watershed GeoJSON inside
+    tmp_path/data/, return (lulc_uri, watershed_uri) as case-relative
+    strings."""
+    import numpy as _np
+    import rasterio
+    from rasterio.transform import from_origin
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    # 100% tree cover (LCCS 10) → SI=1.0 in DEFAULT_RIPARIAN_COVER_SI
+    arr = _np.full((20, 20), 10, dtype=_np.uint8)
+    tif = data_dir / "lulc.tif"
+    with rasterio.open(
+        tif, "w", driver="GTiff", height=20, width=20, count=1,
+        dtype="uint8", crs="EPSG:4326",
+        transform=from_origin(100.0, 38.0, 5e-5, 5e-5),
+    ) as dst:
+        dst.write(arr, 1)
+    # Polygon covering the raster extent
+    import json as _json
+    ws = data_dir / "watershed.geojson"
+    ws.write_text(_json.dumps({
+        "type": "Feature",
+        "properties": {"area_km2": 0.01},
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[
+                [100.0, 38.0 - 20 * 5e-5],
+                [100.0 + 20 * 5e-5, 38.0 - 20 * 5e-5],
+                [100.0 + 20 * 5e-5, 38.0],
+                [100.0, 38.0],
+                [100.0, 38.0 - 20 * 5e-5],
+            ]],
+        },
+    }))
+    return "data/lulc.tif", "data/watershed.geojson"
+
+
+def test_v150_cover_habitat_runs_when_lulc_and_watershed_present(tmp_path):
+    """All-tree raster + bounding watershed → cover SI = 1.0;
+    cover_si.json emitted; metrics dict returned."""
+    import json
+    import yaml as _yaml
+    lulc_uri, ws_uri = _make_cover_test_inputs(tmp_path)
+    yaml_text = f"""openlimno: '0.2'
+case:
+  name: cover_pipeline_check
+  crs: EPSG:4326
+mesh:
+  uri: nonexistent.nc
+hydrodynamics:
+  backend: builtin-1d
+habitat:
+  species: [oncorhynchus_mykiss]
+  stages: [spawning]
+  metric: wua-q
+  composite: min
+data:
+  lulc:
+    uri: {lulc_uri}
+    year: 2021
+    version: v200
+  watershed:
+    uri: {ws_uri}
+    pour_lat: 38.0
+    pour_lon: 100.0
+output:
+  dir: ./out
+  formats: [csv]
+"""
+    yp = tmp_path / "case.yaml"
+    yp.write_text(yaml_text)
+    cfg = _yaml.safe_load(yaml_text)
+    case = Case(config=cfg, case_yaml_path=yp)
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    metrics = case._maybe_run_cover_habitat(
+        case.config, tmp_path, out_dir, warnings=[],
+    )
+    assert metrics is not None
+    assert metrics["mean_si"] == pytest.approx(1.0)
+    assert metrics["n_classes"] == 1
+    assert metrics["total_pixels"] == 400
+    # Per-class JSON payload was written
+    cover_json = out_dir / "cover_si.json"
+    assert cover_json.exists()
+    payload = json.loads(cover_json.read_text())
+    assert payload["mean_si"] == 1.0
+    assert len(payload["classes"]) == 1
+    assert payload["classes"][0]["class_code"] == 10
+    assert payload["classes"][0]["cover_si"] == 1.0
+    assert payload["classes"][0]["pixel_count"] == 400
+
+
+def test_v150_cover_habitat_skipped_when_watershed_missing(tmp_path):
+    """Mirrors v1.1.1: cases without one of the two blocks must
+    short-circuit cleanly (None return, no exception)."""
+    import yaml as _yaml
+    yaml_text = """openlimno: '0.2'
+case:
+  name: no_cover_check
+  crs: EPSG:4326
+mesh:
+  uri: nonexistent.nc
+hydrodynamics:
+  backend: builtin-1d
+habitat:
+  species: [oncorhynchus_mykiss]
+  stages: [spawning]
+  metric: wua-q
+  composite: min
+data:
+  lulc:
+    uri: data/lulc.tif
+    year: 2021
+    version: v200
+output:
+  dir: ./out
+  formats: [csv]
+"""
+    yp = tmp_path / "case.yaml"
+    yp.write_text(yaml_text)
+    case = Case.from_yaml(yp)
+    metrics = case._maybe_run_cover_habitat(
+        case.config, tmp_path, tmp_path / "out", warnings=[],
+    )
+    assert metrics is None
+
+
+def test_v150_provenance_always_contains_cover_metrics_key():
+    """Same regression-pin philosophy as thermal_metrics: cover_metrics
+    must exist (None when no LULC × watershed), so downstream tooling
+    can rely on the dict shape."""
+    import json
+    case = Case.from_yaml(CASE_YAML)
+    result = case.run(discharges_m3s=[3.0])
+    prov = json.loads(result.provenance_path.read_text())
+    assert "cover_metrics" in prov
+    assert prov["cover_metrics"] is None

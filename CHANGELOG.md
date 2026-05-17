@@ -5,6 +5,12 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **v1.5.0 — cover SI in `Case.run` pipeline**:
+    - `Case.run` now auto-detects WEDM v0.2 `data.lulc` + `data.watershed` blocks and, when both are present, computes a watershed-mean cover SI via the v1.3.0 `habitat.cover.watershed_cover_si`. Result lands at `out/cover_si.json` (mean_si + per-class pixel counts + DEFAULT_RIPARIAN_COVER_SI per class + area_km2 from `data.lulc.class_km2` when available); the summary metrics dict folds into `provenance.cover_metrics`. Mirrors the v1.1.1 thermal pattern exactly.
+    - New `Case._maybe_run_cover_habitat(...)` helper. Returns ``None`` silently when either input block is missing → v1.0.x cases without fetched data continue to run unchanged.
+    - Any exception in the cover step is recorded as a `provenance.warnings` entry but never fails the main WUA-Q pipeline (auxiliary-step defensive pattern).
+    - 3 new tests: full pipeline emits `cover_si.json` for an all-tree raster + bounding watershed (SI=1.0, 400 pixels); `_maybe_run_cover_habitat` returns None when watershed block missing; `provenance.cover_metrics` key always present (None on cases without LULC × watershed).
+    - Real-data smoke (Heihe mid-basin LULC + HydroSHEDS watershed): pipeline emits SI=0.4255 — matches the standalone v1.3.0 module to the digit, confirming the wiring doesn't drift.
 - **v1.4.0 — ecohydraulic interoperability release** (v1.3.0 tag was already taken by the LULC cover SI ship; this is the minor-bumped published version of the work that was staged as v1.3.0-rc):
     - **Stale test fixes**: post-v0.7 fetch panel added a 7th plugin toolbar entry; `test_plugin_wires_six_actions` + `test_unload_removes_everything` updated to expect 7. Drift-egg integration test now tolerates 0.5% solver noise in its Q-monotonicity assertion (1.0663 km vs 1.0669 km was previously flaky). PHABSIM replication subprocess test drops `PYTHONNOUSERSITE=1` (which broke pandas resolution in user-site / pixi-installed envs) and inherits the parent env with `PYTHONPATH` prepended.
     - New external-model interoperability surface centred on `openlimno preprocess import-model` and `inspect-model`. Core implemented source keys now cover HEC-RAS `.g0X`, River2D `.cdg/.bed`, HEC-RAS HDF, TELEMAC Selafin, CF/UGRID NetCDF, optional MIKE DFS/DFSU/mesh, optional MIKE 1D/XNS11, HABBY/CASiMiR habitat exchange tables, and inSTREAM/InSALMO/NetLogo CSV exchange.

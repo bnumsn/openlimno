@@ -301,6 +301,21 @@ class Case:
                 f"the WUA-Q pipeline remains valid."
             )
 
+        # 5d. Cover habitat suitability (v1.5.0). If the case carries
+        # both data.lulc + data.watershed, compute a watershed-mean
+        # cover SI from the WorldCover raster — mirrors the v1.1.1
+        # thermal pattern for the v1.3.0 cover SI module.
+        cover_metrics_dict: dict | None = None
+        try:
+            cover_metrics_dict = self._maybe_run_cover_habitat(
+                cfg, case_dir, out_dir, warnings,
+            )
+        except Exception as e:  # noqa: BLE001
+            warnings.append(
+                f"cover_habitat step failed: {e!r}. Skipping; "
+                f"the WUA-Q pipeline remains valid."
+            )
+
         # 6. HSI watermarking warning (already computed above for CSV header)
         if wua_quality_grade == "C":
             warnings.append(
@@ -323,6 +338,7 @@ class Case:
                 "hsi_curve": hsi_path,
             },
             thermal_metrics_dict=thermal_metrics_dict,
+            cover_metrics_dict=cover_metrics_dict,
         )
         prov_path.write_text(json.dumps(provenance, indent=2, default=str))
 
@@ -711,6 +727,86 @@ class Case:
         thermal_df.to_csv(out_path, index=False)
         return thermal_metrics(thermal_df)
 
+    def _maybe_run_cover_habitat(
+        self, cfg: dict, case_dir: Path, out_dir: Path,
+        warnings: list[str],
+    ) -> dict | None:
+        """v1.5.0: detect WEDM v0.2 `data.lulc` + `data.watershed` and
+        compute a watershed-mean cover SI using the v1.3.0
+        `habitat.cover` module. Mirrors the v1.1.1 thermal pattern.
+
+        Writes a small ``cover_si.json`` to ``out_dir`` (mean_si +
+        class histograms keyed by integer LCCS code, plus area_km2
+        per class derived from `data.lulc.class_km2` when available)
+        and returns the metrics dict — or ``None`` if either input
+        block is missing so v1.0.x cases without fetched data still
+        run unchanged.
+        """
+        data_block = cfg.get("data", {}) or {}
+        lulc = data_block.get("lulc")
+        ws = data_block.get("watershed")
+        if not isinstance(lulc, dict) or not isinstance(ws, dict):
+            return None
+        lulc_uri = lulc.get("uri")
+        ws_uri = ws.get("uri")
+        if not lulc_uri or not ws_uri:
+            warnings.append(
+                "data.lulc.uri or data.watershed.uri missing — "
+                "skipping cover_habitat step."
+            )
+            return None
+        lulc_path = (case_dir / lulc_uri).resolve()
+        ws_path = (case_dir / ws_uri).resolve()
+        if not lulc_path.is_file():
+            warnings.append(
+                f"data.lulc.uri ({lulc_uri}) not found at {lulc_path} "
+                f"— skipping cover_habitat step."
+            )
+            return None
+        if not ws_path.is_file():
+            warnings.append(
+                f"data.watershed.uri ({ws_uri}) not found at "
+                f"{ws_path} — skipping cover_habitat step."
+            )
+            return None
+
+        from openlimno.habitat.cover import (
+            DEFAULT_RIPARIAN_COVER_SI,
+            watershed_cover_si,
+        )
+        mean_si, class_pixels = watershed_cover_si(lulc_path, ws_path)
+        # Fold area_km2 per class from data.lulc.class_km2 when the
+        # case carries it (v0.3.4 CLI does); otherwise leave km² null.
+        class_km2_source = lulc.get("class_km2") or {}
+        # class_km2 keys come from JSON as strings; coerce to int.
+        class_km2 = {
+            int(k): float(v) for k, v in class_km2_source.items()
+        }
+        out_path = out_dir / "cover_si.json"
+        # int-keyed dicts are NOT JSON-serialisable directly; flatten
+        # to a list of records for round-trip stability.
+        payload = {
+            "mean_si": float(mean_si),
+            "n_classes": len(class_pixels),
+            "classes": [
+                {
+                    "class_code": int(code),
+                    "pixel_count": int(class_pixels[code]),
+                    "cover_si": float(
+                        DEFAULT_RIPARIAN_COVER_SI.get(int(code), 0.0)
+                    ),
+                    "area_km2": class_km2.get(int(code)),
+                }
+                for code in sorted(class_pixels)
+            ],
+        }
+        out_path.write_text(json.dumps(payload, indent=2))
+        return {
+            "mean_si": float(mean_si),
+            "n_classes": len(class_pixels),
+            "total_pixels": int(sum(class_pixels.values())),
+        }
+
     @staticmethod
     def _write_csv_with_header(df: pd.DataFrame, path: Path, header_line: str | None) -> None:
         if header_line:
@@ -852,6 +948,7 @@ class Case:
         wua_quality_grade: str = "A",
         data_paths: dict[str, Path] | None = None,
         thermal_metrics_dict: dict | None = None,
+        cover_metrics_dict: dict | None = None,
     ) -> dict[str, Any]:
         case_yaml_text = self.case_yaml_path.read_bytes()
         case_sha = hashlib.sha256(case_yaml_text).hexdigest()
@@ -1026,6 +1123,7 @@ class Case:
             "external_sources": external_sources,  # v0.3 P0
             "fetch_summary": fetch_summary,  # v0.6 (WEDM v0.2 data blocks)
             "thermal_metrics": thermal_metrics_dict,  # v1.1.1 (None if no climate × FishBase)
+            "cover_metrics": cover_metrics_dict,  # v1.5.0 (None if no lulc × watershed)
             "dependencies": {
                 "pixi_lock_sha256": pixi_lock_sha,
                 "container_image_sha": None,  # M3 beta: extract from SCHISM run
