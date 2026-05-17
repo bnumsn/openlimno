@@ -316,6 +316,26 @@ class Case:
                 f"the WUA-Q pipeline remains valid."
             )
 
+        # 5e. Multivariate HSI composite (v1.6.0). If at least one
+        # scalar overlay (cover or thermal) is available, emit the
+        # composite WUA-Q overlay tables. Skipped silently when
+        # neither overlay was computed.
+        composite_summary_dict: dict | None = None
+        try:
+            composite_summary_dict = self._maybe_run_composite_hsi(
+                wua_df,
+                thermal_metrics_dict,
+                cover_metrics_dict,
+                out_dir,
+                formats,
+                warnings,
+            )
+        except Exception as e:  # noqa: BLE001
+            warnings.append(
+                f"composite_hsi step failed: {e!r}. Skipping; the "
+                f"WUA-Q pipeline remains valid."
+            )
+
         # 6. HSI watermarking warning (already computed above for CSV header)
         if wua_quality_grade == "C":
             warnings.append(
@@ -339,6 +359,7 @@ class Case:
             },
             thermal_metrics_dict=thermal_metrics_dict,
             cover_metrics_dict=cover_metrics_dict,
+            composite_summary_dict=composite_summary_dict,
         )
         prov_path.write_text(json.dumps(provenance, indent=2, default=str))
 
@@ -704,7 +725,9 @@ class Case:
             return None
 
         from openlimno.habitat.thermal import (
-            ThermalRange, thermal_metrics, thermal_suitability_series,
+            ThermalRange,
+            thermal_metrics,
+            thermal_suitability_series,
         )
         clim_df = pd.read_csv(clim_path)
         if "T_water_C_stefan" not in clim_df.columns:
@@ -806,6 +829,65 @@ class Case:
             "n_classes": len(class_pixels),
             "total_pixels": int(sum(class_pixels.values())),
         }
+
+    def _maybe_run_composite_hsi(
+        self,
+        wua_df: pd.DataFrame,
+        thermal_metrics_dict: dict | None,
+        cover_metrics_dict: dict | None,
+        out_dir: Path,
+        formats: list[str],
+        warnings: list[str],
+    ) -> dict | None:
+        """v1.6.0: combine the per-cell depth × velocity WUA with the
+        v1.1.1 thermal scalar and v1.5.0 cover scalar overlays into a
+        single composite WUA-Q table.
+
+        Returns ``None`` (silently skipped) when neither overlay was
+        produced — preserving v1.5.x semantics for cases without fetched
+        climate or LULC. When at least one overlay is present, writes:
+
+        * ``composite_wua_q.parquet`` and/or ``composite_wua_q.csv``
+          (paired ``wua_m2_composite_<sp>_<stage>`` columns alongside
+          the base ``wua_m2_*`` columns).
+        * ``composite_hsi.json`` (overlay factors + per-series max WUA
+          ratios for review).
+        """
+        from openlimno.habitat.composite import (
+            CompositeOverlay,
+            apply_overlay,
+            composite_summary,
+        )
+
+        overlay = CompositeOverlay.from_metrics(
+            thermal_metrics_dict, cover_metrics_dict,
+        )
+        if overlay.overlay_si is None:
+            return None
+
+        composite_df = apply_overlay(wua_df, overlay)
+        if "parquet" in formats:
+            composite_df.to_parquet(
+                out_dir / "composite_wua_q.parquet", index=False,
+            )
+        if "csv" in formats:
+            composite_df.to_csv(
+                out_dir / "composite_wua_q.csv", index=False,
+            )
+        summary = composite_summary(wua_df, overlay)
+        (out_dir / "composite_hsi.json").write_text(
+            json.dumps(summary, indent=2, default=str),
+        )
+
+        if overlay.cover_si is None:
+            warnings.append(
+                "composite_hsi: thermal-only overlay (cover SI unavailable)."
+            )
+        elif overlay.thermal_si is None:
+            warnings.append(
+                "composite_hsi: cover-only overlay (thermal SI unavailable)."
+            )
+        return summary
 
     @staticmethod
     def _write_csv_with_header(df: pd.DataFrame, path: Path, header_line: str | None) -> None:
@@ -949,6 +1031,7 @@ class Case:
         data_paths: dict[str, Path] | None = None,
         thermal_metrics_dict: dict | None = None,
         cover_metrics_dict: dict | None = None,
+        composite_summary_dict: dict | None = None,
     ) -> dict[str, Any]:
         case_yaml_text = self.case_yaml_path.read_bytes()
         case_sha = hashlib.sha256(case_yaml_text).hexdigest()
@@ -981,7 +1064,8 @@ class Case:
         external_sources: list[dict] = []
         try:
             from openlimno.preprocess.fetch.sidecar import (
-                SidecarCorruptedError, read_sidecar,
+                SidecarCorruptedError,
+                read_sidecar,
             )
             external_sources = read_sidecar(self.case_yaml_path.parent)
         except ImportError:
@@ -1124,6 +1208,7 @@ class Case:
             "fetch_summary": fetch_summary,  # v0.6 (WEDM v0.2 data blocks)
             "thermal_metrics": thermal_metrics_dict,  # v1.1.1 (None if no climate × FishBase)
             "cover_metrics": cover_metrics_dict,  # v1.5.0 (None if no lulc × watershed)
+            "composite_summary": composite_summary_dict,  # v1.6.0 (None unless ≥1 overlay present)
             "dependencies": {
                 "pixi_lock_sha256": pixi_lock_sha,
                 "container_image_sha": None,  # M3 beta: extract from SCHISM run

@@ -148,7 +148,6 @@ def test_v111_thermal_habitat_runs_when_fishbase_and_climate_present(tmp_path):
     """v1.1.1: a case with both data.fishbase_traits and data.climate
     triggers _maybe_run_thermal_habitat, which emits thermal_hsi.csv
     and folds metrics into provenance.thermal_metrics."""
-    import json
     import pandas as pd
 
     # Build a synthetic climate CSV matching the Open-Meteo schema
@@ -166,7 +165,7 @@ def test_v111_thermal_habitat_runs_when_fishbase_and_climate_present(tmp_path):
     clim_df.to_csv(clim_csv, index=False)
 
     # Synthetic v0.2 case.yaml
-    yaml_text = f"""openlimno: '0.2'
+    yaml_text = """openlimno: '0.2'
 case:
   name: thermal_pipeline_check
   crs: EPSG:4326
@@ -409,6 +408,7 @@ def test_v150_cover_habitat_runs_when_lulc_and_watershed_present(tmp_path):
     """All-tree raster + bounding watershed → cover SI = 1.0;
     cover_si.json emitted; metrics dict returned."""
     import json
+
     import yaml as _yaml
     lulc_uri, ws_uri = _make_cover_test_inputs(tmp_path)
     yaml_text = f"""openlimno: '0.2'
@@ -464,7 +464,6 @@ output:
 def test_v150_cover_habitat_skipped_when_watershed_missing(tmp_path):
     """Mirrors v1.1.1: cases without one of the two blocks must
     short-circuit cleanly (None return, no exception)."""
-    import yaml as _yaml
     yaml_text = """openlimno: '0.2'
 case:
   name: no_cover_check
@@ -506,3 +505,195 @@ def test_v150_provenance_always_contains_cover_metrics_key():
     prov = json.loads(result.provenance_path.read_text())
     assert "cover_metrics" in prov
     assert prov["cover_metrics"] is None
+
+
+# ---------------------------------------------------------------------
+# v1.6.0 — multivariate HSI composite (depth × velocity × cover × thermal)
+# ---------------------------------------------------------------------
+def test_v160_overlay_from_metrics_handles_both_overlays():
+    """``CompositeOverlay.from_metrics`` resolves a product of two
+    scalar overlays when both thermal_metrics and cover_metrics are
+    present."""
+    from openlimno.habitat.composite import CompositeOverlay
+
+    overlay = CompositeOverlay.from_metrics(
+        thermal_metrics={"mean_SI": 0.6},
+        cover_metrics={"mean_si": 0.5},
+    )
+    assert overlay.cover_si == pytest.approx(0.5)
+    assert overlay.thermal_si == pytest.approx(0.6)
+    assert overlay.overlay_si == pytest.approx(0.3)
+    assert overlay.n_overlays == 2
+
+
+def test_v160_overlay_thermal_only_when_cover_absent():
+    """Single-overlay cases drop the missing factor cleanly."""
+    from openlimno.habitat.composite import CompositeOverlay
+
+    overlay = CompositeOverlay.from_metrics(
+        thermal_metrics={"mean_SI": 0.7},
+        cover_metrics=None,
+    )
+    assert overlay.cover_si is None
+    assert overlay.thermal_si == pytest.approx(0.7)
+    assert overlay.overlay_si == pytest.approx(0.7)
+    assert overlay.n_overlays == 1
+
+
+def test_v160_overlay_none_when_both_absent():
+    """No overlays → overlay_si is None (composite step gets skipped)."""
+    from openlimno.habitat.composite import CompositeOverlay
+
+    overlay = CompositeOverlay.from_metrics(None, None)
+    assert overlay.overlay_si is None
+    assert overlay.n_overlays == 0
+
+
+def test_v160_overlay_rejects_out_of_range():
+    """SI values outside [0, 1] are caller bugs and must raise."""
+    from openlimno.habitat.composite import CompositeOverlay
+
+    with pytest.raises(ValueError, match="outside"):
+        CompositeOverlay.from_metrics(
+            thermal_metrics=None,
+            cover_metrics={"mean_si": 1.5},
+        )
+
+
+def test_v160_apply_overlay_multiplies_only_base_columns():
+    """``apply_overlay`` adds paired composite columns and leaves the
+    base table intact. Idempotent when re-applied (the second pass
+    should NOT recurse over the composite_* columns)."""
+    import pandas as pd
+
+    from openlimno.habitat.composite import CompositeOverlay, apply_overlay
+
+    base = pd.DataFrame({
+        "discharge_m3s": [1.0, 5.0, 10.0],
+        "wua_m2_salmo_trutta_adult": [100.0, 250.0, 300.0],
+    })
+    overlay = CompositeOverlay(cover_si=0.5, thermal_si=0.6, overlay_si=0.3)
+    composite = apply_overlay(base, overlay)
+    # Original column preserved
+    assert composite["wua_m2_salmo_trutta_adult"].tolist() == [100.0, 250.0, 300.0]
+    # Composite column added with multiplicative overlay applied
+    assert composite["wua_m2_composite_salmo_trutta_adult"].tolist() == \
+        pytest.approx([30.0, 75.0, 90.0])
+    # Re-application does NOT cascade the composite into a double
+    # composite (regression pin for the startswith-check in apply_overlay).
+    twice = apply_overlay(composite, overlay)
+    assert "wua_m2_composite_composite_salmo_trutta_adult" not in twice.columns
+
+
+def test_v160_composite_summary_reports_ratio():
+    """``composite_summary`` ships overlay factors + max-WUA shrinkage
+    for review."""
+    import pandas as pd
+
+    from openlimno.habitat.composite import CompositeOverlay, composite_summary
+
+    base = pd.DataFrame({
+        "discharge_m3s": [1.0, 5.0, 10.0],
+        "wua_m2_a_b": [100.0, 250.0, 200.0],
+    })
+    overlay = CompositeOverlay(cover_si=0.5, thermal_si=0.6, overlay_si=0.3)
+    summary = composite_summary(base, overlay)
+    assert summary["overlay_si"] == pytest.approx(0.3)
+    assert summary["cover_si"] == pytest.approx(0.5)
+    assert summary["thermal_si"] == pytest.approx(0.6)
+    assert summary["n_overlays"] == 2
+    assert summary["n_discharges"] == 3
+    [series] = summary["by_species_stage"]
+    assert series["species_stage"] == "a_b"
+    assert series["wua_m2_base_max"] == pytest.approx(250.0)
+    assert series["wua_m2_composite_max"] == pytest.approx(75.0)
+    assert series["discharge_m3s_at_composite_max"] == pytest.approx(5.0)
+    assert series["composite_to_base_ratio"] == pytest.approx(0.3)
+
+
+def test_v160_maybe_run_composite_hsi_writes_outputs(tmp_path):
+    """End-to-end shape: when overlays exist, ``composite_wua_q.parquet``,
+    ``composite_wua_q.csv`` (when csv format requested), and
+    ``composite_hsi.json`` all appear in out_dir, and the helper
+    returns the summary dict."""
+    import json
+
+    import pandas as pd
+    case = Case(
+        config={"case": {"name": "composite_smoke"}},
+        case_yaml_path=tmp_path / "composite_smoke.yaml",
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    wua_df = pd.DataFrame({
+        "discharge_m3s": [1.0, 5.0, 10.0],
+        "wua_m2_oncorhynchus_mykiss_spawning": [120.0, 240.0, 180.0],
+    })
+    summary = case._maybe_run_composite_hsi(
+        wua_df,
+        thermal_metrics_dict={"mean_SI": 0.6},
+        cover_metrics_dict={"mean_si": 0.5},
+        out_dir=out_dir,
+        formats=["csv", "parquet"],
+        warnings=[],
+    )
+    assert summary is not None
+    assert summary["overlay_si"] == pytest.approx(0.3)
+
+    # All three artefacts emitted
+    composite_parquet = out_dir / "composite_wua_q.parquet"
+    composite_csv = out_dir / "composite_wua_q.csv"
+    composite_json = out_dir / "composite_hsi.json"
+    assert composite_parquet.exists()
+    assert composite_csv.exists()
+    assert composite_json.exists()
+
+    payload = json.loads(composite_json.read_text())
+    assert payload["cover_si"] == pytest.approx(0.5)
+    assert payload["thermal_si"] == pytest.approx(0.6)
+    assert payload["overlay_si"] == pytest.approx(0.3)
+    # Composite column carries the overlay multiplied through
+    df_check = pd.read_parquet(composite_parquet)
+    assert "wua_m2_composite_oncorhynchus_mykiss_spawning" in df_check.columns
+    assert df_check["wua_m2_composite_oncorhynchus_mykiss_spawning"].tolist() == \
+        pytest.approx([36.0, 72.0, 54.0])
+
+
+def test_v160_maybe_run_composite_hsi_skipped_when_no_overlays(tmp_path):
+    """Mirrors v1.1.1 / v1.5.0 silent-skip semantics: no thermal AND
+    no cover → return None, no artefacts emitted."""
+    import pandas as pd
+    case = Case(
+        config={"case": {"name": "composite_skip"}},
+        case_yaml_path=tmp_path / "composite_skip.yaml",
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    wua_df = pd.DataFrame({
+        "discharge_m3s": [1.0, 5.0],
+        "wua_m2_a_b": [10.0, 20.0],
+    })
+    summary = case._maybe_run_composite_hsi(
+        wua_df,
+        thermal_metrics_dict=None,
+        cover_metrics_dict=None,
+        out_dir=out_dir,
+        formats=["csv", "parquet"],
+        warnings=[],
+    )
+    assert summary is None
+    assert not (out_dir / "composite_wua_q.parquet").exists()
+    assert not (out_dir / "composite_wua_q.csv").exists()
+    assert not (out_dir / "composite_hsi.json").exists()
+
+
+def test_v160_provenance_always_contains_composite_summary_key():
+    """Regression pin: ``composite_summary`` must exist in every
+    provenance file (None when no overlays were present), matching the
+    v1.1.1 / v1.5.0 dict-shape contract downstream tooling relies on."""
+    import json
+    case = Case.from_yaml(CASE_YAML)
+    result = case.run(discharges_m3s=[3.0])
+    prov = json.loads(result.provenance_path.read_text())
+    assert "composite_summary" in prov
+    assert prov["composite_summary"] is None
