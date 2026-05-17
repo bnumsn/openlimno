@@ -957,6 +957,29 @@ class Case:
             # don't leave a fully-written tempfile in the output dir.
             publish.unlink(missing_ok=True)
             raise
+        # v1.8.3 (4th-review regression): tempfile.mkstemp creates the
+        # publish file with restrictive 0600 permissions (POSIX security
+        # default for security-sensitive tempfiles). os.replace preserves
+        # those perms on the published target, which is a regression vs.
+        # the pre-v1.8.2 behaviour where to_csv wrote files honouring
+        # the process umask (typically 0644). Shared-filesystem
+        # deployments and web-accessible directories lose read access
+        # to regulatory CSVs after v1.8.2.
+        #
+        # Restore umask-respecting perms after publish. The mode 0o666
+        # baseline matches what an ordinary `open(path, "w")` would have
+        # produced; the process umask then strips the bits the operator
+        # configured (typically 022 → final 0644).
+        try:
+            current_umask = os.umask(0)
+            os.umask(current_umask)  # restore immediately
+            os.chmod(path, 0o666 & ~current_umask)
+        except OSError:
+            # chmod can fail on filesystems that don't support permission
+            # bits (e.g. some FAT mounts). The file is still published
+            # atomically with whatever perms the FS allows; surface as a
+            # silent no-op rather than failing the regulatory export.
+            pass
 
     def _wua_csv_header(self, quality_grade: str) -> str | None:
         """Build a comment-prefix header line for WUA CSV outputs.

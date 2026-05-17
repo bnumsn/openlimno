@@ -1570,3 +1570,63 @@ def test_v182_composite_header_lines_docstring_no_v170_stamp():
     # the old form. Easiest check: the literal "v1.7.0 composite" must
     # not appear as a quoted emitter string.
     assert "v1.7.0 composite overlay" not in doc
+
+
+# ---------------------------------------------------------------------
+# v1.8.3 — 4th-pass review: file-permission regression from mkstemp
+# ---------------------------------------------------------------------
+@pytest.mark.skipif(
+    __import__("platform").system() == "Windows",
+    reason="POSIX umask semantics; Windows has different permission model",
+)
+def test_v183_regulatory_csvs_respect_umask_not_mkstemp_0600(tmp_path):
+    """4th-review regression pin: v1.8.2 introduced `tempfile.mkstemp`
+    for the atomic publish, which creates files with 0600 (user-only).
+    Both codex and gemini independently flagged that os.replace
+    preserved those restrictive perms — a regression vs the pre-v1.8.2
+    to_csv behavior (umask-respecting, typically 0644). Shared-filesystem
+    deployments would lose group/other read access to regulatory CSVs.
+
+    v1.8.3 chmods the published file using ``0o666 & ~current_umask``
+    so the file follows the umask convention. Pin this so a future
+    refactor that strips the chmod call gets caught.
+    """
+    import os
+    case = Case(
+        config={"case": {"name": "v183"}, "data": {}},
+        case_yaml_path=tmp_path / "case.yaml",
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    wua_q = _make_synthetic_wua_q()
+    ds_csv = _make_synthetic_discharge_series(tmp_path)
+    case._run_regulatory_exports(
+        export_list=["CN-SL712"],
+        wua_q=wua_q,
+        species_list=["oncorhynchus_mykiss"],
+        stage_list=["spawning"],
+        out_dir=out_dir,
+        discharge_series_path=ds_csv,
+        warnings=[],
+        composite_df=None,
+        composite_summary=None,
+        wua_quality_grade="C",
+    )
+    perms = os.stat(out_dir / "sl712.csv").st_mode & 0o777
+
+    # The 0600 regression: file must NOT be user-only.
+    assert perms != 0o600, (
+        f"v1.8.3 regression check: sl712.csv perms={oct(perms)} "
+        f"— mkstemp's 0600 default leaked through os.replace"
+    )
+    # And it must include at least owner read+write (basic sanity).
+    assert perms & 0o600 == 0o600
+
+    # And the file should follow the process umask: 0o666 & ~umask.
+    current_umask = os.umask(0)
+    os.umask(current_umask)
+    expected = 0o666 & ~current_umask
+    assert perms == expected, (
+        f"v1.8.3 perms={oct(perms)} != 0o666 & ~umask({oct(current_umask)}) "
+        f"= {oct(expected)}"
+    )
