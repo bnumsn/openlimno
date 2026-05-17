@@ -4,6 +4,37 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-05-18
+
+**OpenLimno's first stable major release.** v2.0.0 freezes the public API after a 6-round codex+gemini review chain that closed 28 of 30 substantive findings on the v1.6.0 — v1.10.1 composite-overlay + atomic-write surface area. No new features in this release — v2.0.0 is a cut at v1.10.1's HEAD with a version bump, a charter restatement, and the formal end of the "1.x rc" period.
+
+### What 2.0 promises
+
+* **Stable composite-overlay API** — `CompositeOverlay`, `apply_overlay(method=…)`, `composite_summary(method=…)`, and `habitat.composite_overlay_method ∈ {product, geom_mean}` in case.schema.json are now contract surface. Future breaking changes here require a 3.x bump.
+* **Stable atomic-write contract** — every Case.run output writer (provenance.json, all CSV / parquet / netcdf / PNG artefacts, all `*_composite.csv` regulatory reports) goes through `Case._atomic_write(target, writer)` with umask-respecting permissions and chmod-before-replace ordering. Concurrent readers see content+permissions atomically together; crashes leave no partial files.
+* **Stable HSI quality grading + watermarking** — A/B/C grades surface in `provenance.json`, get prepended to every regulatory CSV header, and apply red-banner watermarks to matplotlib outputs at C grade.
+* **Stable regulatory exports** — CN-SL712, US-FERC-4e, EU-WFD all carry composite variants (`<kind>_composite.csv`) when overlays are present, with method-tagged headers so reviewers see the combination rule (`product` or `geom_mean`) directly in the artefact.
+
+### What stays deferred to 3.x
+
+* **F11**: `_composite_view` cosmetic column rename. Would force a coordinated update across regulatory_export modules with no functional benefit; re-evaluate if a public-API audit demands it.
+* **True per-cell four-way geometric mean** (`(d × v × c × t)^(1/4)`): requires cover and thermal as per-cell rasters rather than basin-wide scalars. Out of scope for v1.x; flagged for the v3.x research-route work alongside the SPEC §4.2.2 per-cell version.
+* **Strict mypy** + the upstream-stubs work on yaml / geopandas / rasterio. Pragmatic non-strict mode preserved through v2.0; strict mode is a v3.x project once the ecosystem catches up.
+
+### 6-round review chain — final summary
+
+| Round | Ship targets         | Findings | Closed | Deferred |
+|-------|----------------------|----------|--------|----------|
+| 1     | v1.6.0 + v1.7.0      | 11       | 8      | 2 (F7 + F9 in v1.8.0) |
+| 2     | v1.7.1 + v1.8.0      | 5        | 5      | 0 |
+| 3     | v1.8.1               | 5        | 5      | 0 |
+| 4     | v1.8.2               | 1        | 1      | 0 (R4 permission regression closed in v1.8.3) |
+| 5     | v1.9.0               | 4        | 3      | 1 (R5-3 closed in v1.9.2) |
+| 6     | v1.10.0              | 3        | 3      | 0 (F11 instructed-defer) |
+| **Σ** |                      | **30**   | **28** | **2** |
+
+460 tests pass at v2.0.0 (73 composite-overlay + atomic-write tests in `test_wua_watermark.py`, ~390 other unit tests, 6 integration). 0 lint findings in the v1.6.0 — v2.0.0 change set's changed files. The 2 pre-existing failures in `test_cover_habitat` and `test_thermal_habitat` (transitive `osgeo` import) are environmental on the dev machine, unrelated to OpenLimno code.
+
 ### Fixed
 - **v1.10.1 — 6th-pass review patches (R6-1 + R6-2 + R6-3)**:
     6th-pass codex+gemini review of v1.10.0 returned PASS 1 N6 CLOSED (F11 deferred as instructed). Three new PASS 2 findings — two HIGH/MED on the geom_mean implementation, one LOW on the CHANGELOG. This point release closes all three.

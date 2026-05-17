@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openlimno"
-version = "1.10.1"
+version = "2.0.0"
 description = "Open-source ecological-flow and fish-habitat decision platform with hydraulic-model interoperability"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
@@ -141,8 +141,8 @@ quote-style = "double"
 # ---------------------------------------------------------------
 [tool.mypy]
 python_version = "3.11"
-# Pragmatic stance for a 1.0-rc science codebase: catch real type bugs without
-# fighting numpy/pandas dynamic typing. Strict mode is the goal post-1.0 once
+# Pragmatic stance for a 2.0 science codebase: catch real type bugs without
+# fighting numpy/pandas dynamic typing. Strict mode is the goal post-2.0 once
 # upstream stubs (yaml, geopandas, rasterio) stabilise.
 strict = false
 ignore_missing_imports = true
