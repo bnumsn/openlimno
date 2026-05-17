@@ -17,6 +17,7 @@ import platform
 import socket
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -272,9 +273,15 @@ class Case:
             if hmu_df is not None and len(hmu_df) > 0:
                 self._write_csv_with_header(hmu_df, out_dir / "wua_hmu.csv", watermark_header)
         if "parquet" in formats:
-            wua_df.to_parquet(out_dir / "wua_q.parquet", index=False)
+            self._atomic_write(
+                out_dir / "wua_q.parquet",
+                lambda p: wua_df.to_parquet(p, index=False),
+            )
             if hmu_df is not None and len(hmu_df) > 0:
-                hmu_df.to_parquet(out_dir / "wua_hmu.parquet", index=False)
+                self._atomic_write(
+                    out_dir / "wua_hmu.parquet",
+                    lambda p: hmu_df.to_parquet(p, index=False),
+                )
         if "netcdf" in formats:
             self._write_hydraulic_netcdf(hydraulic_results, sections, out_dir / "hydraulics.nc")
 
@@ -383,7 +390,13 @@ class Case:
             cover_metrics_dict=cover_metrics_dict,
             composite_summary_dict=composite_summary_dict,
         )
-        prov_path.write_text(json.dumps(provenance, indent=2, default=str))
+        self._atomic_write(
+            prov_path,
+            lambda p: p.write_text(
+                json.dumps(provenance, indent=2, default=str),
+                encoding="utf-8",
+            ),
+        )
 
         return CaseRunResult(
             case_name=self.name,
@@ -593,7 +606,10 @@ class Case:
         if not rows:
             return None
         df = pd.DataFrame(rows)
-        df.to_csv(out_dir / "drift_egg.csv", index=False)
+        self._atomic_write(
+            out_dir / "drift_egg.csv",
+            lambda p: df.to_csv(p, index=False),
+        )
         return df
 
     def _build_temperature_field(
@@ -918,15 +934,14 @@ class Case:
         if overlay_note:
             prefix_lines.extend(overlay_note)
 
-        target_dir = path.parent
-        base = path.name
-
-        # Render the report body into a sibling tempfile with a unique
-        # random name — concurrent same-path publishes no longer share
-        # tempfile names. mkstemp returns an open file descriptor; we
-        # close it immediately because to_csv() opens the path itself.
+        # v1.9.0: render the report into a unique body tempfile, then
+        # delegate publish (atomicity + perms) to the shared
+        # ``_atomic_write`` helper. The body tempfile uses mkstemp too
+        # so concurrent same-path publishes still don't collide on
+        # body-stage filenames.
         body_fd, body_path_str = _tempfile.mkstemp(
-            prefix=f".{base}.body.", suffix=".inprogress", dir=target_dir,
+            prefix=f".{path.name}.body.", suffix=".inprogress",
+            dir=path.parent,
         )
         os.close(body_fd)
         body_path = Path(body_path_str)
@@ -941,45 +956,9 @@ class Case:
         else:
             content = body
 
-        # Single atomic publish: write to a unique sibling tempfile,
-        # then os.replace() onto the target. POSIX/NTFS guarantee this
-        # is atomic for paths on the same filesystem.
-        pub_fd, pub_path_str = _tempfile.mkstemp(
-            prefix=f".{base}.publish.", suffix=".tmp", dir=target_dir,
+        Case._atomic_write(
+            path, lambda p: p.write_text(content, encoding="utf-8"),
         )
-        os.close(pub_fd)
-        publish = Path(pub_path_str)
-        try:
-            publish.write_text(content, encoding="utf-8")
-            os.replace(publish, path)
-        except BaseException:
-            # If anything goes wrong between write_text and os.replace,
-            # don't leave a fully-written tempfile in the output dir.
-            publish.unlink(missing_ok=True)
-            raise
-        # v1.8.3 (4th-review regression): tempfile.mkstemp creates the
-        # publish file with restrictive 0600 permissions (POSIX security
-        # default for security-sensitive tempfiles). os.replace preserves
-        # those perms on the published target, which is a regression vs.
-        # the pre-v1.8.2 behaviour where to_csv wrote files honouring
-        # the process umask (typically 0644). Shared-filesystem
-        # deployments and web-accessible directories lose read access
-        # to regulatory CSVs after v1.8.2.
-        #
-        # Restore umask-respecting perms after publish. The mode 0o666
-        # baseline matches what an ordinary `open(path, "w")` would have
-        # produced; the process umask then strips the bits the operator
-        # configured (typically 022 → final 0644).
-        try:
-            current_umask = os.umask(0)
-            os.umask(current_umask)  # restore immediately
-            os.chmod(path, 0o666 & ~current_umask)
-        except OSError:
-            # chmod can fail on filesystems that don't support permission
-            # bits (e.g. some FAT mounts). The file is still published
-            # atomically with whatever perms the FS allows; surface as a
-            # silent no-op rather than failing the regulatory export.
-            pass
 
     def _wua_csv_header(self, quality_grade: str) -> str | None:
         """Build a comment-prefix header line for WUA CSV outputs.
@@ -1061,8 +1040,10 @@ class Case:
             ),
         )
         thermal_df = thermal_suitability_series(clim_df, tr)
-        out_path = out_dir / "thermal_hsi.csv"
-        thermal_df.to_csv(out_path, index=False)
+        self._atomic_write(
+            out_dir / "thermal_hsi.csv",
+            lambda p: thermal_df.to_csv(p, index=False),
+        )
         return thermal_metrics(thermal_df)
 
     def _maybe_run_cover_habitat(
@@ -1120,7 +1101,6 @@ class Case:
         class_km2 = {
             int(k): float(v) for k, v in class_km2_source.items()
         }
-        out_path = out_dir / "cover_si.json"
         # int-keyed dicts are NOT JSON-serialisable directly; flatten
         # to a list of records for round-trip stability.
         payload = {
@@ -1138,7 +1118,12 @@ class Case:
                 for code in sorted(class_pixels)
             ],
         }
-        out_path.write_text(json.dumps(payload, indent=2))
+        self._atomic_write(
+            out_dir / "cover_si.json",
+            lambda p: p.write_text(
+                json.dumps(payload, indent=2), encoding="utf-8",
+            ),
+        )
         return {
             "mean_si": float(mean_si),
             "n_classes": len(class_pixels),
@@ -1224,15 +1209,21 @@ class Case:
         composite_df = apply_overlay(wua_df, overlay)
         summary = composite_summary(wua_df, overlay)
         if "parquet" in formats:
-            composite_df.to_parquet(
-                out_dir / "composite_wua_q.parquet", index=False,
+            self._atomic_write(
+                out_dir / "composite_wua_q.parquet",
+                lambda p: composite_df.to_parquet(p, index=False),
             )
         if "csv" in formats:
-            composite_df.to_csv(
-                out_dir / "composite_wua_q.csv", index=False,
+            self._atomic_write(
+                out_dir / "composite_wua_q.csv",
+                lambda p: composite_df.to_csv(p, index=False),
             )
-        (out_dir / "composite_hsi.json").write_text(
-            json.dumps(summary, indent=2, default=str),
+        self._atomic_write(
+            out_dir / "composite_hsi.json",
+            lambda p: p.write_text(
+                json.dumps(summary, indent=2, default=str),
+                encoding="utf-8",
+            ),
         )
 
         if overlay.cover_si is None:
@@ -1246,13 +1237,72 @@ class Case:
         return summary, composite_df
 
     @staticmethod
+    def _atomic_write(target: Path, writer: Callable[[Path], None]) -> None:
+        """v1.9.0: generalized atomic-publish helper.
+
+        Hand any ``writer(tmp_path)`` callable that takes a Path and
+        writes to it; this helper:
+
+        1. Allocates a unique sibling tempfile via ``tempfile.mkstemp``
+           (random suffix → concurrent-write safe; replaces the fixed
+           ``.publishtmp`` suffix from v1.8.2 which collided when two
+           writers raced the same target).
+        2. Invokes ``writer(publish_path)`` to render the content.
+        3. Atomically publishes via ``os.replace(publish_path, target)``
+           — POSIX/NTFS guarantee atomicity for paths on the same
+           filesystem. Any reader either sees the previous content (or
+           a missing file) or the fully-written new content; no
+           intermediate state is observable.
+        4. Restores umask-respecting permissions (``0o666 & ~umask``)
+           because ``tempfile.mkstemp`` creates 0600 files by default —
+           the v1.8.3 fix carried over from ``_emit_regulatory_csv``.
+        5. On any exception during render or replace, removes the
+           orphan tempfile so the output directory stays clean.
+
+        Generalizes the atomic-publish pattern that
+        ``_emit_regulatory_csv`` proved in v1.7.1-v1.8.3; round-4 review
+        flagged the rest of OpenLimno's output writers as a "contract
+        uneven-ness" — every Case.run output now goes through this
+        same path.
+        """
+        import tempfile as _tempfile
+        target_dir = target.parent
+        base = target.name
+        pub_fd, pub_path_str = _tempfile.mkstemp(
+            prefix=f".{base}.publish.", suffix=".tmp", dir=target_dir,
+        )
+        os.close(pub_fd)
+        publish = Path(pub_path_str)
+        try:
+            writer(publish)
+            os.replace(publish, target)
+        except BaseException:
+            publish.unlink(missing_ok=True)
+            raise
+        # v1.8.3: restore umask-respecting permissions on the published
+        # target. mkstemp creates 0600 by default; os.replace preserves
+        # that. We want the umask convention (typically 0644) that the
+        # rest of the OpenLimno output suite used pre-v1.8.2.
+        try:
+            current_umask = os.umask(0)
+            os.umask(current_umask)
+            os.chmod(target, 0o666 & ~current_umask)
+        except OSError:
+            pass
+
+    @staticmethod
     def _write_csv_with_header(df: pd.DataFrame, path: Path, header_line: str | None) -> None:
-        if header_line:
-            with path.open("w", encoding="utf-8") as f:
-                f.write(header_line)
-                df.to_csv(f, index=False)
-        else:
-            df.to_csv(path, index=False)
+        """v1.9.0: routes through ``_atomic_write`` so wua_q.csv and
+        wua_hmu.csv inherit the same atomicity + umask semantics as the
+        regulatory CSVs from the v1.7.1/v1.8.3 chain."""
+        def _render(tmp: Path) -> None:
+            if header_line:
+                with tmp.open("w", encoding="utf-8") as f:
+                    f.write(header_line)
+                    df.to_csv(f, index=False)
+            else:
+                df.to_csv(tmp, index=False)
+        Case._atomic_write(path, _render)
 
     def _compute_wua_quality(
         self,

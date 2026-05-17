@@ -1630,3 +1630,105 @@ def test_v183_regulatory_csvs_respect_umask_not_mkstemp_0600(tmp_path):
         f"v1.8.3 perms={oct(perms)} != 0o666 & ~umask({oct(current_umask)}) "
         f"= {oct(expected)}"
     )
+
+
+# ---------------------------------------------------------------------
+# v1.9.0 — atomic-write helper generalized to all output writers
+# ---------------------------------------------------------------------
+def test_v190_atomic_write_helper_publishes_via_temp_rename(tmp_path):
+    """The new shared ``Case._atomic_write(target, writer)`` helper must:
+    (1) invoke ``writer(tmp_path)`` on a sibling tempfile, not the
+        target path directly,
+    (2) rename atomically onto the target via ``os.replace``,
+    (3) leave no tempfile leftovers in the directory,
+    (4) restore umask-respecting perms (closes the v1.8.3 regression
+        for all writers, not just regulatory CSVs).
+    """
+    target = tmp_path / "data.txt"
+    seen_writer_path: dict[str, Path | None] = {"p": None}
+
+    def _writer(p: Path) -> None:
+        seen_writer_path["p"] = p
+        # writer must NEVER be invoked on the target itself
+        assert p != target
+        # but should land in the same directory (for atomic rename)
+        assert p.parent == target.parent
+        p.write_text("hello v1.9.0 atomic\n", encoding="utf-8")
+
+    Case._atomic_write(target, _writer)
+    assert target.read_text(encoding="utf-8") == "hello v1.9.0 atomic\n"
+    # No tempfile leftovers
+    leftover = [
+        p.name for p in tmp_path.iterdir()
+        if p.name != "data.txt" and (".publish." in p.name or ".body." in p.name)
+    ]
+    assert leftover == [], f"v1.9.0 leftover tempfiles: {leftover}"
+
+
+@pytest.mark.skipif(
+    __import__("platform").system() == "Windows",
+    reason="POSIX umask semantics; Windows perm model differs",
+)
+def test_v190_atomic_write_helper_respects_umask(tmp_path):
+    """All output writers, not just regulatory CSVs, now respect the
+    process umask. Regression pin against future refactors of
+    ``_atomic_write`` that might lose the chmod step."""
+    import os
+    target = tmp_path / "out.json"
+    Case._atomic_write(
+        target,
+        lambda p: p.write_text('{"k": "v"}', encoding="utf-8"),
+    )
+    perms = os.stat(target).st_mode & 0o777
+    current_umask = os.umask(0)
+    os.umask(current_umask)
+    expected = 0o666 & ~current_umask
+    assert perms == expected, (
+        f"v1.9.0: _atomic_write target perms={oct(perms)} != "
+        f"expected {oct(expected)}"
+    )
+
+
+def test_v190_atomic_write_cleans_up_on_writer_exception(tmp_path):
+    """If the writer callable raises, the helper must remove the
+    publish tempfile (no orphan in the output dir) and re-raise the
+    original exception."""
+    target = tmp_path / "boom.txt"
+
+    class _BoomError(RuntimeError):
+        pass
+
+    def _bad_writer(p: Path) -> None:
+        p.write_text("partial", encoding="utf-8")
+        raise _BoomError("intentional")
+
+    with pytest.raises(_BoomError, match="intentional"):
+        Case._atomic_write(target, _bad_writer)
+
+    # Target should not exist (writer failed before os.replace);
+    # publish tempfile should be cleaned up.
+    assert not target.exists()
+    leftover = list(tmp_path.iterdir())
+    assert leftover == [], f"v1.9.0 cleanup leftover: {leftover}"
+
+
+def test_v190_provenance_json_routes_through_atomic_write():
+    """End-to-end pin that Case.run's provenance.json write now goes
+    through the atomic-publish path. Lemhi has no overlays so we can
+    rely on the standard run() to exercise the new code without
+    needing a synthetic overlay fixture."""
+    case = Case.from_yaml(CASE_YAML)
+    result = case.run(discharges_m3s=[3.0])
+    # The file exists and is valid JSON — basic correctness preserved
+    # under the new write path. Atomicity is mechanical (provided by
+    # _atomic_write tests above); this test pins the integration.
+    import json as _json
+    _json.loads(result.provenance_path.read_text())
+    # And no .publish.*.tmp / .body.*.inprogress leftover next to it
+    leftover = [
+        p.name for p in result.output_dir.iterdir()
+        if ".publish." in p.name or ".body." in p.name
+    ]
+    assert leftover == [], (
+        f"v1.9.0 provenance integration left tempfiles: {leftover}"
+    )
