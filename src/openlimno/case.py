@@ -776,10 +776,17 @@ class Case:
 
     @staticmethod
     def _composite_header_lines(summary: dict | None) -> list[str]:
-        """Build the ``# OpenLimno v1.7.0 composite overlay …`` header
+        """Build the ``# OpenLimno composite overlay …`` header
         block prepended to every ``*_composite.csv`` artefact so a
         reviewer reading the file in isolation can see exactly which
-        cover/thermal factors were applied."""
+        cover/thermal factors were applied.
+
+        v1.8.2 (3rd-review M4): docstring corrected — the actual emitted
+        line dropped its ``v1.7.0`` stamp in v1.8.1 (review N5), but
+        this docstring still mentioned the old literal. The historical
+        references in surrounding comments are intentionally kept as
+        per-feature provenance trails.
+        """
         if summary is None:
             return []
         cover = summary.get("cover_si")
@@ -818,6 +825,16 @@ class Case:
         # any base CSV is written. NaN ratio is filtered out so the
         # header doesn't render an ugly ``(×nan)``.
         for series in summary.get("by_species_stage", []) or []:
+            # v1.8.2 (3rd-review M2): an entry that is not a mapping
+            # (None, float, str, list inserted by a malformed upstream
+            # producer) would raise AttributeError on .get(), which
+            # the original (TypeError, ValueError) catch did not
+            # cover — that AttributeError escaped _composite_header_lines
+            # entirely and aborted the regulatory_export step BEFORE
+            # the per-export try/except. Skip non-mapping entries up
+            # front and widen the catch.
+            if not hasattr(series, "get"):
+                continue
             try:
                 base_max = series.get("wua_m2_base_max")
                 comp_max = series.get("wua_m2_composite_max")
@@ -838,7 +855,7 @@ class Case:
                     f"#   {name}: base_max={float(base_max):.2f} m² → "
                     f"composite_max={float(comp_max):.2f} m²{ratio_part}"
                 )
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, AttributeError):
                 # Malformed series — skip this entry; keep emitting
                 # the others rather than aborting the entire header.
                 continue
@@ -880,7 +897,20 @@ class Case:
         ``os.replace`` (atomic on the same filesystem). The target
         ``path`` either does not exist or carries the fully-prefixed
         content; there is no observable intermediate state.
+
+        v1.8.2 (3rd-review M1): tempfile names previously used fixed
+        ``.inprogress`` / ``.publishtmp`` suffixes derived from the
+        target path. Two concurrent writers (retry wrappers, parallel
+        test runs in the same output dir, two case runs pointed at
+        the same ``output.dir``) would collide on those names — one
+        publisher could overwrite or unlink the other's body, or
+        ``os.replace`` the wrong content. Now uses ``tempfile.mkstemp``
+        with a per-call random suffix in the target's directory, and
+        guards the publish tempfile with try/finally so a crash or
+        ``os.replace`` failure can't leave a fully-written tempfile
+        behind.
         """
+        import tempfile as _tempfile
         prefix_lines: list[str] = []
         if quality_watermark:
             # _wua_csv_header returns a string ending in '\n' already.
@@ -888,27 +918,45 @@ class Case:
         if overlay_note:
             prefix_lines.extend(overlay_note)
 
-        # Render the report body into a sibling tempfile so the
-        # underlying to_csv() (which only accepts a path) doesn't touch
-        # the publish target.
-        tmp = path.with_suffix(path.suffix + ".inprogress")
+        target_dir = path.parent
+        base = path.name
+
+        # Render the report body into a sibling tempfile with a unique
+        # random name — concurrent same-path publishes no longer share
+        # tempfile names. mkstemp returns an open file descriptor; we
+        # close it immediately because to_csv() opens the path itself.
+        body_fd, body_path_str = _tempfile.mkstemp(
+            prefix=f".{base}.body.", suffix=".inprogress", dir=target_dir,
+        )
+        os.close(body_fd)
+        body_path = Path(body_path_str)
         try:
-            result.to_csv(tmp)
-            body = tmp.read_text(encoding="utf-8")
+            result.to_csv(body_path)
+            body = body_path.read_text(encoding="utf-8")
         finally:
-            tmp.unlink(missing_ok=True)
+            body_path.unlink(missing_ok=True)
 
         if prefix_lines:
             content = "\n".join(prefix_lines) + "\n" + body
         else:
             content = body
 
-        # Single atomic publish: write to a sibling tempfile, then
-        # os.replace() onto the target. POSIX/NTFS guarantee this is
-        # atomic for paths on the same filesystem.
-        publish = path.with_suffix(path.suffix + ".publishtmp")
-        publish.write_text(content, encoding="utf-8")
-        os.replace(publish, path)
+        # Single atomic publish: write to a unique sibling tempfile,
+        # then os.replace() onto the target. POSIX/NTFS guarantee this
+        # is atomic for paths on the same filesystem.
+        pub_fd, pub_path_str = _tempfile.mkstemp(
+            prefix=f".{base}.publish.", suffix=".tmp", dir=target_dir,
+        )
+        os.close(pub_fd)
+        publish = Path(pub_path_str)
+        try:
+            publish.write_text(content, encoding="utf-8")
+            os.replace(publish, path)
+        except BaseException:
+            # If anything goes wrong between write_text and os.replace,
+            # don't leave a fully-written tempfile in the output dir.
+            publish.unlink(missing_ok=True)
+            raise
 
     def _wua_csv_header(self, quality_grade: str) -> str | None:
         """Build a comment-prefix header line for WUA CSV outputs.

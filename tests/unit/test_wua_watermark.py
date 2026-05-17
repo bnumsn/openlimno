@@ -1284,8 +1284,15 @@ def test_v181_n3_full_csv_integrity_under_layered_prepend(tmp_path):
     # 3. The original "# OpenLimno SL/Z 712-2014" report header still
     #    appears below the prefix block
     assert any("SL/Z 712-2014" in line for line in lines)
-    # 4. The 12 monthly data rows survive intact (month=1..12 + header)
-    df = pd.read_csv(out_dir / "sl712_composite.csv", comment="#")
+    # 4. The 12 monthly data rows survive intact (month=1..12 + header).
+    # v1.8.2 (3rd-review M5): use skiprows to find the column-header row
+    # robustly, instead of relying on pd.read_csv(comment="#"). A future
+    # report column whose value contains "#" would silently truncate
+    # under the comment-prefix mode.
+    n_comment_rows = sum(1 for line in lines if line.startswith("#"))
+    df = pd.read_csv(
+        out_dir / "sl712_composite.csv", skiprows=n_comment_rows,
+    )
     assert len(df) == 12
     assert (df["month"] == list(range(1, 13))).all()
 
@@ -1401,3 +1408,165 @@ def test_v181_n3_caserunresult_composite_fields_set_when_overlays_present(
     assert "wua_m2_composite_oncorhynchus_mykiss_spawning" in composite_df.columns
     assert composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"].tolist() == \
         pytest.approx([30.0, 75.0, 60.0])
+
+
+def test_v182_caserunresult_population_through_case_run(monkeypatch, tmp_path):
+    """M3 (3rd-review): the v1.8.0 F7 test only checks that fields exist
+    on CaseRunResult; the v1.8.1 strengthening calls
+    ``_maybe_run_composite_hsi`` directly. Neither test would fail if a
+    future refactor accidentally dropped ``composite_wua_q=composite_df``
+    from the ``return CaseRunResult(...)`` call site.
+
+    This test patches ``_maybe_run_composite_hsi`` to return a known
+    composite tuple, runs the real Lemhi case end-to-end, and verifies
+    that BOTH the patched DataFrame and summary land on the returned
+    CaseRunResult — pinning the integration of the helper return values
+    with the dataclass population at the run() return site.
+    """
+    if not CASE_YAML.exists():
+        pytest.skip("Lemhi example missing")
+    import pandas as pd
+
+    sentinel_summary = {
+        "cover_si": 0.42,
+        "thermal_si": 0.6,
+        "overlay_si": 0.252,
+        "n_overlays": 2,
+        "by_species_stage": [],
+    }
+    sentinel_df = pd.DataFrame({
+        "discharge_m3s": [1.0, 2.0],
+        "wua_m2_composite_sentinel_marker": [99.0, 99.0],
+    })
+
+    def _stub_maybe_run_composite_hsi(
+        self, wua_df, thermal_metrics_dict, cover_metrics_dict,
+        out_dir, formats, warnings,
+    ):
+        return sentinel_summary, sentinel_df
+
+    monkeypatch.setattr(
+        Case, "_maybe_run_composite_hsi",
+        _stub_maybe_run_composite_hsi,
+    )
+    result = Case.from_yaml(CASE_YAML).run(discharges_m3s=[3.0])
+
+    # The patched helper output reached the returned CaseRunResult
+    assert result.composite_summary is sentinel_summary
+    assert result.composite_wua_q is sentinel_df
+    # And the sentinel column is observable (proves we got the right
+    # DataFrame, not a fresh one from a real composite run)
+    assert "wua_m2_composite_sentinel_marker" in result.composite_wua_q.columns
+
+
+def test_v182_emit_regulatory_csv_concurrent_safe_tempfile_naming(tmp_path):
+    """M1 (3rd-review): regression pin that ``_emit_regulatory_csv``
+    no longer uses fixed ``<path>.inprogress`` / ``<path>.publishtmp``
+    suffixes — two concurrent writers to the same target would have
+    collided on those names. The v1.8.2 refactor uses
+    ``tempfile.mkstemp`` with per-call random suffixes.
+
+    We can't easily simulate concurrent processes here, but we CAN
+    pin that the tempfile names follow the new pattern (random-suffix
+    hidden files prefixed with ``.<basename>.body.`` / ``.<basename>.publish.``)
+    by patching ``tempfile.mkstemp`` and recording the kwargs used.
+    """
+    import tempfile
+    captured_calls: list[dict] = []
+    real_mkstemp = tempfile.mkstemp
+
+    def _spy_mkstemp(*args, **kwargs):
+        captured_calls.append(dict(kwargs))
+        return real_mkstemp(*args, **kwargs)
+
+    case = Case(
+        config={"case": {"name": "m1_smoke"}, "data": {}},
+        case_yaml_path=tmp_path / "case.yaml",
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    wua_q = _make_synthetic_wua_q()
+    ds_csv = _make_synthetic_discharge_series(tmp_path)
+
+    import unittest.mock as _mock
+    with _mock.patch("tempfile.mkstemp", side_effect=_spy_mkstemp):
+        case._run_regulatory_exports(
+            export_list=["CN-SL712"],
+            wua_q=wua_q,
+            species_list=["oncorhynchus_mykiss"],
+            stage_list=["spawning"],
+            out_dir=out_dir,
+            discharge_series_path=ds_csv,
+            warnings=[],
+            composite_df=None,
+            composite_summary=None,
+            wua_quality_grade="C",
+        )
+
+    # Two mkstemp calls per regulatory CSV: one for the body, one for
+    # the publish stage. CN-SL712 base only (no composite) → 2 calls.
+    assert len(captured_calls) == 2
+    # Both calls land in the target output directory (atomic os.replace
+    # needs same-filesystem siblings)
+    for call in captured_calls:
+        assert call["dir"] == out_dir
+    # Distinct prefixes — body vs publish — so they don't share names
+    prefixes = [c["prefix"] for c in captured_calls]
+    assert any(".body." in p for p in prefixes)
+    assert any(".publish." in p for p in prefixes)
+    # And the final published target exists with TENTATIVE on line 1
+    out_files = sorted(p.name for p in out_dir.iterdir() if p.is_file())
+    assert out_files == ["sl712.csv"]
+    first_line = (out_dir / "sl712.csv").read_text().splitlines()[0]
+    assert "TENTATIVE" in first_line
+
+
+def test_v182_composite_header_lines_handles_non_mapping_entries():
+    """M2 (3rd-review): codex flagged that the v1.8.1 defensive try/except
+    caught (TypeError, ValueError) but missed AttributeError, which a
+    non-mapping ``series`` (None / float / string in by_species_stage)
+    would raise on .get(). Pin that those entries now drop silently
+    too, so a malformed upstream summary can't abort regulatory_export
+    before any base CSV is emitted."""
+    summary = {
+        "cover_si": 0.5, "thermal_si": 0.6, "overlay_si": 0.3, "n_overlays": 2,
+        "by_species_stage": [
+            # OK entry, should emit
+            {
+                "species_stage": "ok",
+                "wua_m2_base_max": 100.0,
+                "wua_m2_composite_max": 30.0,
+                "composite_to_base_ratio": 0.3,
+            },
+            None,                      # ← raises AttributeError on .get
+            float("nan"),              # ← also AttributeError-ish
+            "bad string entry",        # ← also AttributeError-ish
+            42,                        # ← also AttributeError-ish
+            ["list", "not", "mapping"],  # ← also AttributeError-ish
+        ],
+    }
+    # Must NOT raise; should silently drop the non-mapping entries
+    lines = Case._composite_header_lines(summary)
+    joined = "\n".join(lines)
+    assert "ok" in joined
+    assert "100.00" in joined and "30.00" in joined
+    # And the malformed entries didn't produce garbage output
+    assert "None" not in joined
+    assert "bad string entry" not in joined
+
+
+def test_v182_composite_header_lines_docstring_no_v170_stamp():
+    """M4 (3rd-review): regression pin that the ``_composite_header_lines``
+    docstring no longer mentions ``v1.7.0`` (the stamp was dropped from
+    the actual emitted header in v1.8.1 but the docstring was overlooked
+    until v1.8.2)."""
+    doc = Case._composite_header_lines.__doc__
+    assert doc is not None
+    # The historical-reference note in v1.8.2 explicitly mentions
+    # 'v1.7.0' to record WHEN the stamp was dropped, but the emitted-
+    # header literal should be the generic form.
+    assert "OpenLimno composite overlay" in doc
+    # ...and the docstring should not claim the emitter still writes
+    # the old form. Easiest check: the literal "v1.7.0 composite" must
+    # not appear as a quoted emitter string.
+    assert "v1.7.0 composite overlay" not in doc
