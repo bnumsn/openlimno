@@ -838,7 +838,10 @@ def test_v170_run_regulatory_exports_emits_composite_csvs(tmp_path):
     # Composite files carry the overlay-annotation header
     for p in composite:
         head = p.read_text(encoding="utf-8").splitlines()[0]
-        assert "OpenLimno v1.7.0 composite overlay" in head, p
+        # v1.8.1 dropped the hard-coded "v1.7.0" version stamp from the
+        # composite annotation header (2nd-review N5). The generic
+        # "OpenLimno composite overlay" prefix is what survives.
+        assert "OpenLimno composite overlay" in head, p
 
 
 def test_v170_run_regulatory_exports_base_only_without_composite(tmp_path):
@@ -1194,3 +1197,207 @@ def test_v171_regulatory_csvs_grade_a_has_no_watermark(tmp_path):
     ).splitlines()[0]
     # Original SL-712 header survives untouched
     assert first.startswith("# OpenLimno SL/Z 712-2014")
+
+
+# ---------------------------------------------------------------------
+# v1.8.1 — 2nd-pass codex + gemini review patches
+# (N1 atomic write, N2 defensive header, N3 test integrity, N4 NaN
+# guard, N5 drop v1.7.0 stamp)
+# ---------------------------------------------------------------------
+def test_v181_n1_emit_regulatory_csv_leaves_no_inprogress_files(tmp_path):
+    """N1: the atomic-publish refactor uses sibling tempfiles named
+    ``.csv.inprogress`` and ``.csv.publishtmp``. After
+    ``_emit_regulatory_csv`` returns, only the target path should
+    remain on disk — no orphaned tempfiles."""
+    case = Case(
+        config={"case": {"name": "n1_smoke"}, "data": {}},
+        case_yaml_path=tmp_path / "case.yaml",
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    wua_q = _make_synthetic_wua_q()
+    ds_csv = _make_synthetic_discharge_series(tmp_path)
+    case._run_regulatory_exports(
+        export_list=["CN-SL712"],
+        wua_q=wua_q,
+        species_list=["oncorhynchus_mykiss"],
+        stage_list=["spawning"],
+        out_dir=out_dir,
+        discharge_series_path=ds_csv,
+        warnings=[],
+        composite_df=None,
+        composite_summary=None,
+        wua_quality_grade="C",
+    )
+    # Exactly one CSV; no leftover tempfiles
+    files = sorted(p.name for p in out_dir.iterdir() if p.is_file())
+    assert files == ["sl712.csv"], files
+    # And the target file carries TENTATIVE on line 1 (race-free guarantee)
+    first = (out_dir / "sl712.csv").read_text(
+        encoding="utf-8"
+    ).splitlines()[0]
+    assert "TENTATIVE" in first
+
+
+def test_v181_n3_full_csv_integrity_under_layered_prepend(tmp_path):
+    """N3: previous test_v171 layered tests only checked that the
+    TENTATIVE line appears at the top. This goes further and verifies
+    that beneath the layered prefix (quality watermark → overlay
+    annotation → original SL-712 header), the actual monthly DATA
+    survives intact — i.e. the read-modify-write didn't corrupt the
+    DataFrame payload."""
+    import pandas as pd
+    case = Case(
+        config={"case": {"name": "n3_integrity"}, "data": {}},
+        case_yaml_path=tmp_path / "case.yaml",
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    wua_q = _make_synthetic_wua_q()
+    composite_df = wua_q.copy()
+    composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"] = \
+        composite_df["wua_m2_oncorhynchus_mykiss_spawning"] * 0.3
+    composite_summary = {
+        "cover_si": 0.5, "thermal_si": 0.6, "overlay_si": 0.3, "n_overlays": 2,
+    }
+    ds_csv = _make_synthetic_discharge_series(tmp_path)
+    case._run_regulatory_exports(
+        export_list=["CN-SL712"],
+        wua_q=wua_q,
+        species_list=["oncorhynchus_mykiss"],
+        stage_list=["spawning"],
+        out_dir=out_dir,
+        discharge_series_path=ds_csv,
+        warnings=[],
+        composite_df=composite_df,
+        composite_summary=composite_summary,
+        wua_quality_grade="C",
+    )
+    text = (out_dir / "sl712_composite.csv").read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    # Layered order verification (top → bottom):
+    # 1. TENTATIVE quality watermark on line 0
+    assert "TENTATIVE" in lines[0]
+    # 2. Composite overlay annotation block follows
+    assert any("OpenLimno composite overlay" in line for line in lines[:8])
+    # 3. The original "# OpenLimno SL/Z 712-2014" report header still
+    #    appears below the prefix block
+    assert any("SL/Z 712-2014" in line for line in lines)
+    # 4. The 12 monthly data rows survive intact (month=1..12 + header)
+    df = pd.read_csv(out_dir / "sl712_composite.csv", comment="#")
+    assert len(df) == 12
+    assert (df["month"] == list(range(1, 13))).all()
+
+
+def test_v181_n2_composite_header_skips_malformed_series_lines():
+    """N2: malformed entries in ``by_species_stage`` (NaN, strings,
+    missing fields) must drop only that one line — not abort the
+    whole header. Pin this so regulatory_export keeps emitting base
+    CSVs even when a future code change produces a partly-broken
+    composite summary."""
+    summary = {
+        "cover_si": 0.5,
+        "thermal_si": 0.6,
+        "overlay_si": 0.3,
+        "n_overlays": 2,
+        "by_species_stage": [
+            # OK series — should produce a line
+            {
+                "species_stage": "good_one",
+                "wua_m2_base_max": 100.0,
+                "wua_m2_composite_max": 30.0,
+                "composite_to_base_ratio": 0.3,
+            },
+            # NaN — must be skipped silently
+            {
+                "species_stage": "nan_one",
+                "wua_m2_base_max": float("nan"),
+                "wua_m2_composite_max": 30.0,
+                "composite_to_base_ratio": 0.3,
+            },
+            # Non-numeric — must be skipped silently
+            {
+                "species_stage": "string_one",
+                "wua_m2_base_max": "not a number",
+                "wua_m2_composite_max": 30.0,
+                "composite_to_base_ratio": 0.3,
+            },
+            # Missing fields — must be skipped silently
+            {"species_stage": "missing_one"},
+        ],
+    }
+    lines = Case._composite_header_lines(summary)
+    joined = "\n".join(lines)
+    # The good one survives
+    assert "good_one" in joined
+    assert "100.00" in joined and "30.00" in joined
+    # The malformed ones don't appear
+    assert "nan_one" not in joined
+    assert "string_one" not in joined
+    assert "missing_one" not in joined
+    # And critically: no `(×nan)` rendered (N4 guard)
+    assert "nan)" not in joined
+
+
+def test_v181_n4_nan_ratio_renders_without_nan_marker():
+    """N4: explicit pin for NaN ratio handling — when
+    composite_to_base_ratio is NaN the line should either omit the
+    ratio entirely or be skipped, but NEVER render as ``(×nan)``."""
+    summary = {
+        "cover_si": 0.5, "thermal_si": 0.6, "overlay_si": 0.3, "n_overlays": 2,
+        "by_species_stage": [
+            {
+                "species_stage": "nan_ratio",
+                "wua_m2_base_max": 100.0,
+                "wua_m2_composite_max": 30.0,
+                "composite_to_base_ratio": float("nan"),
+            },
+        ],
+    }
+    lines = Case._composite_header_lines(summary)
+    joined = "\n".join(lines)
+    # The base/composite line still emits (magnitudes are valid)
+    assert "nan_ratio" in joined
+    assert "100.00" in joined and "30.00" in joined
+    # But no nan rendered
+    assert "nan)" not in joined and "(×nan" not in joined
+
+
+def test_v181_n3_caserunresult_composite_fields_set_when_overlays_present(
+    tmp_path,
+):
+    """N3 + F7 strengthening: the v1.8.0 F7 test verified the FIELDS
+    exist on CaseRunResult (None on Lemhi). This test exercises the
+    other branch — when _maybe_run_composite_hsi DOES produce a
+    composite, the returned CaseRunResult must carry the actual
+    DataFrame and summary dict (not just the field with None).
+
+    Uses a synthetic minimal case via the helper directly so we don't
+    need a full hydraulic-section fixture."""
+    import pandas as pd
+    case = Case(
+        config={"case": {"name": "f7_overlay"}, "data": {}},
+        case_yaml_path=tmp_path / "case.yaml",
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    wua_df = pd.DataFrame({
+        "discharge_m3s": [1.0, 5.0, 10.0],
+        "wua_m2_oncorhynchus_mykiss_spawning": [100.0, 250.0, 200.0],
+    })
+    summary, composite_df = case._maybe_run_composite_hsi(
+        wua_df,
+        thermal_metrics_dict={"mean_SI": 0.6},
+        cover_metrics_dict={"mean_si": 0.5},
+        out_dir=out_dir,
+        formats=["parquet"],
+        warnings=[],
+    )
+    # Both return values populated when overlays are valid
+    assert summary is not None
+    assert composite_df is not None
+    # And the composite_df actually carries the overlay-multiplied column
+    assert "wua_m2_composite_oncorhynchus_mykiss_spawning" in composite_df.columns
+    assert composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"].tolist() == \
+        pytest.approx([30.0, 75.0, 60.0])

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import os
 import platform
 import socket
 import subprocess
@@ -784,7 +786,10 @@ class Case:
         thermal = summary.get("thermal_si")
         overlay = summary.get("overlay_si")
         lines = [
-            "# OpenLimno v1.7.0 composite overlay applied to this report:",
+            # v1.8.1 (2nd-review N5): drop the hard-coded "v1.7.0" stamp;
+            # historical version labels in output files mislead readers
+            # into thinking the LABEL is the producing software version.
+            "# OpenLimno composite overlay applied to this report:",
             (
                 f"#   cover_si={cover if cover is not None else 'n/a'}"
                 f"   thermal_si={thermal if thermal is not None else 'n/a'}"
@@ -805,18 +810,38 @@ class Case:
         # can see "reference_wua_m2=137.18 was scaled from base 520.00"
         # directly in the header, without having to cross-reference
         # ``eu_wfd.csv`` or ``composite_hsi.json``.
+        #
+        # v1.8.1 (2nd-review N2 + N4): wrap each per-series formatting in
+        # defensive try/except so a malformed future summary entry
+        # (NaN / non-numeric / missing fields) drops only THAT line
+        # instead of aborting the whole regulatory-export step before
+        # any base CSV is written. NaN ratio is filtered out so the
+        # header doesn't render an ugly ``(×nan)``.
         for series in summary.get("by_species_stage", []) or []:
-            base_max = series.get("wua_m2_base_max")
-            comp_max = series.get("wua_m2_composite_max")
-            ratio = series.get("composite_to_base_ratio")
-            name = series.get("species_stage", "?")
-            if base_max is None or comp_max is None:
+            try:
+                base_max = series.get("wua_m2_base_max")
+                comp_max = series.get("wua_m2_composite_max")
+                ratio = series.get("composite_to_base_ratio")
+                name = series.get("species_stage", "?")
+                if base_max is None or comp_max is None:
+                    continue
+                # Reject NaN magnitudes too (a numeric-format would
+                # produce 'nan' which is even worse than no annotation).
+                if math.isnan(float(base_max)) or math.isnan(
+                    float(comp_max)
+                ):
+                    continue
+                ratio_part = ""
+                if ratio is not None and not math.isnan(float(ratio)):
+                    ratio_part = f" (×{float(ratio):.5f})"
+                lines.append(
+                    f"#   {name}: base_max={float(base_max):.2f} m² → "
+                    f"composite_max={float(comp_max):.2f} m²{ratio_part}"
+                )
+            except (TypeError, ValueError):
+                # Malformed series — skip this entry; keep emitting
+                # the others rather than aborting the entire header.
                 continue
-            lines.append(
-                f"#   {name}: base_max={base_max:.2f} m² → "
-                f"composite_max={comp_max:.2f} m²"
-                + (f" (×{ratio:.5f})" if ratio is not None else "")
-            )
         return lines
 
     @staticmethod
@@ -827,36 +852,63 @@ class Case:
         quality_watermark: str | None = None,
         overlay_note: list[str] | None = None,
     ) -> None:
-        """v1.7.1: unified regulatory-export CSV writer.
+        """v1.7.1 (unified) / v1.8.1 (atomic): regulatory-export CSV
+        writer that publishes the final file in a single atomic
+        rename.
 
-        Renders the report, then prepends (in order, top-down):
+        Layered prefix order (top → bottom):
 
         1. The HSI ``quality_watermark`` line (TENTATIVE for C-grade)
            — mirrors what ``wua_q.csv`` carries. Closes review F3:
-           regulatory recommendations now cannot be cited without the
+           regulatory recommendations cannot be cited without the
            HSI-quality warning a downstream reader would see on the
            base WUA CSV.
-        2. The v1.7.0 composite ``overlay_note`` block (composite
-           reports only) — cover/thermal scaling factors so a reviewer
-           opening the file in isolation sees the multiplicative
-           overlay immediately.
-        3. The report's own ``# OpenLimno …`` header block (from
-           ``result.to_csv``) — survives intact below the prefix.
+        2. The composite ``overlay_note`` block (composite reports
+           only) — cover/thermal scaling factors so a reviewer opening
+           the file in isolation sees the multiplicative overlay
+           immediately.
+        3. The report's own ``# OpenLimno …`` header block — survives
+           intact below the prefix.
+
+        v1.8.1 (2nd-review N1): the previous implementation wrote the
+        unprefixed CSV first, then re-opened the same path to prepend
+        the watermark + overlay block. A concurrent reader (or a crash
+        between the two operations) could observe a regulatory CSV
+        missing its TENTATIVE warning — an audit-trail hazard for
+        water-rights work. This version renders to a sibling tempfile,
+        assembles the full prefixed body in memory, then publishes via
+        ``os.replace`` (atomic on the same filesystem). The target
+        ``path`` either does not exist or carries the fully-prefixed
+        content; there is no observable intermediate state.
         """
-        result.to_csv(path)
         prefix_lines: list[str] = []
         if quality_watermark:
             # _wua_csv_header returns a string ending in '\n' already.
             prefix_lines.append(quality_watermark.rstrip("\n"))
         if overlay_note:
             prefix_lines.extend(overlay_note)
-        if not prefix_lines:
-            return
-        original = path.read_text(encoding="utf-8")
-        path.write_text(
-            "\n".join(prefix_lines) + "\n" + original,
-            encoding="utf-8",
-        )
+
+        # Render the report body into a sibling tempfile so the
+        # underlying to_csv() (which only accepts a path) doesn't touch
+        # the publish target.
+        tmp = path.with_suffix(path.suffix + ".inprogress")
+        try:
+            result.to_csv(tmp)
+            body = tmp.read_text(encoding="utf-8")
+        finally:
+            tmp.unlink(missing_ok=True)
+
+        if prefix_lines:
+            content = "\n".join(prefix_lines) + "\n" + body
+        else:
+            content = body
+
+        # Single atomic publish: write to a sibling tempfile, then
+        # os.replace() onto the target. POSIX/NTFS guarantee this is
+        # atomic for paths on the same filesystem.
+        publish = path.with_suffix(path.suffix + ".publishtmp")
+        publish.write_text(content, encoding="utf-8")
+        os.replace(publish, path)
 
     def _wua_csv_header(self, quality_grade: str) -> str | None:
         """Build a comment-prefix header line for WUA CSV outputs.
