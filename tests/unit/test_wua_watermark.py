@@ -1067,6 +1067,103 @@ def test_v171_regulatory_csvs_carry_quality_watermark(tmp_path):
         )
 
 
+# ---------------------------------------------------------------------
+# v1.8.0 — F7 (CaseRunResult.composite_wua_q) + F9 (WFD scaling header)
+# ---------------------------------------------------------------------
+def test_v180_caserunresult_carries_composite_fields_on_lemhi():
+    """F7: ``CaseRunResult`` must expose the new ``composite_wua_q``
+    and ``composite_summary`` fields. Lemhi has no overlays, so both
+    are ``None`` — the regression pin is that the FIELDS exist (so
+    notebook users can rely on the dataclass shape without try/except)."""
+    case = Case.from_yaml(CASE_YAML)
+    result = case.run(discharges_m3s=[3.0])
+    # Field exists on the dataclass (would AttributeError on v1.7.x)
+    assert hasattr(result, "composite_wua_q")
+    assert hasattr(result, "composite_summary")
+    # And both are None for a case without overlays
+    assert result.composite_wua_q is None
+    assert result.composite_summary is None
+
+
+def test_v180_composite_header_lines_includes_per_series_scaling():
+    """F9: ``_composite_header_lines`` should now embed the
+    base → composite scaling per species/stage so a reviewer reading
+    eu_wfd_composite.csv sees the reference-WUA scaling directly."""
+    summary = {
+        "cover_si": 0.4255,
+        "thermal_si": 0.62,
+        "overlay_si": 0.26381,
+        "n_overlays": 2,
+        "by_species_stage": [
+            {
+                "species_stage": "oncorhynchus_mykiss_spawning",
+                "wua_m2_base_max": 520.00,
+                "wua_m2_composite_max": 137.18,
+                "composite_to_base_ratio": 0.26381,
+                "discharge_m3s_at_composite_max": 5.0,
+            },
+        ],
+    }
+    lines = Case._composite_header_lines(summary)
+    joined = "\n".join(lines)
+    # The per-series scaling line is present with both magnitudes
+    assert "oncorhynchus_mykiss_spawning" in joined
+    assert "520.00" in joined and "137.18" in joined
+    assert "×0.26381" in joined
+
+
+def test_v180_wfd_composite_csv_includes_scaling_in_header(tmp_path):
+    """F9 end-to-end: emitting ``eu_wfd_composite.csv`` should now
+    carry the base → composite scaling line in its header so a reviewer
+    can see that ``reference_wua_m2=137.18`` was scaled from a base
+    of 520 without having to cross-reference the base report."""
+    case = Case(
+        config={"case": {"name": "f9_smoke"}, "data": {}},
+        case_yaml_path=tmp_path / "case.yaml",
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    wua_q = _make_synthetic_wua_q()
+    composite_df = wua_q.copy()
+    composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"] = \
+        composite_df["wua_m2_oncorhynchus_mykiss_spawning"] * 0.26381
+    composite_summary = {
+        "cover_si": 0.4255,
+        "thermal_si": 0.62,
+        "overlay_si": 0.26381,
+        "n_overlays": 2,
+        "by_species_stage": [
+            {
+                "species_stage": "oncorhynchus_mykiss_spawning",
+                "wua_m2_base_max": 100.0,
+                "wua_m2_composite_max": 26.381,
+                "composite_to_base_ratio": 0.26381,
+                "discharge_m3s_at_composite_max": 5.0,
+            },
+        ],
+    }
+    ds_csv = _make_synthetic_discharge_series(tmp_path)
+    case._run_regulatory_exports(
+        export_list=["EU-WFD"],
+        wua_q=wua_q,
+        species_list=["oncorhynchus_mykiss"],
+        stage_list=["spawning"],
+        out_dir=out_dir,
+        discharge_series_path=ds_csv,
+        warnings=[],
+        composite_df=composite_df,
+        composite_summary=composite_summary,
+        wua_quality_grade="A",  # focus on the F9 scaling header
+    )
+    text = (out_dir / "eu_wfd_composite.csv").read_text(encoding="utf-8")
+    head = text.splitlines()[:8]
+    head_joined = "\n".join(head)
+    # F9 scaling line shows both magnitudes + ratio
+    assert "oncorhynchus_mykiss_spawning" in head_joined
+    assert "100.00" in head_joined and "26.38" in head_joined
+    assert "×0.26381" in head_joined
+
+
 def test_v171_regulatory_csvs_grade_a_has_no_watermark(tmp_path):
     """A-grade HSI should NOT carry a watermark line — preserves the
     v1.7.0 file shape for high-confidence curves (regression pin so we

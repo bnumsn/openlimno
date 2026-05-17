@@ -53,6 +53,13 @@ class CaseRunResult:
     wua_q: pd.DataFrame  # columns: discharge_m3s, wua_m2_<sp>_<stage>, ...
     provenance_path: Path
     warnings: list[str] = field(default_factory=list)
+    # v1.8.0 (review F7): composite WUA-Q DataFrame when at least one
+    # scalar overlay (cover or thermal) was applied. None for v1.0.x-
+    # style cases without fetched data. Notebook users can now access
+    # composite values directly without round-tripping through
+    # composite_wua_q.parquet.
+    composite_wua_q: pd.DataFrame | None = None
+    composite_summary: dict | None = None
 
     def summary(self) -> str:
         return (
@@ -386,6 +393,8 @@ class Case:
             wua_q=wua_df,
             provenance_path=prov_path,
             warnings=warnings,
+            composite_wua_q=composite_df,
+            composite_summary=composite_summary_dict,
         )
 
     # ------------------------------------------------------------------
@@ -791,6 +800,23 @@ class Case:
                 )
             ),
         ]
+        # v1.8.0 (review F9): include the base → composite scaling per
+        # species/stage so a reviewer reading e.g. ``eu_wfd_composite.csv``
+        # can see "reference_wua_m2=137.18 was scaled from base 520.00"
+        # directly in the header, without having to cross-reference
+        # ``eu_wfd.csv`` or ``composite_hsi.json``.
+        for series in summary.get("by_species_stage", []) or []:
+            base_max = series.get("wua_m2_base_max")
+            comp_max = series.get("wua_m2_composite_max")
+            ratio = series.get("composite_to_base_ratio")
+            name = series.get("species_stage", "?")
+            if base_max is None or comp_max is None:
+                continue
+            lines.append(
+                f"#   {name}: base_max={base_max:.2f} m² → "
+                f"composite_max={comp_max:.2f} m²"
+                + (f" (×{ratio:.5f})" if ratio is not None else "")
+            )
         return lines
 
     @staticmethod
