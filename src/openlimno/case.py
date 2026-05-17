@@ -269,18 +269,9 @@ class Case:
         if "netcdf" in formats:
             self._write_hydraulic_netcdf(hydraulic_results, sections, out_dir / "hydraulics.nc")
 
-        # 5b. Regulatory exports (SPEC §4.2.4.2)
-        reg_exports = cfg.get("regulatory_export", [])
-        if reg_exports:
-            self._run_regulatory_exports(
-                reg_exports,
-                wua_df,
-                species_list,
-                stage_list,
-                out_dir,
-                discharge_series_path,
-                warnings,
-            )
+        # 5b. (Regulatory exports moved below 5c-5e in v1.7.0 so they can
+        # see the composite WUA-Q overlay; this comment preserved as a
+        # signpost for readers expecting the old order.)
 
         # 5c. Thermal habitat suitability (v1.1.1). If the case carries
         # both data.fishbase_traits + data.climate, evaluate a daily
@@ -321,19 +312,40 @@ class Case:
         # composite WUA-Q overlay tables. Skipped silently when
         # neither overlay was computed.
         composite_summary_dict: dict | None = None
+        composite_df: pd.DataFrame | None = None
         try:
-            composite_summary_dict = self._maybe_run_composite_hsi(
-                wua_df,
-                thermal_metrics_dict,
-                cover_metrics_dict,
-                out_dir,
-                formats,
-                warnings,
+            composite_summary_dict, composite_df = (
+                self._maybe_run_composite_hsi(
+                    wua_df,
+                    thermal_metrics_dict,
+                    cover_metrics_dict,
+                    out_dir,
+                    formats,
+                    warnings,
+                )
             )
         except Exception as e:  # noqa: BLE001
             warnings.append(
                 f"composite_hsi step failed: {e!r}. Skipping; the "
                 f"WUA-Q pipeline remains valid."
+            )
+
+        # 5f. Regulatory exports (SPEC §4.2.4.2 / ADR-0009). Runs LAST
+        # (was step 5b through v1.6.x) so it can see the composite
+        # WUA-Q from step 5e and emit paired `<kind>_composite.csv`
+        # variants alongside the base reports when overlays exist.
+        reg_exports = cfg.get("regulatory_export", [])
+        if reg_exports:
+            self._run_regulatory_exports(
+                reg_exports,
+                wua_df,
+                species_list,
+                stage_list,
+                out_dir,
+                discharge_series_path,
+                warnings,
+                composite_df=composite_df,
+                composite_summary=composite_summary_dict,
             )
 
         # 6. HSI watermarking warning (already computed above for CSV header)
@@ -611,8 +623,14 @@ class Case:
         out_dir: Path,
         discharge_series_path: str | Path | None,
         warnings: list[str],
+        composite_df: pd.DataFrame | None = None,
+        composite_summary: dict | None = None,
     ) -> None:
-        """Auto-invoke regulatory_export submodules when listed in case YAML."""
+        """Auto-invoke regulatory_export submodules when listed in case
+        YAML. When ``composite_df`` is provided (v1.7.0), each report is
+        ALSO emitted as a ``<kind>_composite.csv`` variant carrying
+        cover × thermal overlay annotations in its header.
+        """
         if not species_list or not stage_list:
             return
         species = species_list[0]
@@ -644,6 +662,16 @@ class Case:
             )
             return
 
+        # If a composite was produced, build a sibling DataFrame whose
+        # `wua_m2_<sp>_<stage>` columns hold the composite values, so the
+        # compute_* functions (which look up that exact column name)
+        # operate on the composite without any signature change.
+        composite_view = (
+            self._composite_view(composite_df) if composite_df is not None
+            else None
+        )
+        overlay_note = self._composite_header_lines(composite_summary)
+
         for export_kind in export_list:
             try:
                 if export_kind == "CN-SL712":
@@ -651,20 +679,110 @@ class Case:
 
                     res = cn_sl712.compute_sl712(Q, wua_q, species, stage)
                     res.to_csv(out_dir / "sl712.csv")
+                    if composite_view is not None:
+                        comp = cn_sl712.compute_sl712(
+                            Q, composite_view, species, stage,
+                        )
+                        self._emit_composite_csv(
+                            comp, out_dir / "sl712_composite.csv",
+                            overlay_note,
+                        )
                 elif export_kind == "US-FERC-4e":
                     from openlimno.habitat.regulatory_export import us_ferc_4e
 
                     res = us_ferc_4e.compute_ferc_4e(Q, wua_q, species, stage)
                     res.to_csv(out_dir / "ferc_4e.csv")
+                    if composite_view is not None:
+                        comp = us_ferc_4e.compute_ferc_4e(
+                            Q, composite_view, species, stage,
+                        )
+                        self._emit_composite_csv(
+                            comp, out_dir / "ferc_4e_composite.csv",
+                            overlay_note,
+                        )
                 elif export_kind == "EU-WFD":
                     from openlimno.habitat.regulatory_export import eu_wfd
 
                     res = eu_wfd.compute_wfd(Q, wua_q, species, stage)
                     res.to_csv(out_dir / "eu_wfd.csv")
+                    if composite_view is not None:
+                        comp = eu_wfd.compute_wfd(
+                            Q, composite_view, species, stage,
+                        )
+                        self._emit_composite_csv(
+                            comp, out_dir / "eu_wfd_composite.csv",
+                            overlay_note,
+                        )
                 else:
                     warnings.append(f"Unknown regulatory_export kind: {export_kind}")
             except Exception as e:
                 warnings.append(f"regulatory_export[{export_kind}] failed: {e}")
+
+    @staticmethod
+    def _composite_view(composite_df: pd.DataFrame) -> pd.DataFrame:
+        """Build a regulatory-export-compatible DataFrame from a composite
+        WUA-Q table. Renames each ``wua_m2_composite_<sp>_<stage>`` column
+        to ``wua_m2_<sp>_<stage>`` and drops the original base columns
+        (which would otherwise shadow the composite values during the
+        ``wua_m2_{species}_{life_stage}`` lookup performed by every
+        compute_* function).
+        """
+        cols_to_drop = [
+            c for c in composite_df.columns
+            if c.startswith("wua_m2_") and not c.startswith("wua_m2_composite_")
+        ]
+        view = composite_df.drop(columns=cols_to_drop).copy()
+        rename_map = {
+            c: c.replace("wua_m2_composite_", "wua_m2_", 1)
+            for c in view.columns
+            if c.startswith("wua_m2_composite_")
+        }
+        return view.rename(columns=rename_map)
+
+    @staticmethod
+    def _composite_header_lines(summary: dict | None) -> list[str]:
+        """Build the ``# OpenLimno v1.7.0 composite overlay …`` header
+        block prepended to every ``*_composite.csv`` artefact so a
+        reviewer reading the file in isolation can see exactly which
+        cover/thermal factors were applied."""
+        if summary is None:
+            return []
+        cover = summary.get("cover_si")
+        thermal = summary.get("thermal_si")
+        overlay = summary.get("overlay_si")
+        lines = [
+            "# OpenLimno v1.7.0 composite overlay applied to this report:",
+            (
+                f"#   cover_si={cover if cover is not None else 'n/a'}"
+                f"   thermal_si={thermal if thermal is not None else 'n/a'}"
+                f"   overlay_si={overlay if overlay is not None else 'n/a'}"
+            ),
+            (
+                "#   WUA values below are depth × velocity × cover × thermal"
+                if (cover is not None and thermal is not None)
+                else "#   WUA values below are depth × velocity × "
+                + (
+                    "cover only (no thermal overlay)" if cover is not None
+                    else "thermal only (no cover overlay)"
+                )
+            ),
+        ]
+        return lines
+
+    @staticmethod
+    def _emit_composite_csv(result, path: Path, overlay_note: list[str]) -> None:
+        """Render a regulatory-export result, then re-write the file
+        with the overlay-annotation block prepended (after the
+        report's own ``# OpenLimno …`` header so both contexts survive).
+        """
+        result.to_csv(path)
+        if not overlay_note:
+            return
+        original = path.read_text(encoding="utf-8")
+        path.write_text(
+            "\n".join(overlay_note) + "\n" + original,
+            encoding="utf-8",
+        )
 
     def _wua_csv_header(self, quality_grade: str) -> str | None:
         """Build a comment-prefix header line for WUA CSV outputs.
@@ -838,20 +956,25 @@ class Case:
         out_dir: Path,
         formats: list[str],
         warnings: list[str],
-    ) -> dict | None:
+    ) -> tuple[dict | None, pd.DataFrame | None]:
         """v1.6.0: combine the per-cell depth × velocity WUA with the
         v1.1.1 thermal scalar and v1.5.0 cover scalar overlays into a
         single composite WUA-Q table.
 
-        Returns ``None`` (silently skipped) when neither overlay was
-        produced — preserving v1.5.x semantics for cases without fetched
-        climate or LULC. When at least one overlay is present, writes:
+        Returns ``(None, None)`` (silently skipped) when neither overlay
+        was produced — preserving v1.5.x semantics for cases without
+        fetched climate or LULC. When at least one overlay is present,
+        writes:
 
         * ``composite_wua_q.parquet`` and/or ``composite_wua_q.csv``
           (paired ``wua_m2_composite_<sp>_<stage>`` columns alongside
           the base ``wua_m2_*`` columns).
         * ``composite_hsi.json`` (overlay factors + per-series max WUA
           ratios for review).
+
+        v1.7.0: also returns the resolved ``composite_df`` so the
+        downstream regulatory_export step (5f) can emit paired
+        composite reports without recomputing.
         """
         from openlimno.habitat.composite import (
             CompositeOverlay,
@@ -863,7 +986,7 @@ class Case:
             thermal_metrics_dict, cover_metrics_dict,
         )
         if overlay.overlay_si is None:
-            return None
+            return None, None
 
         composite_df = apply_overlay(wua_df, overlay)
         if "parquet" in formats:
@@ -887,7 +1010,7 @@ class Case:
             warnings.append(
                 "composite_hsi: cover-only overlay (thermal SI unavailable)."
             )
-        return summary
+        return summary, composite_df
 
     @staticmethod
     def _write_csv_with_header(df: pd.DataFrame, path: Path, header_line: str | None) -> None:

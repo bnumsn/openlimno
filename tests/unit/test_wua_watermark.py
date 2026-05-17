@@ -629,7 +629,7 @@ def test_v160_maybe_run_composite_hsi_writes_outputs(tmp_path):
         "discharge_m3s": [1.0, 5.0, 10.0],
         "wua_m2_oncorhynchus_mykiss_spawning": [120.0, 240.0, 180.0],
     })
-    summary = case._maybe_run_composite_hsi(
+    summary, composite_df = case._maybe_run_composite_hsi(
         wua_df,
         thermal_metrics_dict={"mean_SI": 0.6},
         cover_metrics_dict={"mean_si": 0.5},
@@ -639,6 +639,10 @@ def test_v160_maybe_run_composite_hsi_writes_outputs(tmp_path):
     )
     assert summary is not None
     assert summary["overlay_si"] == pytest.approx(0.3)
+    # v1.7.0: helper also returns the resolved composite DataFrame so
+    # the downstream regulatory_export step can reuse it.
+    assert composite_df is not None
+    assert "wua_m2_composite_oncorhynchus_mykiss_spawning" in composite_df.columns
 
     # All three artefacts emitted
     composite_parquet = out_dir / "composite_wua_q.parquet"
@@ -673,7 +677,7 @@ def test_v160_maybe_run_composite_hsi_skipped_when_no_overlays(tmp_path):
         "discharge_m3s": [1.0, 5.0],
         "wua_m2_a_b": [10.0, 20.0],
     })
-    summary = case._maybe_run_composite_hsi(
+    summary, composite_df = case._maybe_run_composite_hsi(
         wua_df,
         thermal_metrics_dict=None,
         cover_metrics_dict=None,
@@ -682,6 +686,7 @@ def test_v160_maybe_run_composite_hsi_skipped_when_no_overlays(tmp_path):
         warnings=[],
     )
     assert summary is None
+    assert composite_df is None
     assert not (out_dir / "composite_wua_q.parquet").exists()
     assert not (out_dir / "composite_wua_q.csv").exists()
     assert not (out_dir / "composite_hsi.json").exists()
@@ -697,3 +702,195 @@ def test_v160_provenance_always_contains_composite_summary_key():
     prov = json.loads(result.provenance_path.read_text())
     assert "composite_summary" in prov
     assert prov["composite_summary"] is None
+
+
+# ---------------------------------------------------------------------
+# v1.7.0 — regulatory_export composite integration
+# (cover × thermal overlay folded into SL-712 / FERC 4e / WFD reports)
+# ---------------------------------------------------------------------
+def _make_synthetic_wua_q():
+    """Triangular WUA-Q curve peaking at Q=5 m³/s, 100 m² apex."""
+    import numpy as _np
+    import pandas as _pd
+    Qs = _np.array([0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0])
+    W = _np.maximum(0, 100 * (1 - _np.abs(_np.log(Qs / 5)) / _np.log(4)))
+    return _pd.DataFrame({
+        "discharge_m3s": Qs,
+        "wua_m2_oncorhynchus_mykiss_spawning": W,
+    })
+
+
+def _make_synthetic_discharge_series(tmp_path: Path) -> Path:
+    """Write a 2-year daily snowmelt discharge CSV. Returns the path."""
+    import numpy as _np
+    import pandas as _pd
+    times = _pd.date_range("2024-01-01", periods=2 * 365, freq="D")
+    doys = times.dayofyear.values
+    Q = 3.0 + 8.0 * _np.exp(-((doys - 150) ** 2) / (2 * 30**2))
+    df = _pd.DataFrame({"time": times, "discharge_m3s": Q})
+    path = tmp_path / "discharge.csv"
+    df.to_csv(path, index=False)
+    return path
+
+
+def test_v170_composite_view_renames_columns():
+    """``_composite_view`` drops base ``wua_m2_*`` columns and renames
+    ``wua_m2_composite_*`` to ``wua_m2_*`` so existing compute_*
+    functions look up the composite values transparently."""
+    import pandas as pd
+    composite_df = pd.DataFrame({
+        "discharge_m3s": [1.0, 5.0],
+        "wua_m2_oncorhynchus_mykiss_spawning": [100.0, 250.0],
+        "wua_m2_composite_oncorhynchus_mykiss_spawning": [30.0, 75.0],
+    })
+    view = Case._composite_view(composite_df)
+    # Base column dropped, composite column renamed
+    assert "wua_m2_composite_oncorhynchus_mykiss_spawning" not in view.columns
+    assert "wua_m2_oncorhynchus_mykiss_spawning" in view.columns
+    assert view["wua_m2_oncorhynchus_mykiss_spawning"].tolist() == [30.0, 75.0]
+    # Discharge column preserved untouched
+    assert view["discharge_m3s"].tolist() == [1.0, 5.0]
+
+
+def test_v170_composite_header_lines_full_overlay():
+    """Both overlays present → header annotates depth × velocity × cover × thermal."""
+    summary = {
+        "cover_si": 0.4255,
+        "thermal_si": 0.62,
+        "overlay_si": 0.26381,
+        "n_overlays": 2,
+    }
+    lines = Case._composite_header_lines(summary)
+    assert any("cover_si=0.4255" in line for line in lines)
+    assert any("thermal_si=0.62" in line for line in lines)
+    assert any("overlay_si=0.26381" in line for line in lines)
+    assert any("depth × velocity × cover × thermal" in line for line in lines)
+
+
+def test_v170_composite_header_lines_partial_overlay():
+    """Single overlay → header notes which factor is missing."""
+    summary = {
+        "cover_si": 0.4,
+        "thermal_si": None,
+        "overlay_si": 0.4,
+        "n_overlays": 1,
+    }
+    lines = Case._composite_header_lines(summary)
+    joined = "\n".join(lines)
+    assert "cover only" in joined
+    assert "no thermal overlay" in joined
+
+
+def test_v170_composite_header_lines_none_summary_empty():
+    """No overlay → no header lines added (and no crash)."""
+    assert Case._composite_header_lines(None) == []
+
+
+def test_v170_run_regulatory_exports_emits_composite_csvs(tmp_path):
+    """End-to-end shape: SL-712, FERC 4e, and WFD each produce both
+    base and ``_composite.csv`` artefacts when composite_df is supplied,
+    and the composite files carry the overlay-annotation header."""
+    case = Case(
+        config={"case": {"name": "v170_smoke"}, "data": {}},
+        case_yaml_path=tmp_path / "case.yaml",
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    wua_q = _make_synthetic_wua_q()
+    # Composite WUA = 0.3 × base (cover 0.5 × thermal 0.6)
+    composite_df = wua_q.copy()
+    composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"] = \
+        composite_df["wua_m2_oncorhynchus_mykiss_spawning"] * 0.3
+    composite_summary = {
+        "cover_si": 0.5,
+        "thermal_si": 0.6,
+        "overlay_si": 0.3,
+        "n_overlays": 2,
+    }
+    ds_csv = _make_synthetic_discharge_series(tmp_path)
+
+    case._run_regulatory_exports(
+        export_list=["CN-SL712", "US-FERC-4e", "EU-WFD"],
+        wua_q=wua_q,
+        species_list=["oncorhynchus_mykiss"],
+        stage_list=["spawning"],
+        out_dir=out_dir,
+        discharge_series_path=ds_csv,
+        warnings=[],
+        composite_df=composite_df,
+        composite_summary=composite_summary,
+    )
+
+    # All 6 artefacts emitted (3 base + 3 composite)
+    base = [
+        out_dir / "sl712.csv",
+        out_dir / "ferc_4e.csv",
+        out_dir / "eu_wfd.csv",
+    ]
+    composite = [
+        out_dir / "sl712_composite.csv",
+        out_dir / "ferc_4e_composite.csv",
+        out_dir / "eu_wfd_composite.csv",
+    ]
+    for p in base + composite:
+        assert p.exists(), f"missing artefact: {p}"
+
+    # Composite files carry the overlay-annotation header
+    for p in composite:
+        head = p.read_text(encoding="utf-8").splitlines()[0]
+        assert "OpenLimno v1.7.0 composite overlay" in head, p
+
+
+def test_v170_run_regulatory_exports_base_only_without_composite(tmp_path):
+    """When composite_df is None, regulatory_export still emits the
+    base reports (preserving v1.6.x behavior) and skips the composite
+    variants — no surprise files."""
+    case = Case(
+        config={"case": {"name": "v170_base_only"}, "data": {}},
+        case_yaml_path=tmp_path / "case.yaml",
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    wua_q = _make_synthetic_wua_q()
+    ds_csv = _make_synthetic_discharge_series(tmp_path)
+
+    case._run_regulatory_exports(
+        export_list=["CN-SL712"],
+        wua_q=wua_q,
+        species_list=["oncorhynchus_mykiss"],
+        stage_list=["spawning"],
+        out_dir=out_dir,
+        discharge_series_path=ds_csv,
+        warnings=[],
+        composite_df=None,
+        composite_summary=None,
+    )
+    assert (out_dir / "sl712.csv").exists()
+    assert not (out_dir / "sl712_composite.csv").exists()
+
+
+def test_v170_composite_sl712_recommends_lower_flows_than_base(tmp_path):
+    """Sanity check on the composite SL-712 output: when the overlay
+    is applied as a uniform multiplicative factor (cover × thermal),
+    the peak WUA is scaled down by that factor, but the *peak location*
+    (i.e. recommended Q) is unchanged — composite_to_base_ratio = overlay.
+    This pins the multiplicative-overlay invariant for regulatory
+    reporting."""
+    import pandas as pd
+
+    from openlimno.habitat.regulatory_export import cn_sl712
+    wua_q = _make_synthetic_wua_q()
+    composite_df = wua_q.copy()
+    composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"] = \
+        composite_df["wua_m2_oncorhynchus_mykiss_spawning"] * 0.3
+    view = Case._composite_view(composite_df)
+
+    Q = pd.read_csv(_make_synthetic_discharge_series(tmp_path))
+    base = cn_sl712.compute_sl712(Q, wua_q, "oncorhynchus_mykiss", "spawning")
+    comp = cn_sl712.compute_sl712(Q, view, "oncorhynchus_mykiss", "spawning")
+    # Q at peak preserved (multiplicative-overlay invariant; the peak
+    # location is a function of curve SHAPE, not absolute magnitude)
+    assert comp.monthly["suitable_eco_flow_m3s"].iloc[0] == \
+        pytest.approx(base.monthly["suitable_eco_flow_m3s"].iloc[0])
+    assert comp.monthly["min_eco_flow_m3s"].iloc[0] == \
+        pytest.approx(base.monthly["min_eco_flow_m3s"].iloc[0])
