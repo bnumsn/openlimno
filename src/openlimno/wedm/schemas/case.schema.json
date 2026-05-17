@@ -238,6 +238,12 @@
           "enum": ["geometric_mean", "arithmetic_mean", "min", "weighted_geometric"],
           "default": "geometric_mean"
         },
+        "composite_overlay_method": {
+          "type": "string",
+          "enum": ["product", "geom_mean"],
+          "default": "product",
+          "description": "v1.10.0: combination rule for the cover/thermal scalar overlays on the depth × velocity WUA. 'product' (v1.6.0 default) multiplies; 'geom_mean' takes the four-way geometric mean (HABBY's third option, softer when overlays are partially redundant with d×v suitability)."
+        },
         "acknowledge_independence": {
           "type": "boolean",
           "description": "MUST be true when composite is geometric_mean or arithmetic_mean (SPEC §4.2.2.2)"

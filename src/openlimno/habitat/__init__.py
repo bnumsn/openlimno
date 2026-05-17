@@ -20,7 +20,12 @@ from .cells import (
     summarize_habitat_by_hmu,
     summarize_habitat_cells,
 )
-from .composite import CompositeOverlay, apply_overlay, composite_summary
+from .composite import (
+    CompositeMethod,
+    CompositeOverlay,
+    apply_overlay,
+    composite_summary,
+)
 from .cover import (
     DEFAULT_RIPARIAN_COVER_SI,
     cover_si_from_lulc_raster,
@@ -52,6 +57,7 @@ __all__ = [
     "DEFAULT_GROUP_COLUMNS",
     "DEFAULT_LETHAL_MARGIN_C",
     "DEFAULT_RIPARIAN_COVER_SI",
+    "CompositeMethod",
     "CompositeOverlay",
     "DriftingEggResult",
     "HMUThresholds",

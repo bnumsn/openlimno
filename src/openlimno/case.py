@@ -323,10 +323,13 @@ class Case:
                 f"the WUA-Q pipeline remains valid."
             )
 
-        # 5e. Multivariate HSI composite (v1.6.0). If at least one
-        # scalar overlay (cover or thermal) is available, emit the
-        # composite WUA-Q overlay tables. Skipped silently when
+        # 5e. Multivariate HSI composite (v1.6.0; geom_mean added v1.10.0).
+        # If at least one scalar overlay (cover or thermal) is available,
+        # emit the composite WUA-Q overlay tables. Skipped silently when
         # neither overlay was computed.
+        composite_overlay_method = habitat_cfg.get(
+            "composite_overlay_method", "product",
+        )
         composite_summary_dict: dict | None = None
         composite_df: pd.DataFrame | None = None
         try:
@@ -338,6 +341,7 @@ class Case:
                     out_dir,
                     formats,
                     warnings,
+                    method=composite_overlay_method,
                 )
             )
         except Exception as e:  # noqa: BLE001
@@ -808,11 +812,18 @@ class Case:
         cover = summary.get("cover_si")
         thermal = summary.get("thermal_si")
         overlay = summary.get("overlay_si")
+        # v1.10.0: surface the combination rule on its own header line so
+        # reviewers reading e.g. ``sl712_composite.csv`` know whether the
+        # numbers came out of the multiplicative product or the four-way
+        # geometric mean. Falls back to ``product`` for old summaries
+        # produced by v1.6.0—v1.9.x (no ``method`` key emitted).
+        method = summary.get("method", "product")
         lines = [
             # v1.8.1 (2nd-review N5): drop the hard-coded "v1.7.0" stamp;
             # historical version labels in output files mislead readers
             # into thinking the LABEL is the producing software version.
             "# OpenLimno composite overlay applied to this report:",
+            f"#   method={method}",
             (
                 f"#   cover_si={cover if cover is not None else 'n/a'}"
                 f"   thermal_si={thermal if thermal is not None else 'n/a'}"
@@ -1138,6 +1149,7 @@ class Case:
         out_dir: Path,
         formats: list[str],
         warnings: list[str],
+        method: str = "product",
     ) -> tuple[dict | None, pd.DataFrame | None]:
         """v1.6.0: combine the per-cell depth × velocity WUA with the
         v1.1.1 thermal scalar and v1.5.0 cover scalar overlays into a
@@ -1206,8 +1218,8 @@ class Case:
         # files. If summary computation raises (e.g. malformed wua_df),
         # we leave the output directory clean instead of producing a
         # parquet/csv pair with no matching composite_hsi.json.
-        composite_df = apply_overlay(wua_df, overlay)
-        summary = composite_summary(wua_df, overlay)
+        composite_df = apply_overlay(wua_df, overlay, method=method)
+        summary = composite_summary(wua_df, overlay, method=method)
         if "parquet" in formats:
             self._atomic_write(
                 out_dir / "composite_wua_q.parquet",

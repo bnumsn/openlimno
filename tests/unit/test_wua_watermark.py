@@ -1441,7 +1441,7 @@ def test_v182_caserunresult_population_through_case_run(monkeypatch, tmp_path):
 
     def _stub_maybe_run_composite_hsi(
         self, wua_df, thermal_metrics_dict, cover_metrics_dict,
-        out_dir, formats, warnings,
+        out_dir, formats, warnings, method="product",
     ):
         return sentinel_summary, sentinel_df
 
@@ -1884,3 +1884,266 @@ def test_v192_atomic_write_supports_binary_writers(tmp_path):
         p.name for p in tmp_path.iterdir() if p != target
     ]
     assert leftover == [], f"R5-3 binary cleanup leftover: {leftover}"
+
+
+# ---------------------------------------------------------------------------
+# v1.10.0 — N6 strict-mode opt-in + 4-way geom-mean overlay method
+# ---------------------------------------------------------------------------
+
+
+def test_v1100_from_metrics_strict_true_raises_on_out_of_range():
+    """N6: explicit ``strict=True`` raises on invalid inputs regardless
+    of whether a ``warnings`` list is supplied — the legacy
+    ``warnings=None → strict`` inference no longer hides the contract.
+    """
+    from openlimno.habitat.composite import CompositeOverlay
+
+    msgs: list[str] = []
+    with pytest.raises(ValueError, match="cover_metrics.mean_si"):
+        CompositeOverlay.from_metrics(
+            {"mean_SI": 0.5},
+            {"mean_si": 1.5},
+            warnings=msgs,
+            strict=True,
+        )
+
+
+def test_v1100_from_metrics_strict_false_with_no_warnings_list_synthesises_one():
+    """N6: ``strict=False`` without a caller-supplied ``warnings`` list
+    must not crash. The implementation creates one internally so that
+    invalid overlays still degrade gracefully — previously
+    ``strict=False`` was only reachable by supplying ``warnings``."""
+    from openlimno.habitat.composite import CompositeOverlay
+
+    overlay = CompositeOverlay.from_metrics(
+        {"mean_SI": 0.5},
+        {"mean_si": 1.5},
+        strict=False,
+    )
+    # Cover got rejected, thermal preserved
+    assert overlay.cover_si is None
+    assert overlay.thermal_si == 0.5
+    assert overlay.overlay_si == 0.5
+
+
+def test_v1100_from_metrics_legacy_strict_inference_unchanged():
+    """N6 back-compat: callers that never pass ``strict`` still get the
+    v1.7.1—v1.9.x behaviour — supplying ``warnings`` → lenient,
+    omitting it → strict."""
+    from openlimno.habitat.composite import CompositeOverlay
+
+    msgs: list[str] = []
+    overlay = CompositeOverlay.from_metrics(
+        {"mean_SI": 0.5},
+        {"mean_si": 1.5},
+        warnings=msgs,
+    )
+    assert overlay.cover_si is None
+    assert overlay.thermal_si == 0.5
+    assert len(msgs) == 1
+
+    with pytest.raises(ValueError, match="cover_metrics.mean_si"):
+        CompositeOverlay.from_metrics(
+            {"mean_SI": 0.5},
+            {"mean_si": 1.5},
+        )
+
+
+def test_v1100_apply_overlay_rejects_unknown_method():
+    """v1.10.0: ``apply_overlay(method=...)`` should fail loud on
+    unknown method strings (e.g. typos) rather than silently fall back
+    to product."""
+    import pandas as pd
+
+    from openlimno.habitat.composite import (
+        CompositeOverlay,
+        apply_overlay,
+    )
+
+    overlay = CompositeOverlay.from_metrics(
+        {"mean_SI": 0.5}, {"mean_si": 0.6},
+    )
+    wua = pd.DataFrame({
+        "discharge_m3s": [1.0, 2.0, 3.0],
+        "wua_m2_sp_juv": [10.0, 20.0, 30.0],
+    })
+    with pytest.raises(ValueError, match="unknown method"):
+        apply_overlay(wua, overlay, method="armean")  # type: ignore[arg-type]
+
+
+def test_v1100_apply_overlay_product_method_is_bit_for_bit_v160():
+    """v1.10.0 contract: passing ``method="product"`` (or omitting it)
+    must reproduce the v1.6.0 numeric output exactly — base * overlay
+    factor on each ``wua_m2_*`` column."""
+    import pandas as pd
+
+    from openlimno.habitat.composite import (
+        CompositeOverlay,
+        apply_overlay,
+    )
+
+    overlay = CompositeOverlay.from_metrics(
+        {"mean_SI": 0.5}, {"mean_si": 0.4255},
+    )
+    wua = pd.DataFrame({
+        "discharge_m3s": [1.0, 2.0, 3.0],
+        "wua_m2_sp_juv": [10.0, 20.0, 30.0],
+    })
+    out = apply_overlay(wua, overlay, method="product")
+    expected = [v * overlay.overlay_si for v in wua["wua_m2_sp_juv"]]
+    assert list(out["wua_m2_composite_sp_juv"]) == pytest.approx(expected)
+
+    # Default arg is product — same answer.
+    out_default = apply_overlay(wua, overlay)
+    assert list(out_default["wua_m2_composite_sp_juv"]) == pytest.approx(
+        expected
+    )
+
+
+def test_v1100_apply_overlay_geom_mean_is_softer_than_product():
+    """v1.10.0 design property: for non-degenerate overlays (both
+    factors strictly in (0, 1)), the geometric-mean composite must
+    sit ABOVE the product composite at the peak discharge — that is
+    the defining "soft" property of HABBY's geom-mean option."""
+    import pandas as pd
+
+    from openlimno.habitat.composite import (
+        CompositeOverlay,
+        apply_overlay,
+    )
+
+    overlay = CompositeOverlay.from_metrics(
+        {"mean_SI": 0.62}, {"mean_si": 0.4255},
+    )
+    wua = pd.DataFrame({
+        "discharge_m3s": [1.0, 2.0, 3.0, 4.0, 5.0],
+        "wua_m2_sp_juv": [10.0, 50.0, 100.0, 80.0, 30.0],
+    })
+    product = apply_overlay(wua, overlay, method="product")
+    geom = apply_overlay(wua, overlay, method="geom_mean")
+    product_peak = float(product["wua_m2_composite_sp_juv"].max())
+    geom_peak = float(geom["wua_m2_composite_sp_juv"].max())
+    # The geom-mean reach-scale linearisation softens the dampening.
+    assert geom_peak > product_peak, (
+        f"geom_mean ({geom_peak:.2f}) was not softer than product "
+        f"({product_peak:.2f})"
+    )
+
+
+def test_v1100_apply_overlay_geom_mean_falls_back_to_product_when_no_overlay():
+    """When no overlay is present, ``geom_mean`` must collapse to the
+    identity path (same as product) — there is no "n-factor" to take
+    a geom-mean over without at least one scalar overlay."""
+    import pandas as pd
+
+    from openlimno.habitat.composite import (
+        CompositeOverlay,
+        apply_overlay,
+    )
+
+    overlay = CompositeOverlay(
+        cover_si=None, thermal_si=None, overlay_si=None,
+    )
+    wua = pd.DataFrame({
+        "discharge_m3s": [1.0, 2.0],
+        "wua_m2_sp_juv": [10.0, 20.0],
+    })
+    geom = apply_overlay(wua, overlay, method="geom_mean")
+    # No overlay → composite column equals base column.
+    assert list(geom["wua_m2_composite_sp_juv"]) == [10.0, 20.0]
+
+
+def test_v1100_composite_summary_records_method_key():
+    """v1.10.0: the ``composite_hsi.json`` payload now carries the
+    ``method`` key so audits and regulatory exports can tell which
+    combination rule produced the numbers."""
+    import pandas as pd
+
+    from openlimno.habitat.composite import (
+        CompositeOverlay,
+        composite_summary,
+    )
+
+    overlay = CompositeOverlay.from_metrics(
+        {"mean_SI": 0.62}, {"mean_si": 0.4255},
+    )
+    wua = pd.DataFrame({
+        "discharge_m3s": [1.0, 2.0, 3.0],
+        "wua_m2_sp_juv": [10.0, 20.0, 30.0],
+    })
+    for method in ("product", "geom_mean"):
+        summary = composite_summary(wua, overlay, method=method)
+        assert summary["method"] == method
+
+
+def test_v1100_composite_header_lines_surfaces_method():
+    """v1.10.0: every ``*_composite.csv`` header block now includes
+    ``# method=<product|geom_mean>`` so a reviewer reading the file
+    in isolation sees the combination rule applied."""
+    summary = {
+        "method": "geom_mean",
+        "cover_si": 0.4255,
+        "thermal_si": 0.62,
+        "overlay_si": 0.26381,
+        "n_overlays": 2,
+        "n_discharges": 24,
+        "by_species_stage": [],
+    }
+    lines = Case._composite_header_lines(summary)
+    assert any("method=geom_mean" in line for line in lines), (
+        f"v1.10.0 header missing method line: {lines}"
+    )
+
+
+def test_v1100_composite_header_lines_defaults_to_product_for_legacy_summaries():
+    """v1.10.0 back-compat: a legacy summary (pre-v1.10.0; no
+    ``method`` key) must render as ``method=product`` so old runs
+    re-read in this version still look sane."""
+    summary = {
+        # No "method" key — legacy v1.6.0—v1.9.x summary shape.
+        "cover_si": 0.4255,
+        "thermal_si": 0.62,
+        "overlay_si": 0.26381,
+        "n_overlays": 2,
+        "n_discharges": 24,
+        "by_species_stage": [],
+    }
+    lines = Case._composite_header_lines(summary)
+    assert any("method=product" in line for line in lines), (
+        f"v1.10.0 fallback header missing method=product: {lines}"
+    )
+
+
+def test_v1100_composite_method_threaded_through_case_run(monkeypatch, tmp_path):
+    """v1.10.0 integration: ``habitat.composite_overlay_method`` in
+    case.yaml must reach :meth:`Case._maybe_run_composite_hsi` so a
+    user can opt into geom-mean without monkey-patching."""
+    if not CASE_YAML.exists():
+        pytest.skip("Lemhi example missing")
+
+    captured: dict[str, str] = {}
+    real_helper = Case._maybe_run_composite_hsi
+
+    def _spy(self, *args, **kwargs):
+        captured["method"] = kwargs.get("method", "product")
+        return real_helper(self, *args, **kwargs)
+
+    monkeypatch.setattr(Case, "_maybe_run_composite_hsi", _spy)
+
+    # Write the case.yaml beside the original so relative data paths
+    # ``../../data/lemhi/…`` still resolve, but with the new opt-in
+    # key inserted.
+    import yaml
+    cfg = yaml.safe_load(CASE_YAML.read_text())
+    cfg["habitat"]["composite_overlay_method"] = "geom_mean"
+    yaml_with_opt_in = CASE_YAML.parent / "case.geom_mean_opt_in.yaml"
+    yaml_with_opt_in.write_text(yaml.safe_dump(cfg))
+    try:
+        Case.from_yaml(yaml_with_opt_in).run(discharges_m3s=[3.0])
+    finally:
+        yaml_with_opt_in.unlink(missing_ok=True)
+
+    assert captured.get("method") == "geom_mean", (
+        f"composite_overlay_method did not thread through case.run: "
+        f"captured={captured}"
+    )
