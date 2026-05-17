@@ -869,13 +869,19 @@ def test_v170_run_regulatory_exports_base_only_without_composite(tmp_path):
     assert not (out_dir / "sl712_composite.csv").exists()
 
 
-def test_v170_composite_sl712_recommends_lower_flows_than_base(tmp_path):
+def test_v170_composite_sl712_preserves_recommended_flow_under_multiplicative_overlay(tmp_path):
     """Sanity check on the composite SL-712 output: when the overlay
     is applied as a uniform multiplicative factor (cover × thermal),
     the peak WUA is scaled down by that factor, but the *peak location*
     (i.e. recommended Q) is unchanged — composite_to_base_ratio = overlay.
     This pins the multiplicative-overlay invariant for regulatory
-    reporting."""
+    reporting.
+
+    v1.7.1 (review F10): renamed from
+    ``..._recommends_lower_flows_than_base`` — the previous name
+    contradicted the actual assertion (the flows are equal under the
+    multiplicative invariant, only the WUA magnitude shrinks).
+    """
     import pandas as pd
 
     from openlimno.habitat.regulatory_export import cn_sl712
@@ -894,3 +900,200 @@ def test_v170_composite_sl712_recommends_lower_flows_than_base(tmp_path):
         pytest.approx(base.monthly["suitable_eco_flow_m3s"].iloc[0])
     assert comp.monthly["min_eco_flow_m3s"].iloc[0] == \
         pytest.approx(base.monthly["min_eco_flow_m3s"].iloc[0])
+
+
+# ---------------------------------------------------------------------
+# v1.7.1 — review-feedback patches (codex + gemini findings)
+# ---------------------------------------------------------------------
+def test_v171_composite_summary_handles_empty_wua_df():
+    """F1: ``composite_summary`` must not raise on an empty WUA-Q
+    DataFrame (previously crashed on ``idxmax`` of an empty Series)."""
+    import pandas as pd
+
+    from openlimno.habitat.composite import CompositeOverlay, composite_summary
+
+    empty = pd.DataFrame({
+        "discharge_m3s": [],
+        "wua_m2_a_b": [],
+    })
+    overlay = CompositeOverlay(cover_si=0.5, thermal_si=0.6, overlay_si=0.3)
+    summary = composite_summary(empty, overlay)
+    assert summary["n_discharges"] == 0
+    assert summary["by_species_stage"] == []
+    # Overlay factors still present so reviewers know what was
+    # configured even when the hydraulic sweep had zero rows.
+    assert summary["cover_si"] == pytest.approx(0.5)
+    assert summary["overlay_si"] == pytest.approx(0.3)
+
+
+def test_v171_maybe_run_composite_hsi_skips_overlay_zero(tmp_path):
+    """F5: overlay_si == 0 must skip composite emission (with a
+    warning) rather than ship degenerate regulatory recommendations
+    (WFD would raise on reference_wua=0; SL-712 would collapse to the
+    lowest Q)."""
+    import pandas as pd
+    case = Case(
+        config={"case": {"name": "overlay_zero"}},
+        case_yaml_path=tmp_path / "case.yaml",
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    wua_df = pd.DataFrame({
+        "discharge_m3s": [1.0, 5.0],
+        "wua_m2_a_b": [10.0, 20.0],
+    })
+    warnings: list[str] = []
+    summary, composite_df = case._maybe_run_composite_hsi(
+        wua_df,
+        thermal_metrics_dict={"mean_SI": 0.0},  # full lethal-zone period
+        cover_metrics_dict={"mean_si": 0.5},
+        out_dir=out_dir,
+        formats=["csv", "parquet"],
+        warnings=warnings,
+    )
+    assert summary is None
+    assert composite_df is None
+    assert not (out_dir / "composite_wua_q.parquet").exists()
+    assert not (out_dir / "composite_hsi.json").exists()
+    assert any("overlay_si=0" in w for w in warnings)
+
+
+def test_v171_maybe_run_composite_hsi_skips_when_no_wua_columns(tmp_path):
+    """F8: when wua_df has no `wua_m2_*` columns, composite emission
+    must be skipped (instead of writing an empty parquet/csv with no
+    composite columns)."""
+    import pandas as pd
+    case = Case(
+        config={"case": {"name": "no_wua_cols"}},
+        case_yaml_path=tmp_path / "case.yaml",
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    wua_df = pd.DataFrame({"discharge_m3s": [1.0, 5.0]})  # no wua_m2_*
+    warnings: list[str] = []
+    summary, composite_df = case._maybe_run_composite_hsi(
+        wua_df,
+        thermal_metrics_dict={"mean_SI": 0.6},
+        cover_metrics_dict={"mean_si": 0.5},
+        out_dir=out_dir,
+        formats=["parquet", "csv"],
+        warnings=warnings,
+    )
+    assert summary is None
+    assert composite_df is None
+    assert not (out_dir / "composite_wua_q.parquet").exists()
+    assert any("no `wua_m2_*` columns" in w for w in warnings)
+
+
+def test_v171_from_metrics_degrades_invalid_thermal_when_warnings_supplied():
+    """F6: when the pipeline supplies a warnings list,
+    ``CompositeOverlay.from_metrics`` drops an invalid thermal value
+    independently and KEEPS a valid cover overlay — instead of raising
+    and losing both factors."""
+    from openlimno.habitat.composite import CompositeOverlay
+
+    warnings: list[str] = []
+    overlay = CompositeOverlay.from_metrics(
+        thermal_metrics={"mean_SI": -0.1},  # invalid: < 0
+        cover_metrics={"mean_si": 0.4},
+        warnings=warnings,
+    )
+    # Cover survives; thermal dropped
+    assert overlay.cover_si == pytest.approx(0.4)
+    assert overlay.thermal_si is None
+    assert overlay.overlay_si == pytest.approx(0.4)
+    # And the degradation is recorded
+    assert any("thermal_metrics.mean_SI" in w for w in warnings)
+
+
+def test_v171_from_metrics_still_raises_for_direct_api_callers():
+    """F6: API-level fail-loud semantics preserved when ``warnings``
+    is omitted (default None) — protects programmatic callers from
+    silently consuming garbage overlays."""
+    from openlimno.habitat.composite import CompositeOverlay
+
+    with pytest.raises(ValueError, match="outside"):
+        CompositeOverlay.from_metrics(
+            thermal_metrics=None,
+            cover_metrics={"mean_si": 1.5},
+            # no warnings kwarg → strict mode
+        )
+
+
+def test_v171_regulatory_csvs_carry_quality_watermark(tmp_path):
+    """F3: SL-712 / FERC 4e / WFD CSVs (base AND composite) must
+    carry the same TENTATIVE watermark that ``wua_q.csv`` does, so a
+    downstream consumer cannot cite a C-grade flow recommendation
+    without seeing the quality warning."""
+    case = Case(
+        config={"case": {"name": "watermark_check"}, "data": {}},
+        case_yaml_path=tmp_path / "case.yaml",
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    wua_q = _make_synthetic_wua_q()
+    composite_df = wua_q.copy()
+    composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"] = \
+        composite_df["wua_m2_oncorhynchus_mykiss_spawning"] * 0.3
+    composite_summary = {
+        "cover_si": 0.5, "thermal_si": 0.6, "overlay_si": 0.3, "n_overlays": 2,
+    }
+    ds_csv = _make_synthetic_discharge_series(tmp_path)
+
+    case._run_regulatory_exports(
+        export_list=["CN-SL712", "US-FERC-4e", "EU-WFD"],
+        wua_q=wua_q,
+        species_list=["oncorhynchus_mykiss"],
+        stage_list=["spawning"],
+        out_dir=out_dir,
+        discharge_series_path=ds_csv,
+        warnings=[],
+        composite_df=composite_df,
+        composite_summary=composite_summary,
+        wua_quality_grade="C",  # tentative
+    )
+
+    # All 6 files: base + composite × {SL-712, FERC, WFD}
+    for fname in [
+        "sl712.csv", "sl712_composite.csv",
+        "ferc_4e.csv", "ferc_4e_composite.csv",
+        "eu_wfd.csv", "eu_wfd_composite.csv",
+    ]:
+        text = (out_dir / fname).read_text(encoding="utf-8")
+        first = text.splitlines()[0]
+        assert "TENTATIVE" in first, (
+            f"v1.7.1 F3: {fname} first line should carry the C-grade "
+            f"TENTATIVE watermark, got: {first!r}"
+        )
+
+
+def test_v171_regulatory_csvs_grade_a_has_no_watermark(tmp_path):
+    """A-grade HSI should NOT carry a watermark line — preserves the
+    v1.7.0 file shape for high-confidence curves (regression pin so we
+    don't accidentally prefix all reports unconditionally)."""
+    case = Case(
+        config={"case": {"name": "grade_a_check"}, "data": {}},
+        case_yaml_path=tmp_path / "case.yaml",
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    wua_q = _make_synthetic_wua_q()
+    ds_csv = _make_synthetic_discharge_series(tmp_path)
+
+    case._run_regulatory_exports(
+        export_list=["CN-SL712"],
+        wua_q=wua_q,
+        species_list=["oncorhynchus_mykiss"],
+        stage_list=["spawning"],
+        out_dir=out_dir,
+        discharge_series_path=ds_csv,
+        warnings=[],
+        composite_df=None,
+        composite_summary=None,
+        wua_quality_grade="A",
+    )
+    first = (out_dir / "sl712.csv").read_text(
+        encoding="utf-8"
+    ).splitlines()[0]
+    # Original SL-712 header survives untouched
+    assert first.startswith("# OpenLimno SL/Z 712-2014")

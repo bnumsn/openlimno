@@ -346,6 +346,7 @@ class Case:
                 warnings,
                 composite_df=composite_df,
                 composite_summary=composite_summary_dict,
+                wua_quality_grade=wua_quality_grade,
             )
 
         # 6. HSI watermarking warning (already computed above for CSV header)
@@ -625,11 +626,19 @@ class Case:
         warnings: list[str],
         composite_df: pd.DataFrame | None = None,
         composite_summary: dict | None = None,
+        wua_quality_grade: str = "A",
     ) -> None:
         """Auto-invoke regulatory_export submodules when listed in case
         YAML. When ``composite_df`` is provided (v1.7.0), each report is
         ALSO emitted as a ``<kind>_composite.csv`` variant carrying
         cover × thermal overlay annotations in its header.
+
+        v1.7.1 (review F3): ``wua_quality_grade`` is now propagated and
+        every regulatory CSV — base AND composite — receives the same
+        HSI quality watermark used by ``wua_q.csv`` (TENTATIVE for
+        C-grade, source-note for B-grade). Without this, a downstream
+        consumer could cite a C-grade flow recommendation without ever
+        seeing the quality warning.
         """
         if not species_list or not stage_list:
             return
@@ -671,6 +680,9 @@ class Case:
             else None
         )
         overlay_note = self._composite_header_lines(composite_summary)
+        # v1.7.1 (review F3): HSI quality-grade watermark line shared by
+        # both base and composite regulatory CSVs.
+        quality_watermark = self._wua_csv_header(wua_quality_grade)
 
         for export_kind in export_list:
             try:
@@ -678,40 +690,52 @@ class Case:
                     from openlimno.habitat.regulatory_export import cn_sl712
 
                     res = cn_sl712.compute_sl712(Q, wua_q, species, stage)
-                    res.to_csv(out_dir / "sl712.csv")
+                    self._emit_regulatory_csv(
+                        res, out_dir / "sl712.csv",
+                        quality_watermark=quality_watermark,
+                    )
                     if composite_view is not None:
                         comp = cn_sl712.compute_sl712(
                             Q, composite_view, species, stage,
                         )
-                        self._emit_composite_csv(
+                        self._emit_regulatory_csv(
                             comp, out_dir / "sl712_composite.csv",
-                            overlay_note,
+                            quality_watermark=quality_watermark,
+                            overlay_note=overlay_note,
                         )
                 elif export_kind == "US-FERC-4e":
                     from openlimno.habitat.regulatory_export import us_ferc_4e
 
                     res = us_ferc_4e.compute_ferc_4e(Q, wua_q, species, stage)
-                    res.to_csv(out_dir / "ferc_4e.csv")
+                    self._emit_regulatory_csv(
+                        res, out_dir / "ferc_4e.csv",
+                        quality_watermark=quality_watermark,
+                    )
                     if composite_view is not None:
                         comp = us_ferc_4e.compute_ferc_4e(
                             Q, composite_view, species, stage,
                         )
-                        self._emit_composite_csv(
+                        self._emit_regulatory_csv(
                             comp, out_dir / "ferc_4e_composite.csv",
-                            overlay_note,
+                            quality_watermark=quality_watermark,
+                            overlay_note=overlay_note,
                         )
                 elif export_kind == "EU-WFD":
                     from openlimno.habitat.regulatory_export import eu_wfd
 
                     res = eu_wfd.compute_wfd(Q, wua_q, species, stage)
-                    res.to_csv(out_dir / "eu_wfd.csv")
+                    self._emit_regulatory_csv(
+                        res, out_dir / "eu_wfd.csv",
+                        quality_watermark=quality_watermark,
+                    )
                     if composite_view is not None:
                         comp = eu_wfd.compute_wfd(
                             Q, composite_view, species, stage,
                         )
-                        self._emit_composite_csv(
+                        self._emit_regulatory_csv(
                             comp, out_dir / "eu_wfd_composite.csv",
-                            overlay_note,
+                            quality_watermark=quality_watermark,
+                            overlay_note=overlay_note,
                         )
                 else:
                     warnings.append(f"Unknown regulatory_export kind: {export_kind}")
@@ -770,17 +794,41 @@ class Case:
         return lines
 
     @staticmethod
-    def _emit_composite_csv(result, path: Path, overlay_note: list[str]) -> None:
-        """Render a regulatory-export result, then re-write the file
-        with the overlay-annotation block prepended (after the
-        report's own ``# OpenLimno …`` header so both contexts survive).
+    def _emit_regulatory_csv(
+        result,
+        path: Path,
+        *,
+        quality_watermark: str | None = None,
+        overlay_note: list[str] | None = None,
+    ) -> None:
+        """v1.7.1: unified regulatory-export CSV writer.
+
+        Renders the report, then prepends (in order, top-down):
+
+        1. The HSI ``quality_watermark`` line (TENTATIVE for C-grade)
+           — mirrors what ``wua_q.csv`` carries. Closes review F3:
+           regulatory recommendations now cannot be cited without the
+           HSI-quality warning a downstream reader would see on the
+           base WUA CSV.
+        2. The v1.7.0 composite ``overlay_note`` block (composite
+           reports only) — cover/thermal scaling factors so a reviewer
+           opening the file in isolation sees the multiplicative
+           overlay immediately.
+        3. The report's own ``# OpenLimno …`` header block (from
+           ``result.to_csv``) — survives intact below the prefix.
         """
         result.to_csv(path)
-        if not overlay_note:
+        prefix_lines: list[str] = []
+        if quality_watermark:
+            # _wua_csv_header returns a string ending in '\n' already.
+            prefix_lines.append(quality_watermark.rstrip("\n"))
+        if overlay_note:
+            prefix_lines.extend(overlay_note)
+        if not prefix_lines:
             return
         original = path.read_text(encoding="utf-8")
         path.write_text(
-            "\n".join(overlay_note) + "\n" + original,
+            "\n".join(prefix_lines) + "\n" + original,
             encoding="utf-8",
         )
 
@@ -984,11 +1032,48 @@ class Case:
 
         overlay = CompositeOverlay.from_metrics(
             thermal_metrics_dict, cover_metrics_dict,
+            warnings=warnings,
         )
         if overlay.overlay_si is None:
             return None, None
 
+        # v1.7.1 (review F8): refuse to write composite artefacts when
+        # there are no `wua_m2_*` base columns — apply_overlay would
+        # silently produce a parquet with no composite columns, which
+        # is more misleading than no parquet at all.
+        base_cols = [
+            c for c in wua_df.columns
+            if c.startswith("wua_m2_")
+            and not c.startswith("wua_m2_composite_")
+        ]
+        if not base_cols:
+            warnings.append(
+                "composite_hsi: wua_df carries no `wua_m2_*` columns; "
+                "skipping composite emission."
+            )
+            return None, None
+
+        # v1.7.1 (review F5): an overlay_si of exactly zero produces
+        # downstream failures in WFD (reference WUA = 0) and degenerate
+        # SL-712 / FERC recommendations. Surface this loudly and skip
+        # the composite emission rather than ship reports a regulator
+        # can't act on.
+        if overlay.overlay_si == 0.0:
+            warnings.append(
+                f"composite_hsi: overlay_si=0 (cover_si={overlay.cover_si}, "
+                f"thermal_si={overlay.thermal_si}). Habitat is fully "
+                f"unavailable under at least one constraint — composite "
+                f"artefacts are not emitted to avoid degenerate "
+                f"regulatory recommendations."
+            )
+            return None, None
+
+        # v1.7.1 (review F1): compute the summary BEFORE writing any
+        # files. If summary computation raises (e.g. malformed wua_df),
+        # we leave the output directory clean instead of producing a
+        # parquet/csv pair with no matching composite_hsi.json.
         composite_df = apply_overlay(wua_df, overlay)
+        summary = composite_summary(wua_df, overlay)
         if "parquet" in formats:
             composite_df.to_parquet(
                 out_dir / "composite_wua_q.parquet", index=False,
@@ -997,7 +1082,6 @@ class Case:
             composite_df.to_csv(
                 out_dir / "composite_wua_q.csv", index=False,
             )
-        summary = composite_summary(wua_df, overlay)
         (out_dir / "composite_hsi.json").write_text(
             json.dumps(summary, indent=2, default=str),
         )

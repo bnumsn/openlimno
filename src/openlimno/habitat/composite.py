@@ -12,9 +12,8 @@ per discharge:
 * **cover** — basin-wide scalar :math:`SI_C \\in [0, 1]`, the watershed-mean
   cover SI from :func:`openlimno.habitat.cover.watershed_cover_si`.
 
-The composite follows the PHABSIM / HABBY convention of treating temporal
-and landscape suitabilities as **scalar multiplicative overlays** on the
-per-cell hydraulic habitat:
+The composite treats temporal and landscape suitabilities as **scalar
+multiplicative overlays** on the per-cell hydraulic habitat:
 
 .. math::
 
@@ -31,6 +30,19 @@ multiplicatively independent — combine semantics is `multiply`, not a
 geometric mean — because cover represents *landscape-scale* refuge while
 thermal represents a *temporal* viability window; both must hold for
 habitat to be usable.
+
+**Context vs. other tools** (v1.7.1, review F4): the multiplicative
+product is the **product** option in HABBY's three-method menu (product,
+geometric mean, arithmetic mean — see HABBY's habitat-calculation
+reference). PHABSIM's life-stage HSI tradition allows several
+combination methods too (Bovee 1986). This module picks *product*
+deliberately for the basin-scale cover/thermal overlay case (both
+factors are scalars over the reach, not per-cell suitabilities), but
+does **not** claim that "the PHABSIM/HABBY convention" mandates this
+choice. Users who want a per-cell four-variable geometric mean
+:math:`(d \\times v \\times c \\times t)^{1/4}` need cover and thermal
+exposed as per-cell rasters first — out of scope for v1.6.0/v1.7.x;
+flagged for future research.
 
 Cases that lack one overlay (e.g. thermal because no FishBase traits) get
 that factor folded out — composite uses only the present overlay. Cases
@@ -71,19 +83,37 @@ class CompositeOverlay:
         cls,
         thermal_metrics: dict | None,
         cover_metrics: dict | None,
+        warnings: list[str] | None = None,
     ) -> CompositeOverlay:
         """Resolve a :class:`CompositeOverlay` from the
         ``thermal_metrics`` / ``cover_metrics`` dicts produced by the
         :meth:`openlimno.case.Case._maybe_run_thermal_habitat` and
         :meth:`openlimno.case.Case._maybe_run_cover_habitat` steps.
+
+        v1.7.1 (review F6): when ``warnings`` is supplied (pipeline
+        path), out-of-range cover or thermal values degrade
+        independently — the invalid overlay is dropped and a warning
+        is appended, but a valid sibling overlay is preserved. When
+        ``warnings`` is ``None`` (programmatic API), out-of-range
+        values still raise ``ValueError`` for fail-loud semantics.
         """
+        def _reject(label: str, value: float) -> None:
+            msg = f"{label}={value} outside [0, 1]"
+            if warnings is None:
+                raise ValueError(msg)
+            warnings.append(
+                f"composite_hsi: dropped invalid {label} ({value}); "
+                f"falling back to the other overlay if available."
+            )
+
         cover_si: float | None = None
         if isinstance(cover_metrics, dict) and "mean_si" in cover_metrics:
-            cover_si = float(cover_metrics["mean_si"])
-            if not 0.0 <= cover_si <= 1.0:
-                raise ValueError(
-                    f"cover_metrics.mean_si={cover_si} outside [0, 1]"
-                )
+            raw_cover = cover_metrics["mean_si"]
+            if raw_cover == raw_cover and raw_cover is not None:  # NaN-safe
+                cover_si = float(raw_cover)
+                if not 0.0 <= cover_si <= 1.0:
+                    _reject("cover_metrics.mean_si", cover_si)
+                    cover_si = None
 
         thermal_si: float | None = None
         if isinstance(thermal_metrics, dict) and "mean_SI" in thermal_metrics:
@@ -94,9 +124,8 @@ class CompositeOverlay:
             if raw == raw and raw is not None:  # NaN-safe
                 thermal_si = float(raw)
                 if not 0.0 <= thermal_si <= 1.0:
-                    raise ValueError(
-                        f"thermal_metrics.mean_SI={thermal_si} outside [0, 1]"
-                    )
+                    _reject("thermal_metrics.mean_SI", thermal_si)
+                    thermal_si = None
 
         if cover_si is None and thermal_si is None:
             return cls(cover_si=None, thermal_si=None, overlay_si=None)
@@ -156,6 +185,18 @@ def composite_summary(
     a reviewer can see how much the seasonal / landscape constraints
     knocked WUA down from its hydraulic optimum.
     """
+    if len(wua_q) == 0:
+        # v1.7.1 (review F1): empty wua_q would crash idxmax below.
+        # Return the overlay-only payload so callers see a valid summary
+        # even when the hydraulic sweep produced zero rows.
+        return {
+            "cover_si": overlay.cover_si,
+            "thermal_si": overlay.thermal_si,
+            "overlay_si": overlay.overlay_si,
+            "n_overlays": overlay.n_overlays,
+            "n_discharges": 0,
+            "by_species_stage": [],
+        }
     composite = apply_overlay(wua_q, overlay)
     base_cols = [
         c for c in wua_q.columns
