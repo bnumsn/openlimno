@@ -1430,7 +1430,16 @@ class Case:
                 "openlimno_wedm_version": "0.1",
             },
         )
-        ds.to_netcdf(path, engine="netcdf4")
+        # v1.9.2 (5th-review R5-3): atomic publish for hydraulics.nc.
+        # netcdf4's `to_netcdf(path)` writes directly to the path and
+        # doesn't accept a file-like buffer; route via Case._atomic_write
+        # so the target appears with full content + umask perms in a
+        # single atomic step. The writer just calls to_netcdf on the
+        # sibling tempfile the helper allocates.
+        Case._atomic_write(
+            path,
+            lambda p: ds.to_netcdf(p, engine="netcdf4"),
+        )
 
     def _build_provenance(
         self,

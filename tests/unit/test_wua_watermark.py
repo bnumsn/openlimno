@@ -1817,3 +1817,70 @@ def test_v191_atomic_write_publishes_perms_atomically_with_content(tmp_path):
         f"the publish tempfile. This re-opens the race window — content "
         f"became visible via os.replace before perms were set."
     )
+
+
+# ---------------------------------------------------------------------
+# v1.9.2 — R5-3 close-out: hydraulics.nc + wua_q_curve.png atomic
+# ---------------------------------------------------------------------
+@pytest.mark.skipif(not CASE_YAML.exists(), reason="Lemhi example missing")
+def test_v192_hydraulics_nc_routes_through_atomic_write(monkeypatch):
+    """R5-3: ``hydraulics.nc`` must now go through ``Case._atomic_write``
+    so it inherits the atomic + umask-respecting contract that all
+    other Case.run outputs got in v1.9.0. Spy on the helper to confirm
+    integration."""
+    import os
+    seen_targets: list[Path] = []
+    real_atomic_write = Case._atomic_write
+
+    def _spy(target, writer):
+        seen_targets.append(target)
+        return real_atomic_write(target, writer)
+
+    monkeypatch.setattr(Case, "_atomic_write", staticmethod(_spy))
+
+    case = Case.from_yaml(CASE_YAML)
+    result = case.run(discharges_m3s=[3.0])
+
+    target_names = [p.name for p in seen_targets]
+    # The Lemhi example writes hydraulics.nc when output.formats includes
+    # "netcdf"; the case YAML does include it, so this target should
+    # have routed through the helper.
+    assert "hydraulics.nc" in target_names, (
+        f"R5-3: hydraulics.nc not in atomic-write targets {target_names}"
+    )
+    # And the file landed on disk with umask perms
+    nc_path = result.output_dir / "hydraulics.nc"
+    if nc_path.exists():
+        perms = os.stat(nc_path).st_mode & 0o777
+        current_umask = os.umask(0)
+        os.umask(current_umask)
+        expected = 0o666 & ~current_umask
+        assert perms == expected, (
+            f"R5-3: hydraulics.nc perms={oct(perms)} != "
+            f"expected {oct(expected)}"
+        )
+
+
+def test_v192_atomic_write_supports_binary_writers(tmp_path):
+    """R5-3 generalization: matplotlib's ``fig.savefig`` writes binary
+    PNG bytes, not text. Confirm the helper's writer-callable contract
+    actually works for binary writers — the publish tempfile must be
+    suitable for both text and bytes writes."""
+    target = tmp_path / "image.bin"
+
+    def _binary_writer(p: Path) -> None:
+        # Simulate matplotlib savefig: write binary bytes to the path
+        p.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+    Case._atomic_write(target, _binary_writer)
+    content = target.read_bytes()
+    assert content.startswith(b"\x89PNG\r\n\x1a\n"), (
+        "R5-3: binary content via _atomic_write was corrupted"
+    )
+    assert len(content) == 108
+
+    # No tempfile leftovers
+    leftover = [
+        p.name for p in tmp_path.iterdir() if p != target
+    ]
+    assert leftover == [], f"R5-3 binary cleanup leftover: {leftover}"

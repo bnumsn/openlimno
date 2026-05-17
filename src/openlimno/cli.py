@@ -178,7 +178,11 @@ def wua(case_yaml: str, species: str, stage: str, plot: bool, n_q: int) -> None:
         ax.grid(True, alpha=0.3)
         png = result.output_dir / f"wua_q_{species}_{stage}.png"
         fig.tight_layout()
-        fig.savefig(png, dpi=120)
+        # v1.9.2 (5th-review R5-3): atomic publish for the WUA-Q plot
+        # so the CLI's --plot output inherits the same atomic+umask
+        # contract as the rest of the OpenLimno output suite.
+        from openlimno.case import Case
+        Case._atomic_write(png, lambda p: fig.savefig(p, dpi=120))
         console.print(f"[green]✓[/] plot saved: {png}")
 
 
@@ -1246,6 +1250,7 @@ def fetch(
     without re-implementing fetcher parsing.
     """
     import yaml as _yaml
+
     from openlimno.preprocess.fetch import (
         fetch_copernicus_dem,
         fetch_daymet_daily,
@@ -1815,11 +1820,13 @@ def init_from_osm(
                 "an extra geocoding step we haven't wired."
             )
         from openlimno.preprocess.fetch import (
-            clip_centerline_to_bbox, cut_cross_sections_from_dem,
-            fetch_copernicus_dem, record_fetch,
+            clip_centerline_to_bbox,
+            cut_cross_sections_from_dem,
+            fetch_copernicus_dem,
+            record_fetch,
         )
         from openlimno.preprocess.osm_builder import fetch_river_polyline
-        console.print(f"[bold]Fetching Copernicus GLO-30 DEM for bbox...[/]")
+        console.print("[bold]Fetching Copernicus GLO-30 DEM for bbox...[/]")
         dem = fetch_copernicus_dem(*bbox_tuple)
         console.print(f"  → DEM {dem.n_tiles} tile(s), bounds {dem.bounds}")
         polyline = clip_centerline_to_bbox(
@@ -1865,9 +1872,12 @@ def init_from_osm(
 
     if fetch_discharge:
         import re
+
         import yaml as _yaml
+
         from openlimno.preprocess.fetch import (
-            fetch_nwis_daily_discharge, record_fetch,
+            fetch_nwis_daily_discharge,
+            record_fetch,
         )
         parts = fetch_discharge.split(":")
         if len(parts) != 4 or parts[0] != "usgs-nwis":
@@ -1946,16 +1956,18 @@ def init_from_osm(
             case_doc["regulatory_export"] = ["US-FERC-4e", "EU-WFD", "CN-SL712"]
         case_yaml_path.write_text(_yaml.safe_dump(case_doc, sort_keys=False))
         console.print(
-            f"  → wired into case.yaml: data.rating_curve + regulatory_export"
+            "  → wired into case.yaml: data.rating_curve + regulatory_export"
         )
 
     if fetch_watershed:
         from openlimno.preprocess.fetch import (
             fetch_hydrobasins,
             find_basin_at,
-            record_fetch as _rfw,
             upstream_basin_ids,
             write_watershed_geojson,
+        )
+        from openlimno.preprocess.fetch import (
+            record_fetch as _rfw,
         )
         wparts = fetch_watershed.split(":")
         if not (4 <= len(wparts) <= 5) or wparts[0] != "hydrosheds":
@@ -2035,6 +2047,8 @@ def init_from_osm(
         from openlimno.preprocess.fetch import (
             fetch_gbif_occurrences,
             match_species,
+        )
+        from openlimno.preprocess.fetch import (
             record_fetch as _rfsp,
         )
         # Format: gbif:SCIENTIFIC_NAME:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX
@@ -2133,6 +2147,8 @@ def init_from_osm(
     if fetch_soil:
         from openlimno.preprocess.fetch import (
             fetch_soilgrids,
+        )
+        from openlimno.preprocess.fetch import (
             record_fetch as _rfs,
         )
         sparts = fetch_soil.split(":")
@@ -2203,6 +2219,8 @@ def init_from_osm(
         from openlimno.preprocess.fetch import (
             WORLDCOVER_CLASSES,
             fetch_esa_worldcover,
+        )
+        from openlimno.preprocess.fetch import (
             record_fetch as _rfl,
         )
         lparts = fetch_lulc.split(":")
@@ -2286,6 +2304,8 @@ def init_from_osm(
         from openlimno.preprocess.fetch import (
             fetch_daymet_daily,
             fetch_open_meteo_daily,
+        )
+        from openlimno.preprocess.fetch import (
             record_fetch as _rfc,
         )
         cparts = fetch_climate.split(":")
