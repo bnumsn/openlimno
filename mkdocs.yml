@@ -75,6 +75,7 @@ nav:
       - getting_started/concepts.md
   - User Guide:
       - user_guide/index.md
+      - user_guide/model_interop_quickstart.md
       - user_guide/preprocess.md
       - user_guide/hydro.md
       - user_guide/habitat.md
@@ -82,6 +83,12 @@ nav:
       - user_guide/studyplan.md
       - user_guide/regulatory_export.md
       - user_guide/qgis.md
+  - Strategy:
+      - strategy/competitive-positioning.md
+      - strategy/interop-validation-matrix.md
+  - Releases:
+      - RELEASE_v1.0.0.md
+      - RELEASE_v1.3.0.md
   - Spec:
       - SPEC.md
   - Decisions (ADRs):

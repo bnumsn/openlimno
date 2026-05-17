@@ -9,6 +9,7 @@ from openlimno.habitat import (
     HSICurve,
     cell_wua,
     composite_csi,
+    evaluate_habitat_cells,
     require_independence_ack,
 )
 from openlimno.habitat.hsi import load_hsi_from_parquet
@@ -20,6 +21,19 @@ def steelhead_depth_curve() -> HSICurve:
         life_stage="spawning",
         variable="depth",
         points=[(0.0, 0.0), (0.3, 1.0), (0.9, 1.0), (1.5, 0.3), (3.0, 0.0)],
+        category="III",
+        geographic_origin="Pacific-Northwest-USA",
+        transferability_score=0.6,
+        quality_grade="B",
+    )
+
+
+def steelhead_velocity_curve() -> HSICurve:
+    return HSICurve(
+        species="oncorhynchus_mykiss",
+        life_stage="spawning",
+        variable="velocity",
+        points=[(0.0, 0.0), (0.4, 1.0), (1.0, 1.0), (2.0, 0.0)],
         category="III",
         geographic_origin="Pacific-Northwest-USA",
         transferability_score=0.6,
@@ -102,6 +116,36 @@ def test_cell_wua_basic() -> None:
 def test_cell_wua_shape_mismatch() -> None:
     with pytest.raises(ValueError, match="shape"):
         cell_wua(np.array([0.5]), np.array([1.0, 2.0]))
+
+
+def test_evaluate_habitat_cells_from_imported_hydraulics() -> None:
+    import pandas as pd
+
+    cells = pd.DataFrame(
+        {
+            "flow_area": ["Area 1", "Area 1", "Area 1"],
+            "time_index": [0, 0, 0],
+            "cell_id": [0, 1, 2],
+            "depth_m": [0.5, 1.5, 0.0],
+            "velocity_ms": [0.4, 1.5, 0.0],
+            "area_m2": [10.0, 20.0, 30.0],
+        }
+    )
+    curves = {
+        ("oncorhynchus_mykiss", "spawning", "depth"): steelhead_depth_curve(),
+        ("oncorhynchus_mykiss", "spawning", "velocity"): steelhead_velocity_curve(),
+    }
+    result = evaluate_habitat_cells(
+        cells,
+        curves,
+        species="oncorhynchus_mykiss",
+        life_stage="spawning",
+        composite="min",
+    )
+    assert list(result.cells["csi"]) == pytest.approx([1.0, 0.3, 0.0])
+    assert result.summary["wua_m2"].iloc[0] == pytest.approx(16.0)
+    assert result.summary["area_m2"].iloc[0] == pytest.approx(60.0)
+    assert set(result.hmu_summary["hmu_type"])
 
 
 def test_load_hsi_from_lemhi_parquet() -> None:

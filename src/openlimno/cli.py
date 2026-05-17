@@ -17,10 +17,10 @@ console = Console()
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.version_option(package_name="openlimno")
 def main() -> None:
-    """OpenLimno: open-source water ecology modeling platform.
+    """OpenLimno: ecological-flow and fish-habitat decision platform.
 
-    Replaces PHABSIM/River2D/FishXing with modern data formats, multi-scale
-    habitat assessment, and explicit IFIM workflow support.
+    Connects field data, hydraulic-model outputs, habitat suitability, passage
+    analysis, provenance, and regulatory reporting.
     """
 
 
@@ -180,6 +180,145 @@ def wua(case_yaml: str, species: str, stage: str, plot: bool, n_q: int) -> None:
         fig.tight_layout()
         fig.savefig(png, dpi=120)
         console.print(f"[green]✓[/] plot saved: {png}")
+
+
+@main.command("wua-cells")
+@click.option(
+    "--cells",
+    "cells_path",
+    type=click.Path(exists=True),
+    required=True,
+    help="Hydraulic-cell table from `preprocess import-model` (.csv/.parquet).",
+)
+@click.option(
+    "--hsi",
+    "hsi_path",
+    type=click.Path(exists=True),
+    required=True,
+    help="WEDM hsi_curve.parquet.",
+)
+@click.option("--species", required=True)
+@click.option("--stage", required=True)
+@click.option(
+    "--composite",
+    type=click.Choice(["geometric_mean", "arithmetic_mean", "min", "weighted_geometric"]),
+    default="min",
+    help="Composite CSI method; min avoids the HSI independence assumption.",
+)
+@click.option(
+    "--acknowledge-independence",
+    is_flag=True,
+    help="Required for geometric/arithmetic mean composites.",
+)
+@click.option(
+    "--out-dir",
+    type=click.Path(),
+    required=True,
+    help="Directory for habitat_cells, wua_summary, and wua_hmu outputs.",
+)
+@click.option("--format", "output_format", type=click.Choice(["csv", "parquet"]), default="csv")
+def wua_cells(
+    cells_path: str,
+    hsi_path: str,
+    species: str,
+    stage: str,
+    composite: str,
+    acknowledge_independence: bool,
+    out_dir: str,
+    output_format: str,
+) -> None:
+    """Evaluate habitat directly from imported hydraulic-cell tables."""
+    import pandas as pd
+
+    from openlimno.habitat import evaluate_habitat_cells, load_hsi_from_parquet
+
+    src = Path(cells_path)
+    if src.suffix.lower() == ".parquet":
+        cells = pd.read_parquet(src)
+    else:
+        cells = pd.read_csv(src, comment="#")
+    curves = load_hsi_from_parquet(hsi_path)
+    result = evaluate_habitat_cells(
+        cells,
+        curves,
+        species=species,
+        life_stage=stage,
+        composite=composite,  # type: ignore[arg-type]
+        acknowledge_independence=acknowledge_independence,
+    )
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    outputs = {
+        "habitat_cells": result.cells,
+        "wua_summary": result.summary,
+        "wua_hmu": result.hmu_summary,
+    }
+    for stem, df in outputs.items():
+        target = out / f"{stem}.{output_format}"
+        if output_format == "parquet":
+            df.to_parquet(target, index=False)
+        else:
+            df.to_csv(target, index=False)
+
+    total_wua = float(result.summary["wua_m2"].sum()) if "wua_m2" in result.summary else 0.0
+    console.print(
+        f"[green]✓[/] evaluated {len(result.cells)} cells for {species}/{stage}; "
+        f"total WUA={total_wua:.3f} m²"
+    )
+    console.print(f"  outputs: {out}")
+
+
+@main.command("ibm-export")
+@click.option(
+    "--cells",
+    "cells_path",
+    type=click.Path(exists=True),
+    required=True,
+    help="OpenLimno hydraulic/habitat cell table (.csv/.parquet).",
+)
+@click.option(
+    "--target",
+    type=click.Choice(["instream-netlogo"]),
+    default="instream-netlogo",
+    show_default=True,
+    help="IBM exchange target.",
+)
+@click.option("--scenario-id", default="baseline", show_default=True)
+@click.option("--reach-id", default="reach-1", show_default=True)
+@click.option("--out-dir", type=click.Path(), required=True)
+def ibm_export(
+    cells_path: str,
+    target: str,
+    scenario_id: str,
+    reach_id: str,
+    out_dir: str,
+) -> None:
+    """Export OpenLimno habitat cells to a population-model exchange package."""
+    import pandas as pd
+
+    from openlimno.preprocess import write_instream_exchange
+
+    if target != "instream-netlogo":  # pragma: no cover - guarded by click
+        raise click.UsageError(f"Unsupported IBM target: {target}")
+    src = Path(cells_path)
+    if src.suffix.lower() == ".parquet":
+        cells = pd.read_parquet(src)
+    else:
+        cells = pd.read_csv(src, comment="#")
+
+    result = write_instream_exchange(
+        cells,
+        out_dir,
+        scenario_id=scenario_id,
+        reach_id=reach_id,
+    )
+    console.print(
+        f"[green]✓[/] wrote {target} exchange package: "
+        f"{len(result.habitat_cells)} cells, {len(result.flow_summary)} summary rows"
+    )
+    for name, path in (result.paths or {}).items():
+        console.print(f"  {name}: {path}")
 
 
 @main.command()
@@ -593,6 +732,461 @@ def preprocess_dem_info(dem_path: str) -> None:
     if dem.bounds:
         console.print(f"  bounds: {dem.bounds}")
     console.print(f"  elev range: {dem.elevation.min():.2f} – {dem.elevation.max():.2f}")
+
+
+@preprocess.command("import-model")
+@click.option(
+    "--source",
+    type=click.Choice(
+        [
+            "auto",
+            "hecras-geometry",
+            "river2d-cdg",
+            "hecras-hdf",
+            "telemac-slf",
+            "delft3d-netcdf",
+            "mike-dfs",
+            "mike-1d",
+            "habby-csv",
+            "instream-netlogo",
+        ]
+    ),
+    default="auto",
+    help="External model/source family. Planned entries report roadmap status.",
+)
+@click.option("--in", "input_path", type=click.Path(exists=True), required=False)
+@click.option("--out", "output_path", type=click.Path(), required=False)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["csv", "parquet"]),
+    default=None,
+    help="Output table format. Defaults from --out suffix.",
+)
+@click.option("--flow-area", default=None, help="HEC-RAS 2D flow-area name for HDF imports.")
+@click.option(
+    "--time-index",
+    type=int,
+    default=None,
+    help="Time index for time-varying result imports; default is last time step.",
+)
+@click.option("--list-supported", is_flag=True, help="List implemented/planned import paths.")
+def preprocess_import_model(
+    source: str,
+    input_path: str | None,
+    output_path: str | None,
+    output_format: str | None,
+    flow_area: str | None,
+    time_index: int | None,
+    list_supported: bool,
+) -> None:
+    """Import or inspect external ecohydraulic model files.
+
+    This is the interop entry point for the "OpenLimno as ecological
+    post-processing hub" workflow: bring existing HEC-RAS/River2D/etc. model
+    assets into WEDM staging tables, then run habitat / passage / reporting.
+    """
+    from rich.table import Table
+
+    from openlimno.preprocess import list_external_model_support, read_external_model
+
+    if list_supported:
+        table = Table(title="OpenLimno external model interoperability")
+        table.add_column("key", no_wrap=True)
+        table.add_column("model")
+        table.add_column("input")
+        table.add_column("status")
+        table.add_column("extensions")
+        for entry in list_external_model_support():
+            table.add_row(
+                entry.key,
+                entry.model,
+                entry.input_kind,
+                entry.status,
+                ", ".join(entry.extensions),
+            )
+        console.print(table)
+        return
+
+    if input_path is None or output_path is None:
+        raise click.UsageError("--in and --out are required unless --list-supported is set.")
+
+    result = read_external_model(
+        input_path,
+        source=source,
+        flow_area=flow_area,
+        time_index=time_index,
+    )
+    out = Path(output_path)
+    fmt = output_format
+    if fmt is None:
+        suffix = out.suffix.lower()
+        if suffix == ".parquet":
+            fmt = "parquet"
+        elif suffix == ".csv":
+            fmt = "csv"
+        else:
+            raise click.UsageError("--out must end in .csv/.parquet or pass --format.")
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if fmt == "parquet":
+        result.table.to_parquet(out, index=False)
+    else:
+        result.table.to_csv(out, index=False)
+
+    console.print(
+        f"[green]✓[/] imported {result.model} {result.input_kind}: "
+        f"{len(result.table)} rows → {out}"
+    )
+    for warning in result.warnings:
+        console.print(f"[yellow]⚠[/] {warning}")
+
+
+@preprocess.command("river2d-ugrid")
+@click.option("--in", "input_path", type=click.Path(exists=True), required=True)
+@click.option("--out", "output_path", type=click.Path(), required=True)
+def preprocess_river2d_ugrid(input_path: str, output_path: str) -> None:
+    """Convert a River2D .cdg/.bed mesh to UGRID NetCDF."""
+    from openlimno.preprocess import validate_ugrid_mesh, write_river2d_ugrid
+
+    out = write_river2d_ugrid(input_path, output_path)
+    report = validate_ugrid_mesh(out)
+    if not report.is_valid:
+        message = "; ".join(report.errors) or "UGRID validation failed"
+        raise click.ClickException(message)
+    console.print(
+        f"[green]✓[/] wrote River2D UGRID mesh: {report.n_nodes} nodes, "
+        f"{report.n_faces} faces → {out}"
+    )
+    for warning in report.warnings:
+        console.print(f"[yellow]⚠[/] {warning}")
+
+
+@preprocess.command("diagnose-model")
+@click.option(
+    "--source",
+    type=click.Choice(["mike-dfs", "mike-1d"]),
+    required=True,
+    help="Optional external model reader stack to diagnose.",
+)
+@click.option("--strict", is_flag=True, help="Exit non-zero when the reader stack is not ready.")
+def preprocess_diagnose_model(source: str, strict: bool) -> None:
+    """Diagnose optional external-model reader dependencies."""
+    from rich.markup import escape
+    from rich.table import Table
+
+    from openlimno.preprocess import diagnose_mike_environment
+
+    diagnostic = diagnose_mike_environment(source)
+    summary = Table(title="External model dependency diagnostic")
+    summary.add_column("field", no_wrap=True)
+    summary.add_column("value")
+    summary.add_row("source_key", diagnostic.source_key)
+    summary.add_row("module", diagnostic.module_name)
+    summary.add_row("module_installed", "yes" if diagnostic.module_installed else "no")
+    summary.add_row("module_version", diagnostic.module_version or "(unknown)")
+    summary.add_row("dotnet_required", "yes" if diagnostic.dotnet_required else "no")
+    summary.add_row("dotnet_cli", diagnostic.dotnet_cli or "(not required/found)")
+    summary.add_row(
+        "dotnet_ok",
+        "(not required)" if diagnostic.dotnet_ok is None else ("yes" if diagnostic.dotnet_ok else "no"),
+    )
+    summary.add_row("ready", "yes" if diagnostic.ready else "no")
+    console.print(summary)
+
+    for warning in diagnostic.warnings:
+        console.print(f"[yellow]⚠[/] {warning}")
+    if not diagnostic.ready:
+        console.print(f"[yellow]hint[/] {escape(diagnostic.install_hint)}")
+    if strict and not diagnostic.ready:
+        raise click.ClickException(f"{source} reader stack is not ready")
+
+
+@preprocess.command("inspect-model")
+@click.option(
+    "--source",
+    type=click.Choice(
+        [
+            "auto",
+            "river2d-cdg",
+            "hecras-hdf",
+            "telemac-slf",
+            "delft3d-netcdf",
+            "mike-dfs",
+            "mike-1d",
+            "habby-csv",
+            "instream-netlogo",
+        ]
+    ),
+    default="auto",
+    help="External model/source family to inspect.",
+)
+@click.option("--in", "input_path", type=click.Path(exists=True), required=True)
+@click.option("--flow-area", default=None, help="HEC-RAS 2D flow-area name for HDF inspection.")
+@click.option("--max-rows", type=click.IntRange(min=1), default=20, show_default=True)
+def preprocess_inspect_model(
+    source: str,
+    input_path: str,
+    flow_area: str | None,
+    max_rows: int,
+) -> None:
+    """Inspect external model files before importing staging tables."""
+    from rich.table import Table
+
+    from openlimno.preprocess import (
+        infer_external_model,
+        inspect_habitat_exchange,
+        inspect_hecras_hdf,
+        inspect_instream_exchange,
+        inspect_mike_file,
+        inspect_netcdf_hydraulic,
+        inspect_telemac_selafin,
+        read_river2d_cdg,
+        read_river2d_elements,
+    )
+
+    source_key = infer_external_model(input_path) if source == "auto" else source
+    if source_key is None:
+        raise click.UsageError("Cannot infer external model format; pass --source.")
+    if source_key == "hecras-hdf":
+        inspection = inspect_hecras_hdf(input_path, flow_area=flow_area)
+
+        summary = Table(title="HEC-RAS HDF inspection")
+        summary.add_column("field", no_wrap=True)
+        summary.add_column("value")
+        summary.add_row("file", inspection.path)
+        summary.add_row("flow_areas", ", ".join(inspection.flow_areas) or "(none)")
+        summary.add_row("selected_flow_area", inspection.selected_flow_area or "(none)")
+        summary.add_row(
+            "n_cells",
+            str(inspection.n_cells) if inspection.n_cells is not None else "(unknown)",
+        )
+        summary.add_row("cell_center_path", inspection.cell_center_path or "(not found)")
+        console.print(summary)
+
+        for warning in inspection.warnings:
+            console.print(f"[yellow]⚠[/] {warning}")
+
+        candidates = [
+            ("geometry", inspection.geometry_candidates),
+            ("depth", inspection.depth_candidates),
+            ("water_surface", inspection.water_surface_candidates),
+            ("velocity", inspection.velocity_candidates),
+        ]
+        table = Table(title="Candidate datasets")
+        table.add_column("kind", no_wrap=True)
+        table.add_column("path")
+        table.add_column("shape", no_wrap=True)
+        table.add_column("dtype", no_wrap=True)
+        table.add_column("cell_aligned", no_wrap=True)
+        n_rows = 0
+        for kind, infos in candidates:
+            for info in infos[: max_rows - n_rows]:
+                table.add_row(
+                    kind,
+                    info.path,
+                    str(info.shape),
+                    info.dtype,
+                    "yes" if info.cell_aligned else "no",
+                )
+                n_rows += 1
+            if n_rows >= max_rows:
+                break
+        if n_rows == 0:
+            table.add_row("(none)", "(no candidate datasets found)", "", "", "")
+        console.print(table)
+        return
+
+    if source_key == "river2d-cdg":
+        nodes = read_river2d_cdg(input_path)
+        try:
+            elements = read_river2d_elements(input_path)
+            n_elements = len(elements)
+        except ValueError:
+            n_elements = 0
+
+        summary = Table(title="River2D CDG inspection")
+        summary.add_column("field", no_wrap=True)
+        summary.add_column("value")
+        summary.add_row("file", input_path)
+        summary.add_row("n_nodes", str(len(nodes)))
+        summary.add_row("n_elements", str(n_elements))
+        summary.add_row("output_table", nodes.attrs.get("openlimno_output_table", "mesh_nodes"))
+        console.print(summary)
+
+        columns = Table(title="River2D node columns")
+        columns.add_column("index", no_wrap=True)
+        columns.add_column("column")
+        for idx, column in enumerate([str(col) for col in nodes.columns[:max_rows]]):
+            columns.add_row(str(idx), column)
+        if nodes.empty:
+            columns.add_row("-", "(no nodes)")
+        console.print(columns)
+        return
+
+    if source_key == "delft3d-netcdf":
+        inspection = inspect_netcdf_hydraulic(input_path)
+        summary = Table(title="CF/UGRID NetCDF inspection")
+        summary.add_column("field", no_wrap=True)
+        summary.add_column("value")
+        summary.add_row("file", inspection.path)
+        summary.add_row("n_cells", str(inspection.n_cells) if inspection.n_cells else "(unknown)")
+        summary.add_row("depth", inspection.selected_depth or "(not found)")
+        summary.add_row("water_surface", inspection.selected_water_surface or "(not found)")
+        summary.add_row("velocity", inspection.selected_velocity or "(not found)")
+        summary.add_row("u_component", inspection.selected_u or "(not found)")
+        summary.add_row("v_component", inspection.selected_v or "(not found)")
+        summary.add_row("x", inspection.selected_x or "(not found)")
+        summary.add_row("y", inspection.selected_y or "(not found)")
+        summary.add_row("area", inspection.selected_area or "(not found)")
+        console.print(summary)
+        for warning in inspection.warnings:
+            console.print(f"[yellow]⚠[/] {warning}")
+
+        variables = Table(title="NetCDF variables")
+        variables.add_column("name")
+        variables.add_column("role", no_wrap=True)
+        variables.add_column("dims")
+        variables.add_column("shape", no_wrap=True)
+        variables.add_column("dtype", no_wrap=True)
+        for info in inspection.variables[:max_rows]:
+            variables.add_row(
+                info.name,
+                info.role or "",
+                ", ".join(info.dims),
+                str(info.shape),
+                info.dtype,
+            )
+        if not inspection.variables:
+            variables.add_row("(none)", "", "", "", "")
+        console.print(variables)
+        return
+
+    if source_key == "telemac-slf":
+        inspection = inspect_telemac_selafin(input_path)
+        summary = Table(title="TELEMAC Selafin inspection")
+        summary.add_column("field", no_wrap=True)
+        summary.add_column("value")
+        summary.add_row("file", inspection.path)
+        summary.add_row("title", inspection.title or "(none)")
+        summary.add_row("n_points", str(inspection.n_points))
+        summary.add_row("n_elements", str(inspection.n_elements))
+        summary.add_row("points_per_element", str(inspection.points_per_element))
+        summary.add_row("n_timesteps", str(inspection.n_timesteps))
+        summary.add_row("times_s", ", ".join(f"{t:g}" for t in inspection.times_s[:max_rows]))
+        console.print(summary)
+        for warning in inspection.warnings:
+            console.print(f"[yellow]⚠[/] {warning}")
+
+        variables = Table(title="Selafin variables")
+        variables.add_column("index", no_wrap=True)
+        variables.add_column("name")
+        variables.add_column("unit", no_wrap=True)
+        variables.add_column("role", no_wrap=True)
+        for info in inspection.variables[:max_rows]:
+            variables.add_row(str(info.index), info.name, info.unit, info.role or "")
+        if not inspection.variables:
+            variables.add_row("-", "(none)", "", "")
+        console.print(variables)
+        return
+
+    if source_key == "habby-csv":
+        inspection = inspect_habitat_exchange(input_path)
+        summary = Table(title="Habitat exchange inspection")
+        summary.add_column("field", no_wrap=True)
+        summary.add_column("value")
+        summary.add_row("file", inspection.path)
+        summary.add_row("rows", str(inspection.n_rows))
+        summary.add_row("table_type", inspection.table_type)
+        summary.add_row(
+            "roles",
+            ", ".join(f"{role}={column}" for role, column in inspection.detected_roles.items())
+            or "(none)",
+        )
+        console.print(summary)
+        for warning in inspection.warnings:
+            console.print(f"[yellow]⚠[/] {warning}")
+
+        columns = Table(title="Habitat table columns")
+        columns.add_column("index", no_wrap=True)
+        columns.add_column("column")
+        for idx, column in enumerate(inspection.columns[:max_rows]):
+            columns.add_row(str(idx), column)
+        if not inspection.columns:
+            columns.add_row("-", "(no columns)")
+        console.print(columns)
+        return
+
+    if source_key == "instream-netlogo":
+        inspection = inspect_instream_exchange(input_path)
+        summary = Table(title="inSTREAM/NetLogo exchange inspection")
+        summary.add_column("field", no_wrap=True)
+        summary.add_column("value")
+        summary.add_row("file", inspection.path)
+        summary.add_row("rows", str(inspection.n_rows))
+        summary.add_row("table_type", inspection.table_type)
+        summary.add_row(
+            "roles",
+            ", ".join(f"{role}={column}" for role, column in inspection.detected_roles.items())
+            or "(none)",
+        )
+        console.print(summary)
+        for warning in inspection.warnings:
+            console.print(f"[yellow]⚠[/] {warning}")
+
+        columns = Table(title="IBM exchange columns")
+        columns.add_column("index", no_wrap=True)
+        columns.add_column("column")
+        for idx, column in enumerate(inspection.columns[:max_rows]):
+            columns.add_row(str(idx), column)
+        if not inspection.columns:
+            columns.add_row("-", "(no columns)")
+        console.print(columns)
+        return
+
+    if source_key not in {"mike-dfs", "mike-1d"}:
+        raise click.UsageError(
+            "Detailed inspection is implemented for River2D CDG, HEC-RAS HDF, TELEMAC Selafin, "
+            "CF/UGRID NetCDF, MIKE, HABBY/CASiMiR, and inSTREAM/NetLogo table sources."
+        )
+
+    mike_inspection = inspect_mike_file(input_path)
+
+    summary = Table(title="MIKE inspection")
+    summary.add_column("field", no_wrap=True)
+    summary.add_column("value")
+    summary.add_row("file", mike_inspection.path)
+    summary.add_row("source_key", mike_inspection.source_key)
+    summary.add_row("file_kind", mike_inspection.file_kind)
+    summary.add_row("geometry_type", mike_inspection.geometry_type or "(none)")
+    summary.add_row(
+        "n_elements",
+        str(mike_inspection.n_elements) if mike_inspection.n_elements is not None else "(unknown)",
+    )
+    summary.add_row(
+        "n_nodes",
+        str(mike_inspection.n_nodes) if mike_inspection.n_nodes is not None else "(unknown)",
+    )
+    summary.add_row(
+        "n_timesteps",
+        str(mike_inspection.n_timesteps)
+        if mike_inspection.n_timesteps is not None
+        else "(unknown)",
+    )
+    summary.add_row("output_table", mike_inspection.output_table)
+    console.print(summary)
+
+    for warning in mike_inspection.warnings:
+        console.print(f"[yellow]⚠[/] {warning}")
+
+    items = Table(title="MIKE items")
+    items.add_column("index", no_wrap=True)
+    items.add_column("name")
+    for idx, name in enumerate(mike_inspection.item_names[:max_rows]):
+        items.add_row(str(idx), name)
+    if not mike_inspection.item_names:
+        items.add_row("-", "(no items)")
+    console.print(items)
 
 
 @main.command("fetch")

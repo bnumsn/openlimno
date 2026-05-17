@@ -86,18 +86,24 @@ def plugin(qgs_app):
     p.unload()
 
 
-def test_plugin_wires_six_actions(plugin):
-    """initGui() should add six menu entries: Open hydraulic, Open WUA-Q,
-    Plot xs, Click xs, Build OSM, Run case.
+def test_plugin_wires_seven_actions(plugin):
+    """initGui() should add seven menu entries: Open hydraulic,
+    Open WUA-Q, Plot xs, Click xs, Build OSM, Fetch into case (v0.7),
+    Run case. The v0.7.0 ship added the Fetch action — this test
+    drifted; it now pins the post-v0.7 surface count.
     """
     p, iface = plugin
-    assert len(p.actions) == 6
+    assert len(p.actions) == 7, (
+        f"expected 7 actions (post-v0.7 fetch panel), got "
+        f"{len(p.actions)}: {[a.text() for a in p.actions]}"
+    )
     titles = [a.text() for a in p.actions]
     assert any("hydraulic" in t.lower() for t in titles), titles
     assert any("wua-q" in t.lower() for t in titles), titles
     assert any("plot" in t.lower() and "cross" in t.lower() for t in titles)
     assert any("click" in t.lower() for t in titles)
     assert any("build" in t.lower() and "osm" in t.lower() for t in titles)
+    assert any("fetch" in t.lower() for t in titles), titles
     assert any("run case" in t.lower() for t in titles)
     # Toolbar gets a subset (the most-used ones)
     assert len(iface._toolbar_actions) >= 4
@@ -387,7 +393,7 @@ def test_unload_removes_everything(qgs_app):
     iface = _MockIface()
     p = OpenLimnoPlugin(iface)
     p.initGui()
-    assert len(iface._menu_actions) == 6
+    assert len(iface._menu_actions) == 7  # v0.7 added fetch panel
     p.unload()
     assert len(iface._menu_actions) == 0
     assert len(iface._toolbar_actions) == 0

@@ -149,6 +149,8 @@ def load_hsi_from_parquet(path: str | Path) -> dict[tuple[str, str, str], HSICur
         # 'points' column may come back as numpy array of arrays or list of lists
         raw = row["points"]
         points = [(float(x), float(s)) for x, s in raw]
+        raw_evidence = row.get("evidence", [])
+        evidence = [] if raw_evidence is None else list(raw_evidence)
         curve = HSICurve(
             species=row["species"],
             life_stage=row["life_stage"],
@@ -159,7 +161,7 @@ def load_hsi_from_parquet(path: str | Path) -> dict[tuple[str, str, str], HSICur
             transferability_score=float(row["transferability_score"]),
             quality_grade=row["quality_grade"],
             independence_tested=bool(row.get("independence_tested", False)),
-            evidence=list(row.get("evidence", []) or []),
+            evidence=evidence,
         )
         out[(curve.species, curve.life_stage, curve.variable)] = curve
     return out

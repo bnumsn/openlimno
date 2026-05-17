@@ -16,15 +16,20 @@ def test_build_data_then_case_matches_analytic(tmp_path: Path) -> None:
     # Build data in-place (idempotent under examples/)
     import os as _os
 
+    # Inherit the parent env so user-site / conda / pixi paths
+    # remain discoverable for pandas / numpy / etc. — but PREPEND our
+    # src path to PYTHONPATH so the example resolves the in-tree
+    # openlimno before any installed copy.
+    parent_env = _os.environ.copy()
+    existing_pp = parent_env.get("PYTHONPATH", "")
+    parent_env["PYTHONPATH"] = (
+        str(REPO / "src") + (_os.pathsep + existing_pp if existing_pp else "")
+    )
     proc = subprocess.run(
         [sys.executable, str(EXAMPLE / "build_data.py")],
         capture_output=True,
         text=True,
-        env={
-            "PYTHONPATH": str(REPO / "src"),
-            "PATH": _os.environ.get("PATH", "/usr/bin:/bin"),
-            "PYTHONNOUSERSITE": "1",
-        },
+        env=parent_env,
         cwd=REPO,
     )
     assert proc.returncode == 0, proc.stderr

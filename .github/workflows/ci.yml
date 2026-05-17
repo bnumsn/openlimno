@@ -83,6 +83,82 @@ jobs:
       - run: pixi run benchmark-toro
       - run: pixi run benchmark-phabsim
 
+  hecras-interoperability:
+    name: HEC-RAS interop real fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.67.2
+          environments: default
+          cache: true
+      - run: pixi run pytest tests/integration/test_hecras_real_fixtures.py -q
+        env:
+          OPENLIMNO_RUN_HECRAS_REAL: "1"
+          OPENLIMNO_HECRAS_FIXTURE_DIR: ${{ runner.temp }}/openlimno_hecras_fixtures
+
+  river2d-interoperability:
+    name: River2D interop real fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.67.2
+          environments: default
+          cache: true
+      - run: pixi run pytest tests/integration/test_river2d_real_fixtures.py -q
+        env:
+          OPENLIMNO_RUN_RIVER2D_REAL: "1"
+          OPENLIMNO_RIVER2D_FIXTURE_DIR: ${{ runner.temp }}/openlimno_river2d_fixtures
+
+  mike-interoperability:
+    name: MIKE interop real fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.67.2
+          environments: mike
+          cache: true
+      - run: pixi run -e mike openlimno preprocess diagnose-model --source mike-1d --strict
+      - run: pixi run -e mike pytest tests/integration/test_mike_real_fixtures.py -q
+        env:
+          OPENLIMNO_RUN_MIKE_REAL: "1"
+          OPENLIMNO_MIKE_FIXTURE_DIR: ${{ runner.temp }}/openlimno_mike_fixtures
+
+  telemac-interoperability:
+    name: TELEMAC interop real fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.67.2
+          environments: default
+          cache: true
+      - run: pixi run pytest tests/integration/test_telemac_real_fixtures.py tests/integration/test_telemac_public_wua_example.py -q
+        env:
+          OPENLIMNO_RUN_TELEMAC_REAL: "1"
+          OPENLIMNO_TELEMAC_FIXTURE_DIR: ${{ runner.temp }}/openlimno_telemac_fixtures
+
+  netcdf-interoperability:
+    name: CF/UGRID NetCDF interop real fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.67.2
+          environments: default
+          cache: true
+      - run: pixi run pytest tests/integration/test_netcdf_real_fixtures.py tests/integration/test_netcdf_public_wua_example.py -q
+        env:
+          OPENLIMNO_RUN_NETCDF_REAL: "1"
+          OPENLIMNO_NETCDF_FIXTURE_DIR: ${{ runner.temp }}/openlimno_netcdf_fixtures
+
   docs:
     name: Docs build
     runs-on: ubuntu-latest
@@ -109,7 +185,7 @@ jobs:
 
   ci-success:
     name: CI success gate
-    needs: [lint, typecheck, schema-validation, test, benchmark-fast, docs, spec-scope-check]
+    needs: [lint, typecheck, schema-validation, test, benchmark-fast, hecras-interoperability, river2d-interoperability, mike-interoperability, telemac-interoperability, netcdf-interoperability, docs, spec-scope-check]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:

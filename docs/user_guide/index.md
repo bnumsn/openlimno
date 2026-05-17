@@ -15,5 +15,7 @@ Module-by-module guide. Each page is a focused recipe + API reference pointer.
 Cross-cutting:
 
 - [Concepts](../getting_started/concepts.md): WEDM, HSI rigor, IFIM
+- [Model interop quickstart](model_interop_quickstart.md): HEC-RAS, TELEMAC,
+  MIKE, HABBY/CASiMiR, and inSTREAM command recipes
 - [SPEC](../SPEC.md): full design contract
 - [ADRs](../decisions/index.md): architectural decisions

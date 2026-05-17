@@ -58,6 +58,27 @@ result.export(...)          # writes NetCDF/CSV to case `output.dir`
 
 Output WUA-Q DataFrame columns: `discharge_m3s`, `wua_m2_<species>_<stage>`, ... — one column per species×stage combination in the case YAML.
 
+## Imported hydraulic cells
+
+External hydraulic-model results imported with `openlimno preprocess
+import-model` can be evaluated without first building a full case YAML. The
+cell table must contain `depth_m`, `velocity_ms`, and `area_m2` columns.
+
+```bash
+openlimno wua-cells \
+    --cells data/hecras_hydraulic_cells.parquet \
+    --hsi data/lemhi/hsi_curve.parquet \
+    --species oncorhynchus_mykiss \
+    --stage spawning \
+    --out-dir out/hecras_habitat
+```
+
+Outputs:
+
+- `habitat_cells.csv` — per-cell SI(depth), SI(velocity), CSI, WUA, HMU type
+- `wua_summary.csv` — total WUA by flow area / time / discharge fields present
+- `wua_hmu.csv` — WUA aggregated by HMU type
+
 ## Drifting-egg evaluation
 
 For pelagic-spawning species (e.g. Asian carps; SPEC §4.2.6):

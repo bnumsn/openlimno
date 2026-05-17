@@ -1,8 +1,13 @@
 # OpenLimno
 
-> Open-source water ecology modeling platform — a modern replacement for PHABSIM with IFIM five-step workflow support, multi-scale habitat assessment (cell / HMU / reach), and SCHISM-backed 2D capability.
+> Open-source ecological-flow and fish-habitat decision platform — a
+> reproducible interoperability hub for PHABSIM/IFIM studies, HEC-RAS/SCHISM
+> hydraulic results, MIKE 21/FM/1D projects, passage analysis, species evidence,
+> and regulatory reports.
 
-**Status (v1.0.0)**: **production-stable**, **338 tests pass**, **10/10 fetcher e2e PASS** against live APIs.
+**Status**: package metadata is **v1.3.0**; the **v1.0.0** line is the
+production-stable surface freeze, with **338 tests pass** and **10/10 fetcher
+e2e PASS** against live APIs recorded at that milestone.
 All 1.0-scope modules implemented end-to-end; case YAML drives the full pipeline:
 hydraulics → HSI/WUA cell+HMU → drift egg → regulatory export (CN-SL712 / US-FERC / EU-WFD) → provenance.
 v0.3 → v0.8 added a subscription-free fetch surface (9 fetchers, global coverage, see below).
@@ -12,13 +17,27 @@ See [`tools/m0_checklist/M0_CHECKLIST.md`](./tools/m0_checklist/M0_CHECKLIST.md)
 
 ## What it is
 
-OpenLimno is a desktop ecological flow / habitat assessment platform that replaces and modernizes:
+OpenLimno is an ecological-flow / fish-habitat assessment platform that sits
+between field data, hydraulic models, habitat models, and decision documents:
 
-- **PHABSIM** — 1D habitat suitability modeling (HSI / WUA / WUA-Q)
-- **River2D** — 2D habitat suitability (via SCHISM 2D wrapping in 1.0)
-- **FishXing** — culvert fish passage analysis (with attraction × passage decomposition)
+- **PHABSIM / RHYHABSIM / SEFA lineage** — HSI / WUA / WUA-Q and IFIM reporting
+- **HEC-RAS / SCHISM / River2D / TELEMAC / Delft3D / MIKE lineage** — hydraulic
+  result interoperability and ecological post-processing
+- **HABBY / CASiMiR / MesoHABSIM lineage** — cell / HMU / reach habitat aggregation
+- **FishXing lineage** — culvert and passage analysis with attraction × passage decomposition
+- **inSTREAM / InSALMO / IBM lineage** — CSV exchange with population-response models
 
-with current data formats (NetCDF / Parquet / UGRID), modern HSI rigor (Bovee Category I/II/III, transferability, independence assumption), multi-scale aggregation (cell / HMU / reach, MesoHABSIM-compatible), drift-egg evaluation for Asian carps, and regulatory output templates (CN SL/Z 712 / US FERC / EU WFD).
+OpenLimno's differentiator is not owning every solver. It provides current data
+formats (NetCDF / Parquet / UGRID), modern HSI rigor (Bovee Category I/II/III,
+transferability, independence assumption), multi-scale aggregation, provenance,
+and regulatory output templates (CN SL/Z 712 / US FERC / EU WFD).
+
+MIKE support is optional: install `openlimno[mike]` to enable `mikeio` /
+`mikeio1d` adapters for DFSU/DFS2/DFS0/mesh/RES1D/XNS11 staging imports.
+Use `openlimno preprocess diagnose-model --source mike-1d` to check the extra
+Linux .NET Runtime requirement before opening real MIKE 1D files.
+Repository users can run `pixi install -e mike` to get the DHI readers plus
+conda-forge `.NET Runtime` in a reproducible environment.
 
 ## What 1.0 does NOT do
 
@@ -87,6 +106,8 @@ human-run end-to-end smoke at `tools/fetch_all_smoke.py`.
 
 - [`SPEC.md`](./SPEC.md) — frozen technical specification (v0.5)
 - [`docs/fetch_system.md`](./docs/fetch_system.md) — fetch package design (v0.4 stable)
+- [`docs/RELEASE_v1.3.0.md`](./docs/RELEASE_v1.3.0.md) — interoperability release candidate notes
+- [`examples/model_interop/`](./examples/model_interop/) — command recipes for HEC-RAS, TELEMAC, MIKE, HABBY/CASiMiR, and inSTREAM exchange
 - [`docs/governance/`](./docs/governance/) — governance, code of conduct, release process
 - [`docs/decisions/`](./docs/decisions/) — Architecture Decision Records (ADRs)
 - [`docs/triple_review.md`](./docs/triple_review.md) — three-AI code review
