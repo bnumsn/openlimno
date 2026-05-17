@@ -30,26 +30,27 @@ Two **combination methods** are available (v1.10.0):
   with the v1.3.0 cover-SI overlay. Recovers the HABBY *product*
   option.
 
-* ``method="geom_mean"`` (v1.10.0) — four-way geometric mean spread
-  over the depth/velocity factor and the basin-scale overlay factor:
+* ``method="geom_mean"`` (v1.10.0; redesigned in v1.10.1 after
+  6th-review R6-1 + R6-2) — column-level overlay softening:
 
   .. math::
 
       \\mathrm{WUA}_\\mathrm{composite}(Q)
-        = A_\\mathrm{cell}(Q) \\cdot \\bigl(\\mathrm{CSI}_{dv}(Q)
-          \\cdot SI_T \\cdot SI_C\\bigr)^{1/n}
+        = \\mathrm{WUA}_{dv}(Q) \\cdot (SI_T \\cdot SI_C)^{1/n}
 
-  where ``n`` is the count of *present* suitability factors (the
-  cell-level d×v CSI is always counted as one factor; cover and
-  thermal each contribute when available). The implementation lifts
-  the existing :math:`\\mathrm{WUA}_{dv}` column to a per-cell CSI by
-  dividing by the *characteristic* wetted area at peak discharge,
-  applies the geometric-mean reweighting in CSI-space, then maps back
-  to area units. This is the HABBY *geometric mean* option and the
-  PHABSIM Bovee (1986) life-stage HSI generalisation; it is **softer**
-  than product (one weak factor doesn't zero the composite) and is
-  the right choice when overlay factors are *partially redundant*
-  with cell-level d×v suitability.
+  where ``n = 1 + n_overlays``. The overlay enters as the n-th root
+  rather than the raw product (which would be the ``product``
+  method). This is the "softer than product" property HABBY's
+  geom_mean option is named for, applied at the column level — the
+  only level where SI_T / SI_C are defined when they are basin-wide
+  scalars. The earlier v1.10.0 attempt at a per-cell-style
+  ``base^(1/n) · area_proxy^((n-1)/n)`` reach-scale linearisation
+  was withdrawn because (a) it produced NaN for all-zero base
+  columns, and (b) it could INFLATE composite above base at low-flow
+  discharges — both unacceptable for a suitability overlay. The
+  **true** four-way per-cell geometric mean
+  :math:`(d \\times v \\times c \\times t)^{1/4}` requires cover and
+  thermal as per-cell rasters and is flagged for v2.x.
 
 Cases that lack one overlay (e.g. thermal because no FishBase traits) get
 that factor folded out — composite uses only the present overlay. Cases
@@ -61,7 +62,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-import numpy as np
 import pandas as pd
 
 CompositeMethod = Literal["product", "geom_mean"]
@@ -246,33 +246,46 @@ def apply_overlay(
             out[f"wua_m2_composite_{suffix}"] = wua_q[col].astype(float) * factor
         return out
 
-    # Geometric mean. Reweight the d×v WUA in CSI-space: the column
-    # already encodes A_cell · CSI_dv summed over cells, so we apply
-    # the n-factor power on the column directly (this is equivalent to
-    # per-cell reweighting when CSI is uniform, and a defensible reach-
-    # scale approximation otherwise — see SPEC §4.2.2 for the per-cell
-    # version planned post-1.0).
-    n = 1 + overlay.n_overlays
+    # Geometric mean (v1.10.1, R6-1 + R6-2 redesign).
+    #
+    # The 5th-pass review chain's geom_mean implementation
+    # (`base^(1/n) · overlay_geom · area_proxy^((n-1)/n)`) had two
+    # design flaws that v1.10.0 inherited:
+    #
+    # * R6-1: an all-zero base column made `area_proxy =
+    #   nanmean(base[base>0])` evaluate to NaN, and `float(nan) or 1.0`
+    #   returned NaN (nan is truthy in Python), so the entire composite
+    #   column became NaN and the downstream `composite_summary.idxmax`
+    #   raised "Encountered all NA values".
+    # * R6-2: using `nanmean(base[base>0])` as a single scalar across
+    #   the whole sweep caused the formula to INFLATE composite above
+    #   base at low-flow discharges (where `base_Q < area_proxy`),
+    #   which is scientifically indefensible for a suitability overlay.
+    #
+    # The fix is to recognise that a true four-way per-cell geometric
+    # mean needs cover/thermal as per-cell rasters (still out-of-scope
+    # for v1.10.x, flagged for v2.x). At the reach scale with
+    # **scalar** cover/thermal overlays, the most defensible
+    # generalisation that (a) is monotone in base, (b) never inflates
+    # WUA, and (c) reproduces the n-factor softening property is:
+    #
+    #     WUA_composite(Q) = WUA_dv(Q) · (SI_T · SI_C)^(1/n)
+    #
+    # i.e. the overlay enters as the n-th root rather than the raw
+    # product. This is the "softer than product" property HABBY's
+    # geom_mean option is named for, applied at the column level
+    # (the only level where SI_T / SI_C are defined when they are
+    # basin-wide scalars). It collapses to product when n=1, and
+    # softens monotonically as n grows. ``_geom_mean_factor`` resolves
+    # the n-th root directly from the overlay's present-factor count.
     overlay_geom = _geom_mean_factor(overlay)
     for col in wua_q.columns:
         if not col.startswith("wua_m2_") or col.startswith("wua_m2_composite_"):
             continue
         suffix = col[len("wua_m2_"):]
-        base = wua_q[col].astype(float).to_numpy()
-        # Reach-scale geom-mean: WUA · (CSI_dv)^(1/n - 1) · overlay_geom.
-        # We don't have the raw CSI_dv, but for WUA-Q tables produced by
-        # wua_q_curve the column equals Σ A_cell · CSI_dv; the per-cell
-        # power therefore folds into a column-level ^(1/n) on the WUA
-        # column (this is the reach-mean linearisation that HABBY's
-        # geom-mean uses too — its column-level value when one factor
-        # dominates the spatial variance).
-        reweighted = np.power(np.clip(base, 0.0, None), 1.0 / n) * overlay_geom
-        # Multiply back by the characteristic area of the reach so units
-        # stay m² (the (1/n)-power above strips a fractional area unit;
-        # we recover it from the discharge-mean WUA, which is the most
-        # stable area proxy for a sweep).
-        area_proxy = float(np.nanmean(np.where(base > 0, base, np.nan))) or 1.0
-        out[f"wua_m2_composite_{suffix}"] = reweighted * (area_proxy ** ((n - 1) / n))
+        out[f"wua_m2_composite_{suffix}"] = (
+            wua_q[col].astype(float) * overlay_geom
+        )
     return out
 
 

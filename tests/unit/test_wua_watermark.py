@@ -2114,6 +2114,158 @@ def test_v1100_composite_header_lines_defaults_to_product_for_legacy_summaries()
     )
 
 
+def test_v1101_geom_mean_all_zero_base_does_not_propagate_nan():
+    """R6-1 (6th-review HIGH/MED): the v1.10.0 geom_mean
+    implementation used ``area_proxy = nanmean(base[base>0]) or 1.0``
+    as a scalar reweighting factor. When every base WUA value was
+    zero, ``nanmean`` returned NaN and ``float(nan) or 1.0`` stayed
+    NaN (nan is truthy in Python), so the whole composite column
+    became NaN and ``composite_summary`` raised on idxmax.
+
+    v1.10.1 redesigned geom_mean to a column-level overlay-softening
+    rule that never touches an ``area_proxy``. Pin: an all-zero base
+    column now produces an all-zero composite (no NaN), and
+    ``composite_summary`` succeeds."""
+    import math as _math
+
+    import pandas as pd
+
+    from openlimno.habitat.composite import (
+        CompositeOverlay,
+        apply_overlay,
+        composite_summary,
+    )
+
+    overlay = CompositeOverlay.from_metrics(
+        {"mean_SI": 0.62}, {"mean_si": 0.4255},
+    )
+    wua = pd.DataFrame({
+        "discharge_m3s": [1.0, 2.0, 3.0],
+        "wua_m2_sp_juv": [0.0, 0.0, 0.0],
+    })
+    out = apply_overlay(wua, overlay, method="geom_mean")
+    composite = out["wua_m2_composite_sp_juv"].tolist()
+    assert all(not _math.isnan(v) for v in composite), (
+        f"R6-1 regression: NaN propagated through geom_mean: {composite}"
+    )
+    assert composite == [0.0, 0.0, 0.0]
+
+    # And composite_summary no longer raises on idxmax.
+    summary = composite_summary(wua, overlay, method="geom_mean")
+    assert summary["method"] == "geom_mean"
+    assert summary["n_discharges"] == 3
+
+
+def test_v1101_geom_mean_never_inflates_above_base():
+    """R6-2 (6th-review HIGH from gemini): the v1.10.0 geom_mean
+    reach-scale linearisation
+    ``base^(1/n) · overlay_geom · area_proxy^((n-1)/n)`` could
+    produce ``composite > base`` at low-flow discharges where
+    ``base_Q`` was below the sweep-mean. A suitability overlay must
+    never inflate the hydraulic base WUA — only dampen it.
+
+    v1.10.1 redesigned geom_mean to ``base · (SI_T·SI_C)^(1/n)``
+    which is monotone in base and bounded by ``base · 1 = base``.
+    Pin across a wide WUA-Q sweep including very low and very high
+    discharges."""
+    import pandas as pd
+
+    from openlimno.habitat.composite import (
+        CompositeOverlay,
+        apply_overlay,
+    )
+
+    overlay = CompositeOverlay.from_metrics(
+        {"mean_SI": 0.62}, {"mean_si": 0.4255},
+    )
+    # Heavily skewed sweep — high WUA in the middle, near-zero at
+    # the tails — the exact shape that triggered v1.10.0 inflation.
+    wua = pd.DataFrame({
+        "discharge_m3s": [0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0],
+        "wua_m2_sp_juv": [
+            0.5, 5.0, 80.0, 300.0, 250.0, 30.0, 0.1,
+        ],
+    })
+    geom = apply_overlay(wua, overlay, method="geom_mean")
+    base_vals = wua["wua_m2_sp_juv"].tolist()
+    composite_vals = geom["wua_m2_composite_sp_juv"].tolist()
+    for q, base_v, comp_v in zip(
+        wua["discharge_m3s"], base_vals, composite_vals, strict=True,
+    ):
+        assert comp_v <= base_v + 1e-9, (
+            f"R6-2 regression: geom_mean inflated WUA at Q={q}: "
+            f"base={base_v}, composite={comp_v}"
+        )
+
+
+def test_v1101_geom_mean_softens_overlay_by_nth_root():
+    """v1.10.1 design property pin: the v1.10.0—v1.10.1 contract
+    promises that geom_mean applies the overlay as the n-th root
+    rather than the raw product. With two overlays present (n=3)
+    and ``SI_T·SI_C = 0.26381``, the geom_mean factor must be
+    exactly ``0.26381^(1/3) ≈ 0.6411`` — proving the redesign
+    actually does column-level n-th-root softening (not a hidden
+    return-to-product).
+    """
+    import pandas as pd
+
+    from openlimno.habitat.composite import (
+        CompositeOverlay,
+        apply_overlay,
+    )
+
+    overlay = CompositeOverlay.from_metrics(
+        {"mean_SI": 0.62}, {"mean_si": 0.4255},
+    )
+    wua = pd.DataFrame({
+        "discharge_m3s": [1.0, 2.0],
+        "wua_m2_sp_juv": [100.0, 200.0],
+    })
+    geom = apply_overlay(wua, overlay, method="geom_mean")
+    expected_factor = (0.62 * 0.4255) ** (1.0 / 3.0)
+    assert geom["wua_m2_composite_sp_juv"].iloc[0] == pytest.approx(
+        100.0 * expected_factor
+    )
+    assert geom["wua_m2_composite_sp_juv"].iloc[1] == pytest.approx(
+        200.0 * expected_factor
+    )
+
+
+def test_v1101_geom_mean_single_overlay_softens_less_than_double():
+    """v1.10.1 design property: with only ONE overlay present
+    (n=2), the n-th root softens less than with TWO overlays (n=3)
+    because the exponent is larger (1/2 vs 1/3) and the overlay is
+    multiplied into a smaller product. Pin the monotonicity in n.
+    """
+    import pandas as pd
+
+    from openlimno.habitat.composite import (
+        CompositeOverlay,
+        apply_overlay,
+    )
+
+    overlay_one = CompositeOverlay.from_metrics(
+        {"mean_SI": 0.5}, None,
+    )
+    overlay_two = CompositeOverlay.from_metrics(
+        {"mean_SI": 0.5}, {"mean_si": 0.5},
+    )
+    wua = pd.DataFrame({
+        "discharge_m3s": [1.0],
+        "wua_m2_sp_juv": [100.0],
+    })
+    geom_one = apply_overlay(wua, overlay_one, method="geom_mean")
+    geom_two = apply_overlay(wua, overlay_two, method="geom_mean")
+    # 1-overlay: 100 * 0.5^(1/2)  = 70.71
+    # 2-overlay: 100 * 0.25^(1/3) = 62.99
+    assert geom_one["wua_m2_composite_sp_juv"].iloc[0] == pytest.approx(
+        100.0 * (0.5 ** 0.5)
+    )
+    assert geom_two["wua_m2_composite_sp_juv"].iloc[0] == pytest.approx(
+        100.0 * (0.25 ** (1.0 / 3.0))
+    )
+
+
 def test_v1100_composite_method_threaded_through_case_run(monkeypatch, tmp_path):
     """v1.10.0 integration: ``habitat.composite_overlay_method`` in
     case.yaml must reach :meth:`Case._maybe_run_composite_hsi` so a

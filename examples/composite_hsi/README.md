@@ -26,15 +26,19 @@ combination method:
    option and is the safe default when overlays are independent of
    d×v suitability.
 
-2. **`method="geom_mean"`** (v1.10.0) — the four-way geometric mean:
+2. **`method="geom_mean"`** (v1.10.0; redesigned v1.10.1 after the
+   6th-pass review identified NaN-propagation and WUA-inflation
+   flaws in the v1.10.0 reach-scale linearisation) — column-level
+   overlay softening with the overlay entering as the n-th root:
 
-       WUA_composite(Q) = WUA_dv(Q) · (CSI_dv · SI_C · SI_T)^(1/n)
-                           / WUA_dv(Q)^((n-1)/n)        ← reach-mean
-                                                          linearisation
+       WUA_composite(Q) = WUA_dv(Q) · (SI_C · SI_T)^(1/n)
 
-   Softer: one weak overlay damps but doesn't zero the composite.
-   This is the HABBY *geometric mean* option and the PHABSIM Bovee
-   (1986) life-stage HSI generalisation.
+   where `n = 1 + n_overlays`. Softer than product (the overlay
+   shrinks WUA less aggressively as the number of overlays grows)
+   but never inflates composite above the hydraulic base. The
+   **true** per-cell four-way geometric mean
+   `(d × v × c × t)^(1/4)` requires cover and thermal as per-cell
+   rasters and is flagged for v2.x.
 
 The two composite WUA-Q curves are plotted alongside the base d×v
 curve so a reviewer can see at a glance how the choice of overlay
