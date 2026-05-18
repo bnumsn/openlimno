@@ -262,6 +262,12 @@ def thermal_si_from_temperature_raster(
         # return masked, not silently filled with the nodata value
         # (which defaults to 0 °C when the source raster declares no
         # nodata — a 0 °C bias on every outside-geometry pixel).
+        # v2.6.0: ``all_touched=True`` so tight buffer geometries
+        # (e.g. ≤ pixel-size point buffers from the inline raster
+        # path) still capture the pixel(s) they overlap. Without it,
+        # a buffer smaller than the raster's pixel — common when the
+        # raster is sparse and the buffer is metres-scale — returns
+        # zero valid pixels and the helper raises RuntimeError.
         out, _ = rasterio.mask.mask(
             src,
             [mapping(geometry)],
@@ -269,6 +275,7 @@ def thermal_si_from_temperature_raster(
             nodata=nodata,
             filled=False,
             indexes=band,
+            all_touched=True,
         )
 
     out_ma = np.ma.asarray(out)

@@ -182,6 +182,28 @@
             "source_raster_citation": { "type": "string" }
           }
         },
+        "section_locations": {
+          "type": "object",
+          "description": "v2.6.0: per-section geographic locations for the inline raster→SI pipeline. CSV with columns 'station_m', 'lon', 'lat' in EPSG:4326; one row per cross-section in the same order as data.cross_section. Used by the v2.6.0 inline thermal_raster path so the user does not have to pre-compute thermal_si_per_section offline.",
+          "additionalProperties": false,
+          "required": ["uri"],
+          "properties": {
+            "uri": { "type": "string", "format": "uri-reference" },
+            "crs": { "type": "string", "default": "EPSG:4326" },
+            "buffer_m": { "type": "number", "minimum": 0, "default": 0, "description": "Optional metres-buffer applied around each section point before raster evaluation. Default 0 = pure point sample (single pixel)." }
+          }
+        },
+        "thermal_raster": {
+          "type": "object",
+          "description": "v2.6.0: water-temperature GeoTIFF for the inline per-section thermal SI pipeline. The raster is evaluated at each section's geometry (built from data.section_locations) using data.fishbase_traits to set the ThermalRange. Produces the same per_section_thermal_si array as the offline v2.5.1 CSV path, but without the offline step.",
+          "additionalProperties": false,
+          "required": ["uri"],
+          "properties": {
+            "uri": { "type": "string", "format": "uri-reference" },
+            "band": { "type": "integer", "minimum": 1, "default": 1 },
+            "source_citation": { "type": "string" }
+          }
+        },
         "fishbase_traits": {
           "type": "object",
           "description": "v0.8.1: curated FishBase species traits patched in by --fetch-fishbase. Consumed by thermal habitat module (v1.1.0+).",

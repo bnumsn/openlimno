@@ -239,9 +239,16 @@ class Case:
         # a scalar broadcast) through to apply_overlay_per_cell, closing
         # the per-cell raster-overlay YAML path the v2.0.0 charter
         # promised.
-        per_section_thermal_si = self._maybe_load_per_section_thermal_si(
+        # v2.6.0 priority: try inline raster + section_locations first
+        # (zero-step user path); fall back to v2.5.1 pre-computed CSV;
+        # else None → scalar broadcast as before.
+        per_section_thermal_si = self._maybe_compute_per_section_thermal_si_from_raster(
             cfg, sections, warnings,
         )
+        if per_section_thermal_si is None:
+            per_section_thermal_si = self._maybe_load_per_section_thermal_si(
+                cfg, sections, warnings,
+            )
 
         wua_records: list[dict[str, Any]] = []
         for Q in discharges_m3s:
@@ -1323,6 +1330,180 @@ class Case:
             "by_species_stage": by_series,
         }
         return composite_df, summary
+
+    def _maybe_compute_per_section_thermal_si_from_raster(
+        self,
+        cfg: dict,
+        sections: list[Any],
+        warnings: list[str],
+    ) -> np.ndarray | None:
+        """v2.6.0: inline raster → per-section thermal SI.
+
+        When ``data.thermal_raster.uri`` and ``data.section_locations.uri``
+        are both present in the case, this method:
+
+        1. Loads the section_locations CSV (columns ``station_m``,
+           ``lon``, ``lat``; one row per cross-section in the same
+           order as ``data.cross_section``).
+        2. Builds per-section geometries — either point samples
+           (default) or buffered circles when ``buffer_m > 0``.
+        3. Pulls the ``ThermalRange`` from ``data.fishbase_traits``
+           (same path the v1.1.1 scalar thermal_metrics uses) so the
+           inline path is consistent with the basin-scalar fallback.
+        4. Calls :func:`openlimno.habitat.thermal_si_per_section` on
+           the raster to produce the per-section SI array.
+
+        Returns ``None`` when any required block is missing or the
+        data is inconsistent (length mismatch, missing FishBase
+        traits, etc.) — caller then falls back to the v2.5.1 offline
+        CSV path, and finally to the scalar broadcast.
+        """
+        data_block = cfg.get("data", {}) or {}
+        raster = data_block.get("thermal_raster")
+        locs = data_block.get("section_locations")
+        if not (isinstance(raster, dict) and isinstance(locs, dict)):
+            return None
+        raster_uri = raster.get("uri")
+        locs_uri = locs.get("uri")
+        if not (raster_uri and locs_uri):
+            return None
+
+        raster_path = (self.case_dir / raster_uri).resolve()
+        locs_path = (self.case_dir / locs_uri).resolve()
+        if not raster_path.is_file() or not locs_path.is_file():
+            warnings.append(
+                "data.thermal_raster or data.section_locations file "
+                "missing — falling back from inline raster path."
+            )
+            return None
+
+        try:
+            locs_df = pd.read_csv(locs_path)
+        except Exception as e:  # noqa: BLE001
+            warnings.append(
+                f"section_locations CSV read failed: {e!r}. "
+                f"Falling back from inline raster path."
+            )
+            return None
+        required_cols = {"station_m", "lon", "lat"}
+        if not required_cols.issubset(locs_df.columns):
+            warnings.append(
+                f"section_locations CSV {locs_path.name} missing "
+                f"required columns {sorted(required_cols)}; got "
+                f"{list(locs_df.columns)}. Falling back."
+            )
+            return None
+        if len(locs_df) != len(sections):
+            warnings.append(
+                f"section_locations length {len(locs_df)} != number "
+                f"of sections {len(sections)}. Falling back."
+            )
+            return None
+
+        # FishBase traits drive the ThermalRange. Reuse the same
+        # extraction the v1.1.1 thermal_habitat path uses so the
+        # inline raster SI matches the scalar SI for uniform rasters.
+        fb = data_block.get("fishbase_traits")
+        if not isinstance(fb, dict):
+            warnings.append(
+                "data.fishbase_traits missing — cannot build "
+                "ThermalRange for inline thermal_raster path. "
+                "Falling back."
+            )
+            return None
+        t_min = fb.get("temperature_min_C")
+        t_max = fb.get("temperature_max_C")
+        if t_min is None or t_max is None:
+            warnings.append(
+                "data.fishbase_traits.temperature_{min,max}_C missing — "
+                "cannot build ThermalRange. Falling back."
+            )
+            return None
+
+        from openlimno.habitat.thermal import (
+            ThermalRange,
+            thermal_hsi,
+            thermal_si_per_section,
+        )
+        try:
+            from shapely.geometry import Point
+        except ImportError as e:
+            warnings.append(
+                f"shapely not importable for inline raster path: "
+                f"{e!r}. Falling back."
+            )
+            return None
+
+        tr = ThermalRange.from_fishbase(
+            float(t_min), float(t_max),
+            source=(
+                f"FishBase via data.fishbase_traits "
+                f"({fb.get('scientific_name', '?')})"
+            ),
+        )
+
+        buffer_m = float(locs.get("buffer_m", 0.0) or 0.0)
+        band = int(raster.get("band", 1) or 1)
+
+        if buffer_m <= 0.0:
+            # Point-sample path: use ``rasterio.sample`` so we read
+            # the single pixel at each section's (lon, lat). Cheaper
+            # and more direct than an "infinitesimal buffer" polygon
+            # for the zero-buffer case (which after the v2.5.1 R8-6
+            # mask fix would just produce an empty masked array).
+            import rasterio
+
+            coords = [
+                (float(r["lon"]), float(r["lat"]))
+                for _, r in locs_df.iterrows()
+            ]
+            try:
+                with rasterio.open(raster_path) as src:
+                    samples = list(src.sample(coords, indexes=band))
+            except Exception as e:  # noqa: BLE001
+                warnings.append(
+                    f"rasterio.sample failed: {e!r}. Falling back "
+                    f"from inline raster path."
+                )
+                return None
+            t_vals = np.array(
+                [float(s[0]) for s in samples], dtype=float,
+            )
+            if not np.all(np.isfinite(t_vals)):
+                warnings.append(
+                    "Some section locations sampled NaN from the "
+                    "thermal raster (likely outside bounds). "
+                    "Falling back from inline raster path."
+                )
+                return None
+            si = np.asarray(thermal_hsi(t_vals, tr), dtype=float)
+            return np.clip(si, 0.0, 1.0)
+
+        # Buffered path: build per-section polygon in EPSG:4326 by
+        # converting buffer_m → degrees via cosine-latitude. Adequate
+        # for ≤ a few hundred metres at the latitudes Open-Meteo covers.
+        geoms: list[Any] = []
+        for _, row in locs_df.iterrows():
+            lon, lat = float(row["lon"]), float(row["lat"])
+            cos_lat = max(abs(np.cos(np.radians(lat))), 1e-6)
+            deg_per_m_lon = 1.0 / (111_320.0 * cos_lat)
+            deg_per_m_lat = 1.0 / 110_540.0
+            buf_deg = buffer_m * min(deg_per_m_lon, deg_per_m_lat)
+            geoms.append(Point(lon, lat).buffer(buf_deg))
+
+        try:
+            arr = thermal_si_per_section(
+                raster_path, geoms, tr, band=band,
+            )
+        except Exception as e:  # noqa: BLE001
+            warnings.append(
+                f"thermal_si_per_section failed: {e!r}. "
+                f"Falling back from inline raster path."
+            )
+            return None
+        # Defensive clamp (the raster + Stefan regression can produce
+        # tiny negatives near the lethal edge).
+        return np.clip(arr.astype(float), 0.0, 1.0)
 
     def _maybe_load_per_section_thermal_si(
         self,

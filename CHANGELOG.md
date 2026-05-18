@@ -4,6 +4,20 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.6.0] — 2026-05-18
+
+### Added
+- **v2.6.0 — inline thermal raster → per-section SI in `Case.run`**:
+    Closes the last "user has to do an offline step" gap in the v2.0.0 per-cell raster overlay charter. v2.5.1 added `data.thermal_si_per_section.uri` (CSV) so users could plug a pre-computed array into `apply_overlay_per_cell`; v2.6.0 lets `Case.run` *generate* that array from a GeoTIFF + per-section geographic locations directly, no offline step required.
+    - **New schema key `data.thermal_raster.uri`** (GeoTIFF in degrees Celsius; optional `band` and `source_citation` fields).
+    - **New schema key `data.section_locations.uri`** (CSV with `station_m`, `lon`, `lat`; one row per cross-section in the same order as `data.cross_section`; optional `buffer_m` defaults to `0` for point-sample). The new geography input bridges between OpenLimno's 1D station-based section model and 2D geographic rasters.
+    - **`Case._maybe_compute_per_section_thermal_si_from_raster`**: loads `section_locations`, builds per-section geometries, pulls `ThermalRange` from `data.fishbase_traits` (consistent with the v1.1.1 scalar `thermal_metrics` path), and either point-samples the raster (`buffer_m=0`, default) via `rasterio.sample` or evaluates `thermal_si_per_section` on metres-buffered EPSG:4326 polygons (`buffer_m>0`, cosine-latitude approximation). Fail-loud warnings + scalar fallback when any block is missing/inconsistent.
+    - **Priority order in `Case.run`**: inline raster + section_locations (v2.6.0) → pre-computed CSV (v2.5.1) → scalar broadcast (v1.x). Each path falls back cleanly to the next; back-compat preserved.
+    - **`thermal_si_from_temperature_raster` improvement**: passes `all_touched=True` to `rasterio.mask.mask` so tight buffer geometries (≤ pixel size) still capture the pixels they overlap. Previously a sub-pixel buffer at a sparse raster would raise `RuntimeError("No valid temperature pixels matched...")`; v2.6.0 always returns something reasonable when the geometry touches any pixel at all.
+    - 5 new tests in `test_wua_watermark.py` (`test_v260_*`): point-sample happy path, inline-raster priority over v2.5.1 CSV path (numerically distinct outputs), missing-fishbase warn + fallback, section_locations length mismatch warn + fallback, buffered-circle path returns valid SI array.
+    - **v2.0.0 charter "per-cell raster overlay end-to-end" is now CLOSED at the user-facing level.** A case.yaml carrying `composite_overlay_method=geom_mean_per_cell` + `data.thermal_raster.uri` + `data.section_locations.uri` runs the full per-cell composite without any offline preprocessing — modulo cover-SI, which currently still broadcasts the basin-wide scalar (v3.x research-route item for spatial cover-SI raster integration).
+    - Verified: `ruff check` 0 findings; `mypy --strict` core (59 files) + GUI/QGIS (9 files) clean; 544 passed / 6 skipped (h5py absent) / 31 deselected on the default test gate.
+
 ## [2.5.1] — 2026-05-18
 
 ### Fixed
