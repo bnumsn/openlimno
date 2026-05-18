@@ -4,6 +4,19 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.2.0] — 2026-05-18
+
+### Added
+- **v2.2.0 — 3.x research route multi-model comparison framework**:
+    Scaffolds the four-platform equivalence-benchmark surface (PHABSIM / River2D / HABBY / FishXing) that the v2.0.0 charter committed to. v2.2.0 ships the **contract** (the `ModelAdapter` interface, the comparison harness, and stub adapters that report unavailable until v3.x). The actual reference-platform runs land in the 3.x research route — each has its own licensing / Wine / archive-parser complications and they are deliberately out of the stable 2.x line.
+    - **`benchmarks/_compare/`** — new package. `ModelAdapter` ABC, `ReferenceResult` dataclass, `WUAComparison` dataclass, `compare_against(openlimno_result, reference_result, *, threshold)` driver, and `OpenLimnoSelfAdapter` (the side-A delegate that wraps `Case.run`). The harness intersects (discharge, species/stage) cells, computes max abs + max rel error, and decides pass/fail against the YAML-declared threshold. Per-platform threshold separation: PHABSIM closed-form gets `1e-3`, River2D / FishXing get `5%`, HABBY gets `1e-6` (same closed-form combination rules).
+    - **`benchmarks/river2d/`** — stub adapter + README documenting the Wine + River2D 0.95 plan, acceptance threshold (5% relative, 50 m² absolute), and the v3.x deliverable shape (containerised Wine harness, matched `River2D.r2d` for the Lemhi case).
+    - **`benchmarks/habby/`** — stub adapter + README. HABBY is the most tractable reference (pure Python, LGPL, importable on Linux); the v2.2.0 adapter detects `import habby` for `is_available()`. v3.x lands the XML-translation bridge + pinned-version `requirements.txt`.
+    - **`benchmarks/fishxing/`** — stub adapter + README. FishXing 3.0 is a no-longer-maintained JVM application; the v3.x plan parses archived `.fx3` reports rather than running the binary. Adapter `is_available()` gated on `$FISHXING_REPORT_DIR`. Acceptance is on velocity boundaries (5 cm/s) rather than WUA m² — FishXing answers fish-passage, not habitat-area.
+    - **`docs/SPEC_3x_research_route.md`** — new SPEC document. Tier-separates 1.x (production stable) / 2.x (stable major) / 3.x (research route) / Studio path A per the `feedback_spec_scope_discipline` memory rule. Enumerates the 5 charter-committed 3.x deliverables (multi-model benchmarks, per-cell Case.run integration, spatial T(x) thermal raster, PEST++ multi-parameter calibration, pre-1.6.0 baseline lint cleanup) and the deferred-indefinitely items (F11, OpenLimno Studio).
+    - 10 new tests in `benchmarks/_compare/test_compare_harness.py` (runs on every PR, no `benchmark` marker — it tests the contract surface, not any reference platform): identical-result pass, above-threshold detection, within-threshold loose-pass, intersect of discharges + columns, zero-reference relative is None, empty-intersection fails (cannot silently pass), River2D stub unavailability + NotImplementedError, HABBY adapter availability mirrors `import habby`, FishXing adapter env-var gate, and OpenLimnoSelfAdapter platform identifier.
+    - 0 changes to runtime semantics. Pure additive — no source-file edits beyond pyproject.toml + new files under `benchmarks/` and `docs/`.
+
 ## [2.1.1] — 2026-05-18
 
 ### Fixed
