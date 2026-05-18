@@ -8,13 +8,17 @@ HABBY, FishXing) live in their own packages and use the
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 import pytest
+
 from benchmarks._compare import (
     ModelAdapter,
     OpenLimnoSelfAdapter,  # type: ignore[attr-defined]
     ReferenceResult,
     compare_against,
+    load_acceptance_threshold,
 )
 
 
@@ -97,6 +101,31 @@ def test_compare_against_zero_reference_relative_is_none():
     assert cmp.passed is True
 
 
+def test_compare_against_accepts_velocity_domain_threshold():
+    """FishXing comparisons use velocity thresholds, not WUA-area labels."""
+    a = ReferenceResult(
+        platform="openlimno",
+        wua_q=pd.DataFrame({
+            "discharge_m3s": [1.0],
+            "velocity_ms_sp_juv": [1.20],
+        }),
+        provenance={},
+    )
+    b = ReferenceResult(
+        platform="fishxing",
+        wua_q=pd.DataFrame({
+            "discharge_m3s": [1.0],
+            "velocity_ms_sp_juv": [1.24],
+        }),
+        provenance={},
+    )
+    cmp = compare_against(
+        a, b, threshold={"max_abs_m_per_s": 0.05, "max_rel": 0.05},
+    )
+    assert cmp.max_abs_error_m2 == pytest.approx(0.04)
+    assert cmp.passed is True
+
+
 def test_compare_against_empty_intersection_returns_failed():
     """No shared discharges → harness must NOT silently pass."""
     a = _make_result("openlimno", [1.0, 2.0], [10.0, 20.0])
@@ -106,16 +135,51 @@ def test_compare_against_empty_intersection_returns_failed():
     assert cmp.passed is False  # No data → cannot certify equivalence
 
 
-def test_river2d_adapter_unavailable_on_this_host():
-    """v2.2.0 stub contract: River2D adapter reports unavailable
-    on a fresh Linux dev box (no Wine + River2D binary)."""
+def test_acceptance_threshold_files_load():
+    """Benchmark thresholds are declarative YAML files beside adapters."""
+    root = Path(__file__).resolve().parents[1]
+    expected = {
+        "phabsim_bovee1997": ("max_abs_m2", 1.0e-3),
+        "river2d": ("max_abs_m2", 50.0),
+        "habby": ("max_abs_m2", 1.0e-6),
+        "fishxing": ("max_abs_m_per_s", 0.05),
+    }
+    for name, (key, value) in expected.items():
+        threshold = load_acceptance_threshold(root / name / "acceptance.yaml")
+        assert threshold[key] == pytest.approx(value)
+        assert "max_rel" in threshold
+
+
+def test_river2d_adapter_unavailable_without_reference_dir(monkeypatch):
+    """River2D adapter is unavailable until an export directory is supplied."""
     from benchmarks.river2d import River2DAdapter
 
+    monkeypatch.delenv("RIVER2D_REFERENCE_DIR", raising=False)
     adapter: ModelAdapter = River2DAdapter()
     assert adapter.platform == "river2d"
     assert adapter.is_available() is False
-    with pytest.raises(NotImplementedError, match="v3.x"):
+    with pytest.raises(FileNotFoundError, match="RIVER2D_REFERENCE_DIR"):
         adapter.run("does/not/matter")
+
+
+def test_river2d_adapter_reads_reference_export(tmp_path, monkeypatch):
+    from benchmarks.river2d import River2DAdapter
+
+    case_yaml = tmp_path / "case.yaml"
+    case_yaml.write_text("case: {}\n")
+    pd.DataFrame({
+        "Q": [1.0, 2.0],
+        "species": ["sp", "sp"],
+        "stage": ["juv", "juv"],
+        "WUA": [10.0, 20.0],
+    }).to_csv(tmp_path / "case.csv", index=False)
+    monkeypatch.setenv("RIVER2D_REFERENCE_DIR", str(tmp_path))
+
+    adapter = River2DAdapter()
+    assert adapter.is_available() is True
+    result = adapter.run(case_yaml)
+    assert result.platform == "river2d"
+    assert list(result.wua_q["wua_m2_sp_juv"]) == [10.0, 20.0]
 
 
 def test_habby_adapter_availability_matches_import():
@@ -135,6 +199,26 @@ def test_habby_adapter_availability_matches_import():
     assert adapter.is_available() is habby_importable
 
 
+def test_habby_adapter_reads_reference_export(tmp_path, monkeypatch):
+    from benchmarks.habby import HabbyAdapter
+
+    case_yaml = tmp_path / "case.yaml"
+    case_yaml.write_text("case: {}\n")
+    pd.DataFrame({
+        "discharge_m3s": [1.0],
+        "species": ["trout"],
+        "life_stage": ["adult"],
+        "wua_m2": [12.5],
+    }).to_csv(tmp_path / "case.csv", index=False)
+    monkeypatch.setenv("HABBY_REFERENCE_DIR", str(tmp_path))
+
+    adapter = HabbyAdapter()
+    assert adapter.is_available() is True
+    result = adapter.run(case_yaml)
+    assert result.platform == "habby"
+    assert result.wua_q.loc[0, "wua_m2_trout_adult"] == pytest.approx(12.5)
+
+
 def test_fishxing_adapter_env_var_gate(monkeypatch):
     """v2.2.0 stub contract: FishXing adapter is_available() flips
     on $FISHXING_REPORT_DIR."""
@@ -144,7 +228,27 @@ def test_fishxing_adapter_env_var_gate(monkeypatch):
     monkeypatch.delenv("FISHXING_REPORT_DIR", raising=False)
     assert adapter.is_available() is False
     monkeypatch.setenv("FISHXING_REPORT_DIR", "/tmp/whatever")
+    assert adapter.is_available() is False
+
+
+def test_fishxing_adapter_reads_velocity_report(tmp_path, monkeypatch):
+    from benchmarks.fishxing import FishXingAdapter
+
+    case_yaml = tmp_path / "case.yaml"
+    case_yaml.write_text("case: {}\n")
+    pd.DataFrame({
+        "Q": [1.0, 2.0],
+        "species": ["salmon", "salmon"],
+        "stage": ["adult", "adult"],
+        "velocity": [0.8, 1.1],
+    }).to_csv(tmp_path / "case.csv", index=False)
+    monkeypatch.setenv("FISHXING_REPORT_DIR", str(tmp_path))
+
+    adapter = FishXingAdapter()
     assert adapter.is_available() is True
+    result = adapter.run(case_yaml)
+    assert result.platform == "fishxing"
+    assert list(result.wua_q["velocity_ms_salmon_adult"]) == [0.8, 1.1]
 
 
 def test_openlimno_self_adapter_platform_id():

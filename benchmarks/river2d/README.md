@@ -24,13 +24,13 @@ cell.
 
 ## Adapter status
 
-* `benchmarks/river2d/adapter.py` — v2.2.0 stub. Implements the
-  :class:`ModelAdapter` contract from ``benchmarks._compare`` and
-  returns ``is_available() = False`` on every host (no River2D
-  binary available).
-* The adapter contract surface is stable for v3.x: feed it the
-  Lemhi case YAML, it returns a :class:`ReferenceResult` with the
-  same WUA-Q DataFrame schema OpenLimno emits.
+* `benchmarks/river2d/adapter.py` implements the
+  :class:`ModelAdapter` contract from ``benchmarks._compare``. Set
+  ``RIVER2D_REFERENCE_DIR`` to a directory containing a River2D WUA
+  export named ``<case-stem>.csv`` / ``.tsv`` / ``.parquet`` (or a
+  directory with a single export). The adapter returns a
+  :class:`ReferenceResult` with the same WUA-Q DataFrame schema
+  OpenLimno emits.
 
 ## Acceptance threshold
 
@@ -52,5 +52,4 @@ discretisation error against analytic solutions.
   docker/`).
 * Real Lemhi `River2D.r2d` input file matched to the existing
   OpenLimno `examples/lemhi/case.yaml`.
-* CI hook that runs the benchmark on tagged releases (skipped on
-  PR runs to keep CI under 5 minutes).
+* CI hook that runs the full binary benchmark on tagged releases.

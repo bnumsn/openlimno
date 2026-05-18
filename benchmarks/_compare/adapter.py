@@ -27,9 +27,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from numbers import Real
 from pathlib import Path
 
 import pandas as pd
+import yaml
 
 
 @dataclass(frozen=True)
@@ -71,7 +73,9 @@ class WUAComparison:
         passed: whether the comparison passed its YAML-declared
             acceptance threshold.
         threshold: the YAML-declared threshold that was applied
-            (a dict like ``{"max_abs_m2": 1e-3, "max_rel": 0.05}``).
+            (a dict like ``{"max_abs_m2": 1e-3, "max_rel": 0.05}``;
+            FishXing-style velocity comparisons may use
+            ``{"max_abs_m_per_s": 0.05, "max_rel": 0.05}``).
     """
 
     platform_a: str
@@ -80,7 +84,50 @@ class WUAComparison:
     max_rel_error: float | None
     n_compared: int
     passed: bool
-    threshold: dict
+    threshold: dict[str, float]
+
+
+def load_acceptance_threshold(path: Path | str) -> dict[str, float]:
+    """Load and validate a benchmark ``acceptance.yaml`` threshold.
+
+    Each reference benchmark keeps its acceptance criteria beside the
+    adapter/README so threshold changes are data edits, not harness
+    code edits.
+    """
+    cfg_path = Path(path)
+    data = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or not isinstance(data.get("threshold"), dict):
+        raise ValueError(f"{cfg_path} must contain a mapping named 'threshold'")
+
+    threshold: dict[str, float] = {}
+    for key, value in data["threshold"].items():
+        if not isinstance(key, str):
+            raise ValueError(f"{cfg_path} threshold key {key!r} is not a string")
+        if not isinstance(value, Real):
+            raise ValueError(
+                f"{cfg_path} threshold {key!r} must be numeric; got {value!r}"
+            )
+        threshold[key] = float(value)
+
+    if "max_abs_m2" not in threshold and "max_abs_m_per_s" not in threshold:
+        raise ValueError(
+            f"{cfg_path} threshold must define max_abs_m2 or max_abs_m_per_s"
+        )
+    return threshold
+
+
+def _absolute_threshold(threshold: dict[str, float]) -> float:
+    if "max_abs_m2" in threshold:
+        return threshold["max_abs_m2"]
+    if "max_abs_m_per_s" in threshold:
+        return threshold["max_abs_m_per_s"]
+    raise ValueError("threshold must define max_abs_m2 or max_abs_m_per_s")
+
+
+def _metric_prefix(threshold: dict[str, float]) -> str:
+    if "max_abs_m_per_s" in threshold:
+        return "velocity_ms_"
+    return "wua_m2_"
 
 
 class ModelAdapter(ABC):
@@ -123,7 +170,7 @@ def compare_against(
     openlimno_result: ReferenceResult,
     reference_result: ReferenceResult,
     *,
-    threshold: dict,
+    threshold: dict[str, float],
 ) -> WUAComparison:
     """Pair-wise compare two :class:`ReferenceResult` instances.
 
@@ -136,9 +183,12 @@ def compare_against(
     Args:
         openlimno_result: the v2.x OpenLimno output.
         reference_result: the reference platform's normalised output.
-        threshold: ``{"max_abs_m2": <float>, "max_rel": <float>}``.
+        threshold: ``{"max_abs_m2": <float>, "max_rel": <float>}``
+            for habitat-area comparisons, or
+            ``{"max_abs_m_per_s": <float>, "max_rel": <float>}``
+            for velocity-domain FishXing comparisons.
             Both keys are required; the result ``passed`` iff
-            ``max_abs_error_m2 <= max_abs_m2`` AND
+            ``max_abs_error <= max_abs`` AND
             ``max_rel_error <= max_rel`` (relative ignored when
             reference is zero).
 
@@ -151,8 +201,9 @@ def compare_against(
     b_discharges = set(b.wua_q["discharge_m3s"])
     common_q = sorted(a_discharges & b_discharges)
 
-    a_cols = {c for c in a.wua_q.columns if c.startswith("wua_m2_")}
-    b_cols = {c for c in b.wua_q.columns if c.startswith("wua_m2_")}
+    metric_prefix = _metric_prefix(threshold)
+    a_cols = {c for c in a.wua_q.columns if c.startswith(metric_prefix)}
+    b_cols = {c for c in b.wua_q.columns if c.startswith(metric_prefix)}
     common_cols = sorted(a_cols & b_cols)
 
     if not common_q or not common_cols:
@@ -185,7 +236,7 @@ def compare_against(
                 if max_rel is None or rel > max_rel:
                     max_rel = rel
 
-    passed = max_abs <= threshold["max_abs_m2"]
+    passed = max_abs <= _absolute_threshold(threshold)
     if max_rel is not None and "max_rel" in threshold:
         passed = passed and max_rel <= threshold["max_rel"]
 

@@ -34,19 +34,24 @@ a temporal overlay that multiplies into total habitat:
 
     HSI_total(t, x) = HSI_geom(t, x) × thermal_SI(t)
 
-The v1.x / v2.x lines keep the two computations independent; true
-4-D thermal habitat (spatially varying T(x) per-cell raster) is on
-the v3.x research route. v2.1.0's
-:func:`openlimno.habitat.composite.apply_overlay_per_cell` already
-accepts a per-cell thermal-SI array, so once a spatial T(x) fetcher
-lands the per-cell engine is ready to consume it.
+The scalar time-series path stays independent from hydraulics. The
+local spatial bridge, :func:`thermal_si_from_temperature_raster` /
+:func:`thermal_si_per_section`, consumes an already-built T(x) raster
+and emits per-section thermal SI values that can feed v2.1.0's
+:func:`openlimno.habitat.composite.apply_overlay_per_cell`. Remote
+PRISM/NLDAS/ERA5-style T(x) fetchers remain on the research route.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import rasterio
+import rasterio.mask
+from shapely.geometry import mapping
 
 # Default lethal margin around the FishBase preferred range, in °C.
 # Conservative for the salmonid / cyprinid species in OpenLimno's
@@ -223,3 +228,89 @@ def thermal_metrics(thermal_df: pd.DataFrame) -> dict[str, float]:
         "days_total": n,
         "optimal_fraction": days_optimal / n,
     }
+
+
+def thermal_si_from_temperature_raster(
+    temperature_raster: Path | str,
+    geometry: object,
+    tr: ThermalRange,
+    *,
+    band: int = 1,
+) -> tuple[float, dict[str, float]]:
+    """Compute pixel-weighted thermal SI inside a geometry.
+
+    This is the local raster bridge for the 3.x spatial T(x) route: it
+    consumes an already-built water-temperature raster in degrees Celsius
+    and evaluates :func:`thermal_hsi` per pixel. Remote PRISM/NLDAS/ERA5
+    fetchers can produce the raster later without changing this API.
+
+    Args:
+        temperature_raster: single-band or multi-band GeoTIFF with water
+            temperature values in degrees Celsius.
+        geometry: shapely geometry in the raster CRS.
+        tr: thermal suitability curve.
+        band: 1-based raster band index.
+
+    Returns:
+        ``(mean_si, stats)`` where ``mean_si`` is the mean per-pixel
+        thermal suitability and ``stats`` carries pixel count and
+        temperature/SI ranges for provenance.
+    """
+    with rasterio.open(temperature_raster) as src:
+        nodata = src.nodata
+        out, _ = rasterio.mask.mask(
+            src,
+            [mapping(geometry)],
+            crop=True,
+            nodata=nodata,
+            filled=True,
+            indexes=band,
+        )
+
+    arr = np.asarray(out, dtype=float)
+    valid = np.isfinite(arr)
+    if nodata is not None:
+        valid &= arr != float(nodata)
+    values = arr[valid]
+    if values.size == 0:
+        raise RuntimeError(
+            "No valid temperature pixels matched the supplied geometry; "
+            "check raster CRS, nodata, and geometry overlap."
+        )
+
+    si = np.asarray(thermal_hsi(values, tr), dtype=float)
+    stats = {
+        "pixel_count": float(values.size),
+        "mean_temperature_C": float(values.mean()),
+        "min_temperature_C": float(values.min()),
+        "max_temperature_C": float(values.max()),
+        "min_si": float(si.min()),
+        "max_si": float(si.max()),
+    }
+    return float(si.mean()), stats
+
+
+def thermal_si_per_section(
+    temperature_raster: Path | str,
+    section_geometries: Sequence[object],
+    tr: ThermalRange,
+    *,
+    band: int = 1,
+) -> np.ndarray:
+    """Return one mean thermal SI value per section geometry.
+
+    The output shape matches ``section_geometries`` and is directly
+    consumable by ``apply_overlay_per_cell(..., thermal_si_per_cell=...)``.
+    """
+    return np.array(
+        [
+            thermal_si_from_temperature_raster(
+                temperature_raster,
+                geom,
+                tr,
+                band=band,
+            )[0]
+            for geom in section_geometries
+        ],
+        dtype=float,
+    )

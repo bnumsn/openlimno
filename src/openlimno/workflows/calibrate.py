@@ -1,8 +1,8 @@
 """Hydraulic parameter calibration.
 
-SPEC §3.5: ``calibrate`` workflow. M2 deliverable: scipy-based 1-parameter
-calibration of Manning's n against an observed rating curve. PEST++ multi-
-parameter inversion lands in 1.x.
+SPEC §3.5: ``calibrate`` workflow. Provides scipy-based 1-parameter
+calibration of Manning's n against an observed rating curve plus PEST++
+GLM workspace generation and an external ``pestpp-glm`` runner wrapper.
 
 Use case (Lemhi-typical):
     Given a measured rating curve at a USGS gauge (h, Q pairs) and a built
@@ -12,7 +12,10 @@ Use case (Lemhi-typical):
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -34,6 +37,33 @@ class CalibrationResult:
     converged: bool
     bounds: tuple[float, float]
     notes: str = ""
+
+
+@dataclass(frozen=True)
+class PestppWorkspace:
+    """Files generated for a PEST++ GLM calibration workspace."""
+
+    directory: Path
+    control_file: Path
+    template_file: Path
+    parameter_file: Path
+    instruction_file: Path
+    model_output_file: Path
+    observed_file: Path
+    runner_script: Path
+    readme_file: Path
+
+
+@dataclass(frozen=True)
+class PestppRunResult:
+    """Completed external PEST++ GLM process."""
+
+    command: tuple[str, ...]
+    cwd: Path
+    returncode: int
+    stdout: str
+    stderr: str
+    record_file: Path | None = None
 
 
 def _rmse(predicted: np.ndarray, observed: np.ndarray) -> float:
@@ -112,4 +142,251 @@ def calibrate_manning_n(
     )
 
 
-__all__ = ["CalibrationResult", "calibrate_manning_n"]
+def _validate_observed_rating(observed_rating: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of the observed rating table with stable observation names."""
+    if not {"h_m", "Q_m3s"}.issubset(observed_rating.columns):
+        raise ValueError("observed_rating must have columns 'h_m' and 'Q_m3s'")
+    obs = observed_rating[["h_m", "Q_m3s"]].copy()
+    obs["obs_name"] = [f"q_{i:04d}" for i in range(1, len(obs) + 1)]
+    return obs[["obs_name", "h_m", "Q_m3s"]]
+
+
+def _render_pest_control(
+    obs: pd.DataFrame,
+    *,
+    initial_n: float,
+    slope: float,
+    n_bounds: tuple[float, float],
+    slope_bounds: tuple[float, float],
+) -> str:
+    obs_lines = "\n".join(
+        f"{row.obs_name} {float(row.Q_m3s):.12g} 1.0 rating"
+        for row in obs.itertuples(index=False)
+    )
+    nobs = len(obs)
+    return f"""pcf
+* control data
+restart estimation
+2 {nobs} 1 0 1
+1 1 single point 1 0 0
+10.0 2.0 0.3 0.03 10
+3.0 3.0 0.001
+0.1
+30 0.01 4 3 0.01 3
+1 1 1
+* parameter groups
+hydraulic relative 0.01 0.0 switch 2.0 parabolic
+* parameter data
+manning_n log factor {initial_n:.12g} {n_bounds[0]:.12g} {n_bounds[1]:.12g} hydraulic 1.0 0.0 1
+slope log factor {slope:.12g} {slope_bounds[0]:.12g} {slope_bounds[1]:.12g} hydraulic 1.0 0.0 1
+* observation groups
+rating
+* observation data
+{obs_lines}
+* model command line
+python run_openlimno_calibration.py
+* model input/output
+params.tpl params.in
+model.ins model.out
+* prior information
+"""
+
+
+def build_pestpp_glm_workspace(
+    case_yaml: str | Path,
+    observed_rating: pd.DataFrame,
+    out_dir: str | Path,
+    *,
+    initial_n: float = 0.035,
+    slope: float = 0.002,
+    n_bounds: tuple[float, float] = (0.012, 0.08),
+    slope_bounds: tuple[float, float] = (1e-5, 0.02),
+) -> PestppWorkspace:
+    """Generate a PEST++ GLM workspace for OpenLimno calibration.
+
+    This does not run ``pestpp-glm``. It writes the control/template/
+    instruction files plus a deterministic OpenLimno runner script so an
+    external PEST++ binary or container can execute the calibration.
+    """
+    from openlimno.case import Case
+
+    case = Case.from_yaml(case_yaml)
+    cross_section_path = case._resolve(case.config["data"]["cross_section"])
+    if not cross_section_path.is_file():
+        raise FileNotFoundError(f"cross_section parquet missing: {cross_section_path}")
+    obs = _validate_observed_rating(observed_rating)
+
+    directory = Path(out_dir).resolve()
+    directory.mkdir(parents=True, exist_ok=True)
+    control_file = directory / "openlimno_calibration.pst"
+    template_file = directory / "params.tpl"
+    parameter_file = directory / "params.in"
+    instruction_file = directory / "model.ins"
+    model_output_file = directory / "model.out"
+    observed_file = directory / "observed_rating.csv"
+    runner_script = directory / "run_openlimno_calibration.py"
+    readme_file = directory / "README.md"
+
+    observed_file.write_text(obs.to_csv(index=False), encoding="utf-8")
+    template_file.write_text(
+        "ptf ~\n"
+        "manning_n ~ manning_n ~\n"
+        "slope ~ slope ~\n",
+        encoding="utf-8",
+    )
+    parameter_file.write_text(
+        f"manning_n {initial_n:.12g}\n"
+        f"slope {slope:.12g}\n",
+        encoding="utf-8",
+    )
+    instruction_lines = ["pif @", "l1"]
+    instruction_lines.extend(f"l1 w !{name}!" for name in obs["obs_name"])
+    instruction_file.write_text("\n".join(instruction_lines) + "\n", encoding="utf-8")
+    control_file.write_text(
+        _render_pest_control(
+            obs,
+            initial_n=initial_n,
+            slope=slope,
+            n_bounds=n_bounds,
+            slope_bounds=slope_bounds,
+        ),
+        encoding="utf-8",
+    )
+    runner_script.write_text(
+        f'''"""PEST++ model runner generated by OpenLimno."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pandas as pd
+
+from openlimno.hydro.builtin_1d import load_sections_from_parquet
+
+WORK_DIR = Path(__file__).resolve().parent
+CROSS_SECTION = Path({str(cross_section_path)!r})
+
+
+def _read_params(path: Path) -> dict[str, float]:
+    params: dict[str, float] = {{}}
+    for line in path.read_text().splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        params[parts[0]] = float(parts[1])
+    return params
+
+
+def main() -> None:
+    params = _read_params(WORK_DIR / "params.in")
+    manning_n = params["manning_n"]
+    slope = params["slope"]
+    observed = pd.read_csv(WORK_DIR / "observed_rating.csv")
+    sections = load_sections_from_parquet(CROSS_SECTION, manning_n=manning_n)
+    if not sections:
+        raise RuntimeError(f"no cross-sections found in {{CROSS_SECTION}}")
+    xs = sections[0]
+    rows = ["obs_name predicted_Q_m3s"]
+    for row in observed.itertuples(index=False):
+        wse = xs.thalweg_elevation_m + float(row.h_m)
+        predicted = xs.manning_discharge(wse, slope)
+        rows.append(f"{{row.obs_name}} {{predicted:.12g}}")
+    (WORK_DIR / "model.out").write_text("\\n".join(rows) + "\\n")
+
+
+if __name__ == "__main__":
+    main()
+''',
+        encoding="utf-8",
+    )
+    readme_file.write_text(
+        "# OpenLimno PEST++ GLM workspace\n\n"
+        "Generated by `openlimno calibrate --algo pestpp-glm`.\n\n"
+        "Run from this directory with an external PEST++ binary/container:\n\n"
+        "```bash\n"
+        "pestpp-glm openlimno_calibration.pst\n"
+        "```\n\n"
+        "The generated model runner evaluates the first cross-section in the "
+        "case against `observed_rating.csv` using `manning_n` and `slope` "
+        "from `params.in`.\n",
+        encoding="utf-8",
+    )
+
+    return PestppWorkspace(
+        directory=directory,
+        control_file=control_file,
+        template_file=template_file,
+        parameter_file=parameter_file,
+        instruction_file=instruction_file,
+        model_output_file=model_output_file,
+        observed_file=observed_file,
+        runner_script=runner_script,
+        readme_file=readme_file,
+    )
+
+
+def _workspace_paths(workspace: PestppWorkspace | str | Path) -> tuple[Path, Path]:
+    if isinstance(workspace, PestppWorkspace):
+        return workspace.directory, workspace.control_file
+    directory = Path(workspace).resolve()
+    control_file = directory / "openlimno_calibration.pst"
+    return directory, control_file
+
+
+def run_pestpp_glm_workspace(
+    workspace: PestppWorkspace | str | Path,
+    *,
+    executable: str = "pestpp-glm",
+    timeout: float = 600.0,
+    check: bool = True,
+) -> PestppRunResult:
+    """Run an external ``pestpp-glm`` binary against a generated workspace."""
+    directory, control_file = _workspace_paths(workspace)
+    if not directory.is_dir():
+        raise FileNotFoundError(f"PEST++ workspace directory missing: {directory}")
+    if not control_file.is_file():
+        raise FileNotFoundError(f"PEST++ control file missing: {control_file}")
+
+    exe_path = shutil.which(executable)
+    if exe_path is None and Path(executable).is_file():
+        exe_path = str(Path(executable).resolve())
+    if exe_path is None:
+        raise FileNotFoundError(
+            f"Could not find {executable!r}. Install PEST++ or pass "
+            "executable=/path/to/pestpp-glm."
+        )
+
+    command = (exe_path, control_file.name)
+    proc = subprocess.run(
+        command,
+        cwd=directory,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    result = PestppRunResult(
+        command=command,
+        cwd=directory,
+        returncode=proc.returncode,
+        stdout=proc.stdout,
+        stderr=proc.stderr,
+        record_file=directory / "openlimno_calibration.rec"
+        if (directory / "openlimno_calibration.rec").exists()
+        else None,
+    )
+    if check and proc.returncode != 0:
+        raise RuntimeError(
+            f"pestpp-glm failed with exit code {proc.returncode}\n"
+            f"stdout:\n{proc.stdout}\n\nstderr:\n{proc.stderr}"
+        )
+    return result
+
+
+__all__ = [
+    "CalibrationResult",
+    "PestppRunResult",
+    "PestppWorkspace",
+    "build_pestpp_glm_workspace",
+    "calibrate_manning_n",
+    "run_pestpp_glm_workspace",
+]

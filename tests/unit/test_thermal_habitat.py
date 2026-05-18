@@ -179,3 +179,127 @@ def test_thermal_chain_with_fishbase_and_openmeteo_schema(tmp_path):
     # reach T_lethal_min=4 (peak min = 4). Just assert metric is
     # internally consistent.
     assert m["days_optimal"] + m["days_lethal"] <= m["days_total"]
+
+
+def test_spatial_temperature_raster_returns_mean_si_and_stats(tmp_path):
+    """3.x local T(x) bridge: raster pixels convert to thermal SI."""
+    import rasterio
+    from rasterio.transform import from_origin
+    from shapely.geometry import box
+
+    from openlimno.habitat import ThermalRange, thermal_si_from_temperature_raster
+
+    raster_path = tmp_path / "temperature.tif"
+    arr = np.array([[5.0, 10.0], [18.0, 23.0]], dtype="float32")
+    with rasterio.open(
+        raster_path,
+        "w",
+        driver="GTiff",
+        height=2,
+        width=2,
+        count=1,
+        dtype="float32",
+        crs="EPSG:4326",
+        transform=from_origin(0.0, 2.0, 1.0, 1.0),
+        nodata=-9999.0,
+    ) as dst:
+        dst.write(arr, 1)
+
+    tr = ThermalRange(T_lethal_min=0.0, T_opt_min=10.0, T_opt_max=18.0, T_lethal_max=23.0)
+    mean_si, stats = thermal_si_from_temperature_raster(raster_path, box(0.0, 0.0, 2.0, 2.0), tr)
+
+    assert mean_si == pytest.approx((0.5 + 1.0 + 1.0 + 0.0) / 4)
+    assert stats["pixel_count"] == 4
+    assert stats["mean_temperature_C"] == pytest.approx(14.0)
+    assert stats["min_si"] == pytest.approx(0.0)
+    assert stats["max_si"] == pytest.approx(1.0)
+
+
+def test_open_meteo_temperature_raster_fetcher_writes_geotiff(tmp_path):
+    """Remote T(x) route: sampled Open-Meteo points become a local raster."""
+    from dataclasses import dataclass
+
+    import rasterio
+
+    from openlimno.preprocess.fetch import (
+        CacheEntry,
+        fetch_open_meteo_temperature_raster,
+    )
+
+    @dataclass(frozen=True)
+    class FakeResult:
+        df: pd.DataFrame
+        cache: CacheEntry
+        lat: float
+        lon: float
+        citation: str = "fake open-meteo"
+
+    def fake_fetcher(lat: float, lon: float, start_year: int, end_year: int) -> FakeResult:
+        temp = 10.0 + lat + lon + (end_year - start_year)
+        cache_path = tmp_path / f"{lat}_{lon}.json"
+        cache_path.write_text("{}", encoding="utf-8")
+        return FakeResult(
+            df=pd.DataFrame({"T_water_C_stefan": [temp, temp + 2.0]}),
+            cache=CacheEntry(
+                path=cache_path,
+                cache_hit=False,
+                source_url="fake://open-meteo",
+                fetch_time="2026-05-18T00:00:00+0000",
+                sha256="0" * 64,
+            ),
+            lat=lat,
+            lon=lon,
+        )
+
+    out_tif = tmp_path / "tx.tif"
+    result = fetch_open_meteo_temperature_raster(
+        (0.0, 0.0, 1.0, 1.0),
+        2020,
+        2021,
+        out_tif,
+        grid_shape=(2, 2),
+        fetcher=fake_fetcher,
+    )
+
+    assert result.tif_path == out_tif.resolve()
+    assert result.sample_count == 4
+    assert len(result.cache_entries) == 4
+    with rasterio.open(out_tif) as src:
+        arr = src.read(1)
+        assert src.crs.to_string() == "EPSG:4326"
+    assert arr.shape == (2, 2)
+    assert float(arr.mean()) == pytest.approx(result.mean_temperature_C)
+
+
+def test_thermal_si_per_section_matches_section_order(tmp_path):
+    """Per-section thermal SI array can feed per-cell composite overlays."""
+    import rasterio
+    from rasterio.transform import from_origin
+    from shapely.geometry import box
+
+    from openlimno.habitat import ThermalRange, thermal_si_per_section
+
+    raster_path = tmp_path / "temperature.tif"
+    arr = np.array([[10.0, 23.0]], dtype="float32")
+    with rasterio.open(
+        raster_path,
+        "w",
+        driver="GTiff",
+        height=1,
+        width=2,
+        count=1,
+        dtype="float32",
+        crs="EPSG:4326",
+        transform=from_origin(0.0, 1.0, 1.0, 1.0),
+        nodata=-9999.0,
+    ) as dst:
+        dst.write(arr, 1)
+
+    tr = ThermalRange(T_lethal_min=0.0, T_opt_min=10.0, T_opt_max=18.0, T_lethal_max=23.0)
+    out = thermal_si_per_section(
+        raster_path,
+        [box(0.0, 0.0, 1.0, 1.0), box(1.0, 0.0, 2.0, 1.0)],
+        tr,
+    )
+
+    np.testing.assert_allclose(out, [1.0, 0.0])

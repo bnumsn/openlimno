@@ -25,10 +25,12 @@ common subset.
 
 ## Adapter status
 
-* `benchmarks/habby/adapter.py` — v2.2.0 stub. ``is_available()``
-  attempts ``import habby`` and returns ``True`` if the package
-  is importable; otherwise ``False``. ``run`` raises
-  ``NotImplementedError`` (real bridge is v3.x).
+* `benchmarks/habby/adapter.py` reads exported HABBY/CASiMiR-style
+  WUA tables. Set ``HABBY_REFERENCE_DIR`` to a directory containing
+  ``<case-stem>.csv`` / ``.tsv`` / ``.parquet`` (or a directory with
+  a single export). ``is_available()`` also returns true when the
+  ``habby`` Python package is importable, but a reference export is
+  still required until the project XML writer lands.
 
 ## Acceptance threshold
 
@@ -50,5 +52,4 @@ investigating.
   into HABBY's project XML, runs HABBY headless, and reads the
   produced WUA-Q table back through the
   :class:`benchmarks._compare.ReferenceResult` interface.
-* Pinned HABBY version in `benchmarks/habby/requirements.txt` for
-  CI reproducibility.
+* Pinned HABBY version/environment for CI reproducibility.

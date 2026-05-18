@@ -92,6 +92,11 @@ from openlimno.preprocess.fetch.soilgrids import (
     SoilGridsFetchResult,
     fetch_soilgrids,
 )
+from openlimno.preprocess.fetch.spatial_temperature import (
+    BBox,
+    SpatialTemperatureRasterResult,
+    fetch_open_meteo_temperature_raster,
+)
 from openlimno.preprocess.fetch.species import (
     SpeciesMatchResult,
     SpeciesOccurrencesResult,
@@ -122,6 +127,7 @@ __all__ = [
     "WATER_TYPES",
     "WORLDCOVER_CLASSES",
     "WORLDCOVER_EPOCHS",
+    "BBox",
     "CacheEntry",
     "ChinaDischargeResult",
     "ChinaHydroAdapter",
@@ -134,6 +140,7 @@ __all__ = [
     "NWISFetchResult",
     "OpenMeteoFetchResult",
     "SoilGridsFetchResult",
+    "SpatialTemperatureRasterResult",
     "SpeciesMatchResult",
     "SpeciesOccurrencesResult",
     "WatershedClimateResult",
@@ -153,6 +160,7 @@ __all__ = [
     "fetch_nwis_daily_discharge",
     "fetch_nwis_rating_curve",
     "fetch_open_meteo_daily",
+    "fetch_open_meteo_temperature_raster",
     "fetch_soilgrids",
     "fetch_watershed_climate",
     "find_basin_at",

@@ -410,32 +410,83 @@ def passage(
     "--algo",
     default="scipy",
     type=click.Choice(["scipy", "pestpp-glm"]),
-    help="scipy = built-in 1-parameter; pestpp-glm = multi-parameter (v3.x research route)",
+    help="scipy = built-in 1-parameter; pestpp-glm = generate PEST++ workspace",
 )
 @click.option("--initial-n", default=0.035, type=float)
 @click.option("--slope", default=0.002, type=float)
-def calibrate(case_yaml: str, observed: str, algo: str, initial_n: float, slope: float) -> None:
+@click.option(
+    "--pestpp-dir",
+    type=click.Path(file_okay=False, dir_okay=True),
+    default=None,
+    help="Output directory for --algo pestpp-glm workspace files",
+)
+@click.option(
+    "--run-pestpp/--no-run-pestpp",
+    default=False,
+    help="After generating the PEST++ workspace, execute pestpp-glm.",
+)
+@click.option(
+    "--pestpp-exe",
+    default="pestpp-glm",
+    show_default=True,
+    help="PEST++ GLM executable for --run-pestpp.",
+)
+def calibrate(
+    case_yaml: str,
+    observed: str,
+    algo: str,
+    initial_n: float,
+    slope: float,
+    pestpp_dir: str | None,
+    run_pestpp: bool,
+    pestpp_exe: str,
+) -> None:
     """Calibrate Manning's n against an observed rating curve.
 
-    v2.x: scipy-based 1-parameter; PEST++ multi-parameter on the v3.x
-    research route.
+    v2.x: scipy-based 1-parameter. The PEST++ path writes a GLM
+    workspace that can be run by an external pestpp-glm binary/container.
     """
     import pandas as pd
 
-    if algo == "pestpp-glm":
-        raise NotImplementedError(
-            "PEST++ multi-parameter calibration is on the v3.x research route"
-        )
-
     from openlimno.case import Case
     from openlimno.hydro.builtin_1d import load_sections_from_parquet
-    from openlimno.workflows import calibrate_manning_n
+    from openlimno.workflows import (
+        build_pestpp_glm_workspace,
+        calibrate_manning_n,
+        run_pestpp_glm_workspace,
+    )
 
     obs_path = Path(observed)
     if obs_path.suffix == ".parquet":
         obs = pd.read_parquet(obs_path)
     else:
         obs = pd.read_csv(obs_path)
+
+    if algo == "pestpp-glm":
+        workspace_dir = (
+            Path(pestpp_dir)
+            if pestpp_dir is not None
+            else Path(case_yaml).resolve().parent / "pestpp_glm"
+        )
+        workspace = build_pestpp_glm_workspace(
+            case_yaml,
+            obs,
+            workspace_dir,
+            initial_n=initial_n,
+            slope=slope,
+        )
+        console.print("[green]✓[/] PEST++ GLM workspace generated")
+        console.print(f"  control: {workspace.control_file}")
+        console.print(f"  run:     pestpp-glm {workspace.control_file.name}")
+        if run_pestpp:
+            run_result = run_pestpp_glm_workspace(
+                workspace,
+                executable=pestpp_exe,
+            )
+            console.print("[green]✓[/] pestpp-glm completed")
+            console.print(f"  command: {' '.join(run_result.command)}")
+            console.print(f"  returncode: {run_result.returncode}")
+        return
 
     case = Case.from_yaml(case_yaml)
     cross_section_path = case._resolve(case.config["data"]["cross_section"])

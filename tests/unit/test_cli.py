@@ -141,6 +141,65 @@ def test_passage_cli_smoke(tmp_path: Path) -> None:
     assert "η = η_A × η_P" in result.output
 
 
+def test_calibrate_pestpp_glm_generates_workspace(tmp_path: Path) -> None:
+    """CLI PEST++ path writes files instead of pretending to run pestpp-glm."""
+    xs_path = tmp_path / "cross_section.parquet"
+    pd.DataFrame({
+        "station_m": [0.0, 0.0, 0.0, 0.0],
+        "point_index": [0, 1, 2, 3],
+        "distance_m": [-5.0, -4.999, 4.999, 5.0],
+        "elevation_m": [5.0, 0.0, 0.0, 5.0],
+    }).to_parquet(xs_path, index=False)
+    (tmp_path / "mesh.nc").write_bytes(b"placeholder")
+    observed = tmp_path / "observed.csv"
+    pd.DataFrame({"h_m": [0.5, 1.0], "Q_m3s": [2.5, 6.0]}).to_csv(observed, index=False)
+    case_yaml = tmp_path / "case.yaml"
+    case_yaml.write_text(
+        "openlimno: '0.1'\n"
+        "case:\n"
+        "  name: pestpp_cli\n"
+        "  crs: EPSG:4326\n"
+        "mesh:\n"
+        "  uri: mesh.nc\n"
+        "hydrodynamics:\n"
+        "  backend: builtin-1d\n"
+        "habitat:\n"
+        "  species: [oncorhynchus_mykiss]\n"
+        "  stages: [spawning]\n"
+        "  metric: wua-q\n"
+        "  composite: min\n"
+        "  acknowledge_independence: false\n"
+        "  acknowledge_independence_reason: not using independent composite in this test\n"
+        "data:\n"
+        "  cross_section: cross_section.parquet\n"
+        "output:\n"
+        "  dir: out\n"
+        "  formats: [csv]\n",
+        encoding="utf-8",
+    )
+
+    out_dir = tmp_path / "pestpp"
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "calibrate",
+            str(case_yaml),
+            "--observed",
+            str(observed),
+            "--algo",
+            "pestpp-glm",
+            "--pestpp-dir",
+            str(out_dir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "PEST++ GLM workspace generated" in result.output
+    assert (out_dir / "openlimno_calibration.pst").exists()
+    assert (out_dir / "run_openlimno_calibration.py").exists()
+
+
 def test_preprocess_import_model_lists_supported_paths() -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["preprocess", "import-model", "--list-supported"])

@@ -1,6 +1,6 @@
 [workspace]
 name = "openlimno"
-version = "2.4.1"
+version = "2.5.0"
 description = "Open-source ecological-flow and fish-habitat decision platform"
 authors = ["OpenLimno Contributors <hello@openlimno.org>"]
 channels = ["conda-forge"]
@@ -44,6 +44,9 @@ scipy = ">=1.12"
 # snakemake-minimal: moved to [feature.workflow] (osx-arm64 wheels missing
 # from conda-forge as of 2026-Q2; users who need Snakefile execution opt in
 # via `pixi install -e workflow`). Core OpenLimno does not import snakemake.
+# pestpp: the OpenLimno-to-PEST++ workspace translator is local code. The
+# external PEST++ runner/container remains research-route infrastructure, so
+# no binary dependency is bundled in the default environment.
 
 # ---------------------------------------------------------------
 # Optional integrations (1.0 wraps these via subprocess)
@@ -87,6 +90,9 @@ mkdocstrings-python = ">=1.10"
 [feature.workflow.pypi-dependencies]
 snakemake = ">=8"
 
+[feature.pestpp.dependencies]
+pestpp = ">=5.2"
+
 [feature.mike]
 platforms = ["linux-64", "win-64"]
 
@@ -116,6 +122,7 @@ docs = { features = ["docs"], solve-group = "default" }
 schism = { features = ["dev", "schism"], solve-group = "schism" }
 qgis = { features = ["dev", "qgis"], solve-group = "qgis" }
 workflow = { features = ["dev", "workflow"], solve-group = "workflow" }
+pestpp = { features = ["dev", "pestpp"], solve-group = "pestpp" }
 mike = { features = ["dev", "mike"], solve-group = "mike" }
 all = { features = ["dev", "docs", "schism"], solve-group = "all" }
 
@@ -129,6 +136,7 @@ test-online = "pytest tests/integration -v -m online"
 test-osgeo = "pytest tests/unit/test_preprocess_fetch.py tests/unit/test_xs_rows_cache.py -v -m osgeo"
 test-qgis = "pytest tests/integration/test_qgis_plugin_shim.py -v"
 test-workflow = "pytest tests/integration/test_snakemake_calibrate.py -v -m workflow"
+test-pestpp = "pytest tests/integration/test_pestpp_glm_real.py -v -m pestpp"
 test-cov = "pytest tests/ --cov=src/openlimno --cov-report=term-missing --cov-report=xml"
 lint = "ruff check src/ tests/ benchmarks/_compare"
 lint-fix = "ruff check --fix src/ tests/ benchmarks/_compare"

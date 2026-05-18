@@ -51,6 +51,8 @@ from .thermal import (
     ThermalRange,
     thermal_hsi,
     thermal_metrics,
+    thermal_si_from_temperature_raster,
+    thermal_si_per_section,
     thermal_suitability_series,
 )
 from .wua import cell_wua, wua_q_curve
@@ -91,6 +93,8 @@ __all__ = [
     "summarize_habitat_cells",
     "thermal_hsi",
     "thermal_metrics",
+    "thermal_si_from_temperature_raster",
+    "thermal_si_per_section",
     "thermal_suitability_series",
     "watershed_cover_si",
     "wua_q_curve",

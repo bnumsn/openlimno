@@ -97,8 +97,8 @@ PRs touching any of these will be closed and pointed at this section.
 - ❌ Web GUI / cloud-native / multi-tenant / REST API
 - ❌ Embedded real-time scheduling
 - ❌ Multi-solver BMI interchange (only SCHISM is deeply integrated)
-- ❌ PEST++ multi-parameter inversion (1.x scope; 1-parameter scipy is in)
-- ❌ Unsteady shallow-water solver (post-1.0; placeholder skipped in CI)
+- ❌ PEST++ multi-parameter inversion (research-route scope; 1-parameter scipy is in)
+- ❌ Unsteady shallow-water solver (post-1.0; no placeholder skip in CI)
 
 ---
 
@@ -106,7 +106,7 @@ PRs touching any of these will be closed and pointed at this section.
 
 These are aspirational and have a separate, slower track:
 
-- C.1 PEST++ multi-parameter calibration
+- C.1 PEST++ multi-parameter calibration runner/container validation
 - C.2 Time-varying meshes (auto morphology)
 - C.3 ML / neural-operator surrogates
 - C.4 Population-dynamics overlay

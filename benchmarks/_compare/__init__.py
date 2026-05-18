@@ -30,6 +30,7 @@ from .adapter import (
     ReferenceResult,
     WUAComparison,
     compare_against,
+    load_acceptance_threshold,
 )
 
 __all__ = [
@@ -38,4 +39,5 @@ __all__ = [
     "ReferenceResult",
     "WUAComparison",
     "compare_against",
+    "load_acceptance_threshold",
 ]

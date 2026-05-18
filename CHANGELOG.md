@@ -4,6 +4,45 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-05-18
+
+### Added
+- Spatial thermal bridge for the 3.x research route: `thermal_si_from_temperature_raster(...)`
+  evaluates water-temperature rasters against `ThermalRange`, and
+  `thermal_si_per_section(...)` returns per-section SI arrays suitable
+  for `apply_overlay_per_cell(..., thermal_si_per_cell=...)`.
+- Remote spatial-temperature fetcher:
+  `fetch_open_meteo_temperature_raster(...)` samples Open-Meteo archive
+  points over a lon/lat grid, aggregates Stefan water temperature, writes
+  an EPSG:4326 GeoTIFF, and preserves per-sample cache provenance.
+- PEST++ GLM translator: `openlimno calibrate --algo pestpp-glm` now
+  writes a runnable workspace (`.pst`, template, instruction file,
+  observed-rating CSV, and OpenLimno model runner). `--run-pestpp`
+  executes an installed external `pestpp-glm`; the optional pixi
+  `pestpp` environment installs PEST++ and `test-pestpp` verifies a real
+  GLM run.
+- External reference-platform readers: River2D and HABBY adapters now
+  read exported WUA tables from `RIVER2D_REFERENCE_DIR` /
+  `HABBY_REFERENCE_DIR`, and FishXing reads archived CSV/XLS(X) velocity
+  reports from `FISHXING_REPORT_DIR`.
+- Core strict typing gate: `pixi run typecheck-strict-core` now runs
+  `mypy --strict` across the non-GUI OpenLimno core and is included in
+  `pixi run check`.
+- GUI/QGIS strict annotation gate:
+  `pixi run typecheck-strict-gui-qgis` now checks `gui_core`,
+  `studio`, and the QGIS plugin with strict local annotations while
+  allowing untyped third-party Qt/QGIS calls/decorators.
+- Benchmark acceptance thresholds now live in per-adapter
+  `acceptance.yaml` files for PHABSIM, River2D, HABBY, and FishXing,
+  with a loader test covering both WUA-area and FishXing velocity-domain
+  threshold keys.
+
+### Changed
+- Removed the skipped Toro dam-break placeholder test. The benchmark
+  file now only collects executable steady-state Manning checks; unsteady
+  Riemann cases remain documented research-route work until there is an
+  unsteady solver API to exercise.
+
 ## [2.4.1] — 2026-05-18
 
 ### Fixed

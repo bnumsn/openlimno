@@ -1,8 +1,9 @@
-"""FishXing adapter stub (v2.2.0).
+"""FishXing reference adapter.
 
 FishXing 3.0 is a no-longer-maintained JVM application from USDA
-Forest Service. v2.2.0 ships the contract + file-presence detection;
-the actual .fx3 report parser is v3.x.
+Forest Service. OpenLimno compares against archived FishXing report
+exports from ``FISHXING_REPORT_DIR``; the adapter normalizes velocity
+tables into the shared reference-result surface.
 """
 from __future__ import annotations
 
@@ -10,6 +11,33 @@ import os
 from pathlib import Path
 
 from benchmarks._compare.adapter import ModelAdapter, ReferenceResult
+from benchmarks.fishxing.parser import read_fishxing_report
+
+_REFERENCE_SUFFIXES = (".csv", ".tsv", ".tab", ".xlsx", ".xls")
+
+
+def _reference_dir() -> Path | None:
+    raw = os.environ.get("FISHXING_REPORT_DIR")
+    if not raw:
+        return None
+    path = Path(raw)
+    return path if path.is_dir() else None
+
+
+def _find_reference_file(case_yaml: Path | str) -> Path | None:
+    directory = _reference_dir()
+    if directory is None:
+        return None
+    stem = Path(case_yaml).stem
+    for suffix in _REFERENCE_SUFFIXES:
+        candidate = directory / f"{stem}{suffix}"
+        if candidate.is_file():
+            return candidate
+    files = sorted(
+        p for p in directory.iterdir()
+        if p.is_file() and p.suffix.lower() in _REFERENCE_SUFFIXES
+    )
+    return files[0] if len(files) == 1 else None
 
 
 class FishXingAdapter(ModelAdapter):
@@ -18,13 +46,14 @@ class FishXingAdapter(ModelAdapter):
         return "fishxing"
 
     def is_available(self) -> bool:
-        # v3.x: detect bundled FishXing report fixtures under
-        # benchmarks/fishxing/fixtures/. v2.2.0 looks for an env var
-        # so a developer can opt-in by pointing at a local archive.
-        return bool(os.environ.get("FISHXING_REPORT_DIR"))
+        return _reference_dir() is not None
 
     def run(self, case_yaml: Path | str) -> ReferenceResult:
-        raise NotImplementedError(
-            "FishXing parser is staged for v3.x; see "
-            "benchmarks/fishxing/README.md for the .fx3 archive plan."
-        )
+        reference_file = _find_reference_file(case_yaml)
+        if reference_file is None:
+            raise FileNotFoundError(
+                "FishXing reference report not found. Set FISHXING_REPORT_DIR "
+                "to a directory containing <case-stem>.csv/.xlsx, or a "
+                "single FishXing velocity report export."
+            )
+        return read_fishxing_report(reference_file)

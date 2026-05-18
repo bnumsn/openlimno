@@ -18,6 +18,14 @@ SNAKEFILE = REPO_ROOT / "src" / "openlimno" / "workflows" / "snakefiles" / "cali
 LEMHI_DIR = REPO_ROOT / "data" / "lemhi"
 
 
+def _snakemake_executable() -> str:
+    executable = shutil.which("snakemake")
+    assert executable is not None, (
+        "snakemake not installed; run the workflow environment before this test"
+    )
+    return executable
+
+
 def test_snakefile_exists_and_well_formed() -> None:
     """Snakefile is present and contains the canonical rules."""
     assert SNAKEFILE.exists(), f"Snakefile missing: {SNAKEFILE}"
@@ -29,12 +37,11 @@ def test_snakefile_exists_and_well_formed() -> None:
     assert "openlimno calibrate" in text
 
 
+@pytest.mark.workflow
 def test_snakefile_rejects_missing_config() -> None:
     """When neither case nor observed are passed, the smk must error fast."""
-    if shutil.which("snakemake") is None:
-        pytest.skip("snakemake not installed")
     proc = subprocess.run(
-        ["snakemake", "-s", str(SNAKEFILE), "--cores", "1", "-n"],
+        [_snakemake_executable(), "-s", str(SNAKEFILE), "--cores", "1", "-n"],
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,
@@ -45,17 +52,15 @@ def test_snakefile_rejects_missing_config() -> None:
     assert "case=" in combined or "observed" in combined or "Snakefile" in combined
 
 
+@pytest.mark.workflow
 def test_snakefile_dry_run_with_lemhi() -> None:
     """End-to-end --dry-run resolves the rule graph for Lemhi config."""
-    if shutil.which("snakemake") is None:
-        pytest.skip("snakemake not installed")
-    if not (LEMHI_DIR / "rating_curve.parquet").exists():
-        pytest.skip("Lemhi data not built")
+    assert (LEMHI_DIR / "rating_curve.parquet").exists(), "Lemhi data not built"
     case = REPO_ROOT / "examples" / "lemhi" / "case.yaml"
     observed = LEMHI_DIR / "rating_curve.parquet"
     proc = subprocess.run(
         [
-            "snakemake",
+            _snakemake_executable(),
             "-s",
             str(SNAKEFILE),
             "--cores",

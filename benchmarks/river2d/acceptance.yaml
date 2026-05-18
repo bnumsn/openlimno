@@ -1,0 +1,3 @@
+threshold:
+  max_abs_m2: 50.0
+  max_rel: 0.05

@@ -29,9 +29,11 @@ this discharge?". The 3.x research route includes both.
 
 ## Adapter status
 
-* `benchmarks/fishxing/adapter.py` — v2.2.0 stub. ``is_available()``
-  checks for a ``FISHXING_REPORT_DIR`` environment variable. ``run``
-  raises ``NotImplementedError`` (real parser is v3.x).
+* `benchmarks/fishxing/parser.py` reads archived CSV/XLS(X) velocity
+  report exports into :class:`benchmarks._compare.ReferenceResult`.
+* `benchmarks/fishxing/adapter.py` uses ``FISHXING_REPORT_DIR`` to
+  locate ``<case-stem>.csv`` / ``.xlsx`` (or a directory with one
+  report export) and normalises the velocity columns for comparison.
 
 ## Acceptance threshold
 
@@ -51,9 +53,7 @@ domain (velocity vs WUA) by adapter identity.
 
 ## What v3.x adds
 
-* `benchmarks/fishxing/parser.py` — reads archived `.fx3` reports
-  into :class:`benchmarks._compare.ReferenceResult`.
 * A curated fixture of 5 — 10 canonical FishXing test cases (culvert
   geometries + species + life-stage combinations) with archived
   reference outputs checked into the repo.
-* CI hook on tagged releases (skipped on PR).
+* CI hook on tagged releases.
