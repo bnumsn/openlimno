@@ -2299,3 +2299,229 @@ def test_v1100_composite_method_threaded_through_case_run(monkeypatch, tmp_path)
         f"composite_overlay_method did not thread through case.run: "
         f"captured={captured}"
     )
+
+
+# ---------------------------------------------------------------------------
+# v2.1.0 — per-cell composite (true n-factor geometric mean)
+# ---------------------------------------------------------------------------
+
+
+def test_v210_apply_overlay_per_cell_recovers_cell_wua_when_no_overlay():
+    """v2.1.0 base case: with NO overlay arrays supplied, the per-cell
+    composite must reduce to the standard ``cell_wua`` (Σ A_i · CSI_i)
+    and the composite-to-base ratio must be exactly 1.0."""
+    import numpy as np
+
+    from openlimno.habitat import apply_overlay_per_cell
+
+    csi_dv = np.array([0.2, 0.8, 0.5, 1.0])
+    area = np.array([10.0, 20.0, 15.0, 5.0])
+    out = apply_overlay_per_cell(csi_dv, area, method="geom_mean")
+    expected = float((csi_dv * area).sum())
+    assert out["wua_base_m2"] == pytest.approx(expected)
+    assert out["wua_composite_m2"] == pytest.approx(expected)
+    assert out["composite_to_base_ratio"] == pytest.approx(1.0)
+
+
+def test_v210_apply_overlay_per_cell_product_method_matches_basin_scalar_product():
+    """v2.1.0 cross-check: when cover and thermal are *uniform* scalars
+    (broadcast across all cells), the per-cell ``method='product'``
+    result must equal the basin-wide product overlay
+    ``WUA · SI_C · SI_T`` — proving the per-cell engine is consistent
+    with the v1.6.0 column-level path when inputs are uniform."""
+    import numpy as np
+
+    from openlimno.habitat import apply_overlay_per_cell
+
+    csi_dv = np.array([0.2, 0.8, 0.5, 1.0])
+    area = np.array([10.0, 20.0, 15.0, 5.0])
+    cover, thermal = 0.4255, 0.62
+    out = apply_overlay_per_cell(
+        csi_dv, area,
+        cover_si_per_cell=cover,
+        thermal_si_per_cell=thermal,
+        method="product",
+    )
+    base = float((csi_dv * area).sum())
+    expected = base * cover * thermal
+    assert out["wua_composite_m2"] == pytest.approx(expected)
+
+
+def test_v210_apply_overlay_per_cell_geom_mean_matches_uniform_column_level():
+    """v2.1.0 cross-check: with uniform overlays, the per-cell
+    geom-mean reduces to ``Σ A_i · (CSI_i · SI_C · SI_T)^(1/n)``.
+    Pin the explicit per-cell formula across a non-uniform CSI
+    distribution.
+    """
+    import numpy as np
+
+    from openlimno.habitat import apply_overlay_per_cell
+
+    csi_dv = np.array([0.2, 0.8, 0.5, 1.0])
+    area = np.array([10.0, 20.0, 15.0, 5.0])
+    cover, thermal = 0.4255, 0.62
+    out = apply_overlay_per_cell(
+        csi_dv, area,
+        cover_si_per_cell=cover,
+        thermal_si_per_cell=thermal,
+        method="geom_mean",
+    )
+    n = 3
+    expected_csi_total = (csi_dv * cover * thermal) ** (1.0 / n)
+    expected_wua = float((expected_csi_total * area).sum())
+    assert out["wua_composite_m2"] == pytest.approx(expected_wua)
+    assert np.array_equal(out["n_factors_per_cell"], np.full(4, n))
+
+
+def test_v210_apply_overlay_per_cell_supports_per_cell_arrays():
+    """v2.1.0 design intent: SI arrays vary across cells. Pin that
+    a non-uniform cover-SI array changes the result vs the same
+    mean cover-SI applied as a scalar — confirming we're actually
+    doing per-cell, not silently broadcasting a mean."""
+    import numpy as np
+
+    from openlimno.habitat import apply_overlay_per_cell
+
+    csi_dv = np.array([0.5, 0.5, 0.5, 0.5])
+    area = np.array([10.0, 10.0, 10.0, 10.0])
+    cover_uniform = 0.5
+    cover_varying = np.array([0.0, 0.0, 1.0, 1.0])
+    out_uniform = apply_overlay_per_cell(
+        csi_dv, area, cover_si_per_cell=cover_uniform, method="geom_mean",
+    )
+    out_varying = apply_overlay_per_cell(
+        csi_dv, area, cover_si_per_cell=cover_varying, method="geom_mean",
+    )
+    assert out_uniform["wua_composite_m2"] != pytest.approx(
+        out_varying["wua_composite_m2"]
+    )
+
+
+def test_v210_apply_overlay_per_cell_product_never_inflates_wua():
+    """v2.1.0 carries the v1.10.1 R6-2 contract forward for the
+    ``product`` method: composite ≤ base because every factor is in
+    [0, 1] and the overlay is a viability gate. ``geom_mean`` is a
+    DIFFERENT contract — see
+    ``test_v210_apply_overlay_per_cell_geom_mean_bounded_by_wetted_area``
+    for its (looser) bound."""
+    import numpy as np
+
+    from openlimno.habitat import apply_overlay_per_cell
+
+    rng = np.random.default_rng(seed=0)
+    for _ in range(20):
+        n_cells = int(rng.integers(2, 30))
+        csi_dv = rng.uniform(0.0, 1.0, size=n_cells)
+        area = rng.uniform(0.1, 100.0, size=n_cells)
+        cover = rng.uniform(0.0, 1.0, size=n_cells)
+        thermal = rng.uniform(0.0, 1.0, size=n_cells)
+        out = apply_overlay_per_cell(
+            csi_dv, area,
+            cover_si_per_cell=cover,
+            thermal_si_per_cell=thermal,
+            method="product",
+        )
+        assert out["wua_composite_m2"] <= out["wua_base_m2"] + 1e-9
+
+
+def test_v210_apply_overlay_per_cell_geom_mean_bounded_by_wetted_area():
+    """v2.1.0 geom_mean bound: per-cell geometric mean CAN exceed
+    base WUA at cells where CSI_dv is tiny but cover/thermal are
+    strong (the ^(1/n) root lifts a near-zero d×v CSI close to 1).
+    This is mathematically intrinsic and HABBY-standard. The
+    composite is still bounded by Σ A_i (the wetted area total a
+    perfect CSI_total ≡ 1 would produce). Pin that upper bound."""
+    import numpy as np
+
+    from openlimno.habitat import apply_overlay_per_cell
+
+    rng = np.random.default_rng(seed=1)
+    saw_inflation = False
+    for _ in range(40):
+        n_cells = int(rng.integers(2, 30))
+        csi_dv = rng.uniform(0.0, 1.0, size=n_cells)
+        area = rng.uniform(0.1, 100.0, size=n_cells)
+        cover = rng.uniform(0.0, 1.0, size=n_cells)
+        thermal = rng.uniform(0.0, 1.0, size=n_cells)
+        out = apply_overlay_per_cell(
+            csi_dv, area,
+            cover_si_per_cell=cover,
+            thermal_si_per_cell=thermal,
+            method="geom_mean",
+        )
+        total_area = float(area.sum())
+        assert out["wua_composite_m2"] <= total_area + 1e-6
+        if out["wua_composite_m2"] > out["wua_base_m2"] + 1e-6:
+            saw_inflation = True
+    assert saw_inflation, (
+        "v2.1.0 design property not exercised: across 40 random "
+        "seeds we never observed the per-cell geom_mean's intended "
+        "inflation behaviour — the test fixture should produce at "
+        "least one case where low-CSI cells get lifted by strong "
+        "overlays."
+    )
+
+
+def test_v210_apply_overlay_per_cell_rejects_out_of_range_csi():
+    """v2.1.0 fail-loud: out-of-range CSI inputs raise ValueError."""
+    import numpy as np
+
+    from openlimno.habitat import apply_overlay_per_cell
+
+    csi_dv = np.array([0.5, 0.5])
+    area = np.array([10.0, 10.0])
+    with pytest.raises(ValueError, match="cover_si_per_cell"):
+        apply_overlay_per_cell(
+            csi_dv, area,
+            cover_si_per_cell=np.array([0.5, 1.2]),
+            method="geom_mean",
+        )
+    with pytest.raises(ValueError, match="thermal_si_per_cell"):
+        apply_overlay_per_cell(
+            csi_dv, area,
+            thermal_si_per_cell=np.array([-0.1, 0.5]),
+            method="geom_mean",
+        )
+
+
+def test_v210_apply_overlay_per_cell_shape_mismatch_raises():
+    """v2.1.0 contract: shape mismatch fails loud."""
+    import numpy as np
+
+    from openlimno.habitat import apply_overlay_per_cell
+
+    with pytest.raises(ValueError, match="shape"):
+        apply_overlay_per_cell(
+            csi_dv_per_cell=np.array([0.5, 0.5, 0.5]),
+            area_per_cell=np.array([10.0, 10.0]),
+        )
+
+
+def test_v210_apply_overlay_per_cell_records_n_factors():
+    """v2.1.0 metadata: ``n_factors_per_cell`` reflects which
+    overlays the caller supplied — 1, 2, or 3."""
+    import numpy as np
+
+    from openlimno.habitat import apply_overlay_per_cell
+
+    csi_dv = np.array([0.5, 0.5])
+    area = np.array([10.0, 10.0])
+    out_none = apply_overlay_per_cell(csi_dv, area)
+    assert np.array_equal(out_none["n_factors_per_cell"], [1, 1])
+    out_one = apply_overlay_per_cell(csi_dv, area, cover_si_per_cell=0.5)
+    assert np.array_equal(out_one["n_factors_per_cell"], [2, 2])
+    out_two = apply_overlay_per_cell(
+        csi_dv, area, cover_si_per_cell=0.5, thermal_si_per_cell=0.6,
+    )
+    assert np.array_equal(out_two["n_factors_per_cell"], [3, 3])
+
+
+def test_v210_cover_si_per_section_returns_array_matching_geometries():
+    """v2.1.0: ``cover_si_per_section`` must return one SI per
+    supplied geometry. Empty input returns empty array."""
+    from openlimno.habitat import cover_si_per_section
+
+    arr = cover_si_per_section(
+        lulc_tif="dummy_unused_for_empty_list", section_geometries=[],
+    )
+    assert len(arr) == 0

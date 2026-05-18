@@ -348,3 +348,174 @@ def composite_summary(
         "n_discharges": int(len(wua_q)),
         "by_species_stage": by_series,
     }
+
+
+# ---------------------------------------------------------------------------
+# v2.1.0 — per-cell composite (the "true" per-cell n-factor geometric mean
+# the 6-round review chain flagged as research-route work).
+#
+# What v2.1.0 ships:
+# * ``apply_overlay_per_cell``: stable public API for the per-cell n-factor
+#   composite. Accepts per-cell CSI and per-cell (or broadcast scalar)
+#   cover/thermal SI; returns the per-cell composite SI + the reach total
+#   WUA. Pure-function, library-level — no Case.run wiring yet.
+# * ``cover_si_per_section`` in :mod:`openlimno.habitat.cover`: builds the
+#   per-section cover-SI array from a LULC raster + per-section riparian
+#   geometries.
+#
+# What v2.1.0 explicitly does NOT ship (deferred to v2.2.0+):
+# * ``Case.run`` integration via a ``composite_overlay_method =
+#   "geom_mean_per_cell"`` schema key. The Case pipeline currently
+#   aggregates depth × velocity CSI inside ``_compute_cell_wua`` and only
+#   returns the *reach total* — wiring per-cell results through the rest
+#   of the pipeline (provenance, regulatory exports, watermark headers)
+#   is a separate refactor.
+# * Per-cell thermal raster. ``thermal_metrics`` currently emits a
+#   time-mean scalar from a single point time series; true spatial T(x)
+#   needs a different upstream fetcher and is part of the 3.x research
+#   route.
+# ---------------------------------------------------------------------------
+
+
+def apply_overlay_per_cell(
+    csi_dv_per_cell,
+    area_per_cell,
+    *,
+    cover_si_per_cell=None,
+    thermal_si_per_cell=None,
+    method: CompositeMethod = "geom_mean",
+) -> dict:
+    """True per-cell composite WUA with the n-factor geometric mean.
+
+    Unlike :func:`apply_overlay` (which works on the column-level WUA-Q
+    table with **basin-wide scalar** overlays), this function consumes
+    per-cell arrays and computes the composite suitability at each cell:
+
+    .. math::
+
+        \\mathrm{CSI}_\\mathrm{total}(i)
+          = \\bigl(\\mathrm{CSI}_{dv}(i) \\cdot \\mathrm{SI}_C(i)
+              \\cdot \\mathrm{SI}_T(i)\\bigr)^{1/n}
+
+        \\mathrm{WUA}_\\mathrm{total}
+          = \\sum_i A_i \\cdot \\mathrm{CSI}_\\mathrm{total}(i)
+
+    where ``n`` is the count of *present* suitability factors at cell
+    ``i`` (the d × v CSI is always counted; cover and thermal each
+    contribute when their array is supplied). This is the literature-
+    standard per-cell composite (HABBY's geometric-mean option;
+    PHABSIM Bovee 1986 life-stage HSI generalisation) — the formula
+    the 6-round review chain (v1.6.0 → v1.10.1) repeatedly flagged as
+    research-route work and that v1.10.x explicitly deferred.
+
+    Args:
+        csi_dv_per_cell: 1-D array of per-cell depth × velocity CSI
+            values, ``shape (N,)``, each in ``[0, 1]``.
+        area_per_cell: 1-D array of per-cell wetted areas in m²,
+            ``shape (N,)``.
+        cover_si_per_cell: optional 1-D array of per-cell cover SI,
+            ``shape (N,)``. A scalar is broadcast. ``None`` means no
+            cover overlay contributes — equivalent to dropping the
+            cover factor from the geometric mean.
+        thermal_si_per_cell: optional 1-D array of per-cell thermal
+            SI, ``shape (N,)``. Same semantics as ``cover_si_per_cell``.
+        method: ``"product"`` or ``"geom_mean"`` (default). Product
+            multiplies straight through:
+            ``CSI_total(i) = CSI_dv(i) · SI_C(i) · SI_T(i)``. Geom-mean
+            takes the per-cell n-th root.
+
+    Returns:
+        Dict with keys:
+
+        * ``method``: ``"product"`` or ``"geom_mean"``.
+        * ``n_factors_per_cell``: 1-D array, count of present factors
+          at each cell (always ≥ 1 because d × v is always present).
+        * ``csi_total_per_cell``: 1-D array, per-cell composite CSI.
+        * ``wua_base_m2``: scalar, sum of ``A_i · CSI_dv(i)`` (the
+          d × v-only reference total).
+        * ``wua_composite_m2``: scalar, sum of ``A_i · CSI_total(i)``
+          (the n-factor composite total).
+        * ``composite_to_base_ratio``: scalar, total ratio.
+
+    Methods compared:
+
+    * ``method="product"`` always yields ``composite ≤ base`` because
+      every factor is in ``[0, 1]`` — the overlay acts purely as a
+      viability gate.
+    * ``method="geom_mean"`` can yield ``composite > base`` at cells
+      where the d × v CSI is very small but cover and thermal are
+      strong (the ``^(1/n)`` lifts a tiny ``CSI_dv`` close to 1). This
+      is mathematically intrinsic to the per-cell geometric mean and
+      is HABBY-standard behaviour — geom_mean is a *softening*
+      combination rule, not a viability gate. Users who want
+      strict ≤-base semantics should pick ``"product"``. The composite
+      is always bounded by ``Σ A_i`` (the wetted area total reached
+      when ``CSI_total ≡ 1``).
+    """
+    import numpy as np
+
+    _validate_method(method)
+    csi_dv = np.asarray(csi_dv_per_cell, dtype=float)
+    area = np.asarray(area_per_cell, dtype=float)
+    if csi_dv.shape != area.shape:
+        raise ValueError(
+            f"csi_dv_per_cell shape {csi_dv.shape} != "
+            f"area_per_cell shape {area.shape}"
+        )
+    if csi_dv.ndim != 1:
+        raise ValueError(
+            f"csi_dv_per_cell must be 1-D; got shape {csi_dv.shape}"
+        )
+    if np.any(csi_dv < -1e-9) or np.any(csi_dv > 1.0 + 1e-9):
+        raise ValueError(
+            f"csi_dv_per_cell must be in [0, 1]; got range "
+            f"[{csi_dv.min()}, {csi_dv.max()}]"
+        )
+
+    n_cells = csi_dv.shape[0]
+    factors = [csi_dv]
+    for label, raw in (
+        ("cover_si_per_cell", cover_si_per_cell),
+        ("thermal_si_per_cell", thermal_si_per_cell),
+    ):
+        if raw is None:
+            continue
+        arr = np.broadcast_to(np.asarray(raw, dtype=float), (n_cells,))
+        if np.any(arr < -1e-9) or np.any(arr > 1.0 + 1e-9):
+            raise ValueError(
+                f"{label} must be in [0, 1]; got range "
+                f"[{arr.min()}, {arr.max()}]"
+            )
+        factors.append(arr)
+
+    # Per-cell present-factor count. d × v is always present (factors[0]
+    # is always csi_dv). Overlay factors only count at cells where they
+    # were supplied — broadcast scalars count uniformly.
+    n_factors_per_cell = np.full(n_cells, len(factors), dtype=int)
+
+    product_per_cell = factors[0].copy()
+    for f in factors[1:]:
+        product_per_cell = product_per_cell * f
+
+    if method == "product":
+        csi_total = product_per_cell
+    else:  # geom_mean
+        # Clamp tiny negatives from broadcast/floating-point to 0 so the
+        # 1/n-root stays real-valued.
+        csi_total = np.power(
+            np.clip(product_per_cell, 0.0, None),
+            1.0 / np.asarray(n_factors_per_cell, dtype=float),
+        )
+
+    wua_base = float((csi_dv * area).sum())
+    wua_composite = float((csi_total * area).sum())
+    ratio = wua_composite / wua_base if wua_base > 0 else None
+
+    return {
+        "method": method,
+        "n_factors_per_cell": n_factors_per_cell,
+        "csi_total_per_cell": csi_total,
+        "wua_base_m2": wua_base,
+        "wua_composite_m2": wua_composite,
+        "composite_to_base_ratio": ratio,
+    }

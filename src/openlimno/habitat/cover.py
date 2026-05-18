@@ -238,3 +238,45 @@ def cover_si_summary(class_pixels: dict[int, int]) -> pd.DataFrame:
             "cover_si": DEFAULT_RIPARIAN_COVER_SI.get(code, 0.0),
         })
     return pd.DataFrame(rows)
+
+
+def cover_si_per_section(
+    lulc_tif: Path | str,
+    section_geometries: list,
+    *,
+    cover_si_table: dict[int, float] | None = None,
+) -> np.ndarray:
+    """Per-section cover SI for the v2.1.0 per-cell composite.
+
+    Calls :func:`cover_si_from_lulc_raster` once per supplied geometry
+    and returns the resulting SI values as a 1-D array, suitable as
+    the ``cover_si_per_cell`` argument to
+    :func:`openlimno.habitat.composite.apply_overlay_per_cell`.
+
+    Args:
+        lulc_tif: path to a single-band uint8 WorldCover GeoTIFF.
+        section_geometries: list of shapely geometries (one per
+            cross-section / cell). Typical input is the output of
+            :func:`riparian_buffer_from_polyline` applied per section,
+            or any per-section polygon you've reduced from a 2D mesh.
+        cover_si_table: optional override of
+            :data:`DEFAULT_RIPARIAN_COVER_SI`. Forwarded to
+            :func:`cover_si_from_lulc_raster`.
+
+    Returns:
+        1-D ``numpy.ndarray`` of length ``len(section_geometries)``,
+        with ``si[i] ∈ [0, 1]`` the pixel-weighted mean cover SI inside
+        section ``i``'s geometry. Sections whose geometry contains no
+        valid LULC pixels propagate the existing ``RuntimeError`` from
+        :func:`cover_si_from_lulc_raster` — fail loud is preferred over
+        silent NaN for habitat code.
+    """
+    if not section_geometries:
+        return np.zeros(0, dtype=float)
+    out = np.empty(len(section_geometries), dtype=float)
+    for i, geom in enumerate(section_geometries):
+        si, _ = cover_si_from_lulc_raster(
+            lulc_tif, geom, cover_si_table=cover_si_table,
+        )
+        out[i] = si
+    return out
