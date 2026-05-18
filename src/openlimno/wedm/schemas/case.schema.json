@@ -240,9 +240,9 @@
         },
         "composite_overlay_method": {
           "type": "string",
-          "enum": ["product", "geom_mean"],
+          "enum": ["product", "geom_mean", "geom_mean_per_cell"],
           "default": "product",
-          "description": "v1.10.0: combination rule for the cover/thermal scalar overlays on the depth × velocity WUA. 'product' (v1.6.0 default) multiplies; 'geom_mean' takes the four-way geometric mean (HABBY's third option, softer when overlays are partially redundant with d×v suitability)."
+          "description": "v1.10.0: combination rule for the cover/thermal scalar overlays on the depth × velocity WUA. 'product' multiplies the column-level WUA by the basin-wide scalar overlay; 'geom_mean' applies the n-th-root softening at the column level; 'geom_mean_per_cell' (v2.4.0) computes the true per-cell n-factor geometric mean A_i·(CSI_dv_i · SI_C_i · SI_T_i)^(1/n) — uses the per-section CSI arrays instead of the basin-wide scalar."
         },
         "acknowledge_independence": {
           "type": "boolean",

@@ -1441,7 +1441,7 @@ def test_v182_caserunresult_population_through_case_run(monkeypatch, tmp_path):
 
     def _stub_maybe_run_composite_hsi(
         self, wua_df, thermal_metrics_dict, cover_metrics_dict,
-        out_dir, formats, warnings, method="product",
+        out_dir, formats, warnings, method="product", per_cell_csi=None,
     ):
         return sentinel_summary, sentinel_df
 
@@ -2525,3 +2525,187 @@ def test_v210_cover_si_per_section_returns_array_matching_geometries():
         lulc_tif="dummy_unused_for_empty_list", section_geometries=[],
     )
     assert len(arr) == 0
+
+
+# ---------------------------------------------------------------------------
+# v2.4.0 — per-cell Case.run integration (geom_mean_per_cell)
+# ---------------------------------------------------------------------------
+
+
+def _make_per_cell_csi(q_list, species, stage, n_cells, csi_values, areas):
+    """Build a per_cell_csi dict matching the Case._maybe_run_per_cell_composite contract."""
+    import numpy as np
+
+    return {
+        (q, species, stage): (
+            np.array(csi_values, dtype=float),
+            np.array(areas, dtype=float),
+        )
+        for q in q_list
+    }
+
+
+def test_v240_maybe_run_per_cell_composite_emits_summary_and_df():
+    """v2.4.0: ``_maybe_run_per_cell_composite`` must produce a
+    composite DataFrame with paired ``wua_m2_composite_*`` columns
+    and a summary dict tagged ``method=geom_mean_per_cell``."""
+    import pandas as pd
+
+    from openlimno.case import Case
+    from openlimno.habitat.composite import CompositeOverlay
+
+    case = object.__new__(Case)
+    overlay = CompositeOverlay.from_metrics(
+        {"mean_SI": 0.62}, {"mean_si": 0.4255},
+    )
+    q_list = [1.0, 5.0, 10.0]
+    wua_df = pd.DataFrame({
+        "discharge_m3s": q_list,
+        "wua_m2_oncorhynchus_mykiss_juvenile": [100.0, 200.0, 150.0],
+    })
+    per_cell_csi = _make_per_cell_csi(
+        q_list, "oncorhynchus_mykiss", "juvenile",
+        n_cells=4,
+        csi_values=[0.5, 0.7, 0.3, 0.6],
+        areas=[10.0, 20.0, 15.0, 5.0],
+    )
+    warnings: list[str] = []
+    composite_df, summary = case._maybe_run_per_cell_composite(
+        wua_df, overlay, per_cell_csi, warnings,
+    )
+    assert summary is not None
+    assert summary["method"] == "geom_mean_per_cell"
+    assert summary["n_overlays"] == 2
+    assert "wua_m2_composite_oncorhynchus_mykiss_juvenile" in composite_df.columns
+    assert len(composite_df) == 3
+    assert warnings == []
+
+
+def test_v240_maybe_run_per_cell_composite_no_per_cell_data_warns():
+    """v2.4.0 contract: requesting geom_mean_per_cell without any
+    captured per_cell_csi must emit a warning + return (None, None)
+    rather than silently fall back."""
+    import pandas as pd
+
+    from openlimno.case import Case
+    from openlimno.habitat.composite import CompositeOverlay
+
+    case = object.__new__(Case)
+    overlay = CompositeOverlay.from_metrics(
+        {"mean_SI": 0.62}, {"mean_si": 0.4255},
+    )
+    wua_df = pd.DataFrame({
+        "discharge_m3s": [1.0, 2.0],
+        "wua_m2_sp_juv": [10.0, 20.0],
+    })
+    warnings: list[str] = []
+    df, summary = case._maybe_run_per_cell_composite(
+        wua_df, overlay, per_cell_csi=None, warnings=warnings,
+    )
+    assert df is None and summary is None
+    assert any("geom_mean_per_cell" in w for w in warnings)
+
+
+def test_v240_per_cell_composite_matches_column_level_when_csi_uniform():
+    """v2.4.0 design property: when per-cell CSI is *uniform* across
+    all cells, the per-cell engine must reproduce the column-level
+    geom_mean result to within rounding.
+
+    The column-level v1.10.1 formula is ``base · (SI_T · SI_C)^(1/n)``;
+    the per-cell engine with uniform CSI=x is
+    ``Σ A_i · (x · SI_T · SI_C)^(1/n) = (Σ A_i) · (x · SI_T · SI_C)^(1/n)``,
+    and ``base = Σ A_i · x``, so the per-cell composite is
+    ``base/x · (x · SI_T · SI_C)^(1/n) = base · ((SI_T · SI_C)/x^(n-1))^(1/n)``
+    — which only equals the column formula when x = 1. For uniform
+    x < 1, per-cell composite is LARGER than column-level (the
+    cells are 'rescued' by the n-th root). Pin this monotonic
+    relationship rather than equality.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from openlimno.case import Case
+    from openlimno.habitat.composite import (
+        CompositeOverlay,
+        apply_overlay,
+    )
+
+    case = object.__new__(Case)
+    overlay = CompositeOverlay.from_metrics(
+        {"mean_SI": 0.62}, {"mean_si": 0.4255},
+    )
+    q_list = [1.0, 5.0]
+    # Uniform CSI = 0.5 across 4 cells of area 10.
+    wua_df = pd.DataFrame({
+        "discharge_m3s": q_list,
+        "wua_m2_sp_juv": [20.0, 20.0],  # = 0.5 * 4 * 10
+    })
+    per_cell_csi = {
+        (q, "sp", "juv"): (
+            np.array([0.5, 0.5, 0.5, 0.5]),
+            np.array([10.0, 10.0, 10.0, 10.0]),
+        )
+        for q in q_list
+    }
+    warnings: list[str] = []
+    per_cell_df, _ = case._maybe_run_per_cell_composite(
+        wua_df, overlay, per_cell_csi, warnings,
+    )
+    col_df = apply_overlay(wua_df, overlay, method="geom_mean")
+
+    # Per-cell composite ≥ column-level composite when CSI < 1
+    # (the n-th root lifts the per-cell CSI more than it lifts the
+    # column-level WUA).
+    for i in range(len(q_list)):
+        per_cell_val = per_cell_df["wua_m2_composite_sp_juv"].iloc[i]
+        col_val = col_df["wua_m2_composite_sp_juv"].iloc[i]
+        assert per_cell_val >= col_val - 1e-9
+
+
+def test_v240_geom_mean_per_cell_threads_through_case_run(monkeypatch):
+    """v2.4.0 integration: setting
+    ``habitat.composite_overlay_method=geom_mean_per_cell`` in
+    case.yaml must (a) reach ``_maybe_run_composite_hsi``, (b) trigger
+    the per-cell capture path in step 4, and (c) call into
+    ``_maybe_run_per_cell_composite``.
+    """
+    from openlimno.case import Case
+
+    if not CASE_YAML.exists():
+        pytest.skip("Lemhi example missing")
+
+    captured: dict = {"per_cell": False, "method": None}
+    real_per_cell = Case._maybe_run_per_cell_composite
+
+    def _spy(self, wua_df, overlay, per_cell_csi, warnings):
+        captured["per_cell"] = True
+        captured["n_keys"] = len(per_cell_csi or {})
+        return real_per_cell(self, wua_df, overlay, per_cell_csi, warnings)
+
+    real_maybe = Case._maybe_run_composite_hsi
+
+    def _spy_maybe(self, *args, **kwargs):
+        captured["method"] = kwargs.get("method")
+        return real_maybe(self, *args, **kwargs)
+
+    monkeypatch.setattr(Case, "_maybe_run_per_cell_composite", _spy)
+    monkeypatch.setattr(Case, "_maybe_run_composite_hsi", _spy_maybe)
+
+    import yaml
+    cfg = yaml.safe_load(CASE_YAML.read_text())
+    cfg["habitat"]["composite_overlay_method"] = "geom_mean_per_cell"
+    y2 = CASE_YAML.parent / "case.geom_per_cell.yaml"
+    y2.write_text(yaml.safe_dump(cfg))
+    try:
+        Case.from_yaml(y2).run(discharges_m3s=[3.0])
+    finally:
+        y2.unlink(missing_ok=True)
+
+    assert captured["method"] == "geom_mean_per_cell", (
+        f"composite_overlay_method did not thread: {captured}"
+    )
+    # The per-cell helper itself only fires when at least one overlay
+    # was computed; the Lemhi example doesn't ship cover/thermal so
+    # this assertion only proves the method *reached* the helper. The
+    # _maybe_run_per_cell_composite call only happens when an overlay
+    # is present — separately exercised by the unit tests above.

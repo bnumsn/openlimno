@@ -213,21 +213,47 @@ class Case:
 
         species_list = habitat_cfg["species"]
         stage_list = habitat_cfg["stages"]
+        # v2.4.0: capture per-cell CSI arrays alongside the reach
+        # total so the geom_mean_per_cell composite path in
+        # _maybe_run_composite_hsi can call apply_overlay_per_cell
+        # directly. Memory overhead is negligible (one float array
+        # per (Q, sp, stage) at section granularity).
+        composite_overlay_method_for_capture = habitat_cfg.get(
+            "composite_overlay_method", "product",
+        )
+        capture_per_cell = composite_overlay_method_for_capture == "geom_mean_per_cell"
+        per_cell_csi: dict[tuple[float, str, str], tuple[np.ndarray, np.ndarray]] = {}
 
         wua_records: list[dict[str, Any]] = []
         for Q in discharges_m3s:
             row: dict[str, Any] = {"discharge_m3s": Q}
             for species in species_list:
                 for stage in stage_list:
-                    wua_value = self._compute_cell_wua(
-                        hydraulic_results[Q],
-                        hsi_curves,
-                        species,
-                        stage,
-                        composite=composite,
-                        ack=ack,
-                        warnings=warnings,
-                    )
+                    if capture_per_cell:
+                        csi_arr, area_arr = self._compute_cell_csi_and_area(
+                            hydraulic_results[Q],
+                            hsi_curves,
+                            species,
+                            stage,
+                            composite=composite,
+                            ack=ack,
+                            warnings=warnings,
+                        )
+                        if csi_arr is None:
+                            wua_value = 0.0
+                        else:
+                            per_cell_csi[(Q, species, stage)] = (csi_arr, area_arr)
+                            wua_value = float(cell_wua(csi_arr, area_arr))
+                    else:
+                        wua_value = self._compute_cell_wua(
+                            hydraulic_results[Q],
+                            hsi_curves,
+                            species,
+                            stage,
+                            composite=composite,
+                            ack=ack,
+                            warnings=warnings,
+                        )
                     col = f"wua_m2_{species}_{stage}"
                     row[col] = wua_value
             wua_records.append(row)
@@ -342,6 +368,7 @@ class Case:
                     formats,
                     warnings,
                     method=composite_overlay_method,
+                    per_cell_csi=per_cell_csi if capture_per_cell else None,
                 )
             )
         except Exception as e:  # noqa: BLE001
@@ -1141,6 +1168,114 @@ class Case:
             "total_pixels": int(sum(class_pixels.values())),
         }
 
+    def _maybe_run_per_cell_composite(
+        self,
+        wua_df: pd.DataFrame,
+        overlay,
+        per_cell_csi: dict | None,
+        warnings: list[str],
+    ) -> tuple[pd.DataFrame | None, dict | None]:
+        """v2.4.0: per-cell geometric-mean composite path.
+
+        Consumes the ``per_cell_csi`` arrays captured during step 4
+        and runs :func:`apply_overlay_per_cell` per (Q, species,
+        stage) cell. Returns a paired ``composite_df`` with the same
+        column shape the column-level path emits (so the regulatory
+        export step needs no special-casing) plus a ``summary`` dict
+        with ``method="geom_mean_per_cell"`` and per-series stats.
+
+        Note: cover/thermal SI are still basin-wide scalars at the
+        v2.4.0 fetch surface, so we broadcast them across all cells.
+        The per-cell **engine** is fully wired for true per-cell
+        arrays once a spatial cover/thermal fetcher lands (v3.x).
+        """
+        from openlimno.habitat.composite import apply_overlay_per_cell
+
+        if not per_cell_csi:
+            warnings.append(
+                "composite_hsi: geom_mean_per_cell requested but no "
+                "per-cell CSI arrays were captured. Skipping."
+            )
+            return None, None
+
+        base_cols = [
+            c for c in wua_df.columns
+            if c.startswith("wua_m2_")
+            and not c.startswith("wua_m2_composite_")
+        ]
+
+        out_rows: list[dict[str, Any]] = []
+        by_series_stats: dict[str, dict[str, Any]] = {
+            c[len("wua_m2_"):]: {
+                "base_max": 0.0, "comp_max": 0.0, "q_at_max": None,
+            }
+            for c in base_cols
+        }
+
+        for _, row in wua_df.iterrows():
+            Q = float(row["discharge_m3s"])
+            out_row: dict[str, Any] = {"discharge_m3s": Q}
+            for col in base_cols:
+                out_row[col] = row[col]
+                suffix = col[len("wua_m2_"):]
+                # Recover (species, stage) from the suffix by splitting
+                # on the last underscore — same convention the rest of
+                # the pipeline uses.
+                if "_" not in suffix:
+                    composite_wua = float(row[col])
+                else:
+                    species, stage = suffix.rsplit("_", 1)
+                    key = (Q, species, stage)
+                    if key not in per_cell_csi:
+                        # No HSI vars resolved → fall back to base value.
+                        composite_wua = float(row[col])
+                    else:
+                        csi_arr, area_arr = per_cell_csi[key]
+                        result = apply_overlay_per_cell(
+                            csi_arr,
+                            area_arr,
+                            cover_si_per_cell=overlay.cover_si,
+                            thermal_si_per_cell=overlay.thermal_si,
+                            method="geom_mean",
+                        )
+                        composite_wua = float(result["wua_composite_m2"])
+                comp_col = f"wua_m2_composite_{suffix}"
+                out_row[comp_col] = composite_wua
+                stats = by_series_stats[suffix]
+                base_v = float(row[col])
+                if base_v > stats["base_max"]:
+                    stats["base_max"] = base_v
+                if composite_wua > stats["comp_max"]:
+                    stats["comp_max"] = composite_wua
+                    stats["q_at_max"] = Q
+            out_rows.append(out_row)
+
+        composite_df = pd.DataFrame(out_rows)
+        by_series: list[dict] = []
+        for suffix, stats in by_series_stats.items():
+            base_max = stats["base_max"]
+            comp_max = stats["comp_max"]
+            by_series.append({
+                "species_stage": suffix,
+                "wua_m2_base_max": base_max,
+                "wua_m2_composite_max": comp_max,
+                "discharge_m3s_at_composite_max": stats["q_at_max"],
+                "composite_to_base_ratio": (
+                    comp_max / base_max if base_max > 0 else None
+                ),
+            })
+
+        summary = {
+            "method": "geom_mean_per_cell",
+            "cover_si": overlay.cover_si,
+            "thermal_si": overlay.thermal_si,
+            "overlay_si": overlay.overlay_si,
+            "n_overlays": overlay.n_overlays,
+            "n_discharges": int(len(wua_df)),
+            "by_species_stage": by_series,
+        }
+        return composite_df, summary
+
     def _maybe_run_composite_hsi(
         self,
         wua_df: pd.DataFrame,
@@ -1150,6 +1285,7 @@ class Case:
         formats: list[str],
         warnings: list[str],
         method: str = "product",
+        per_cell_csi: dict | None = None,
     ) -> tuple[dict | None, pd.DataFrame | None]:
         """v1.6.0: combine the per-cell depth × velocity WUA with the
         v1.1.1 thermal scalar and v1.5.0 cover scalar overlays into a
@@ -1218,8 +1354,15 @@ class Case:
         # files. If summary computation raises (e.g. malformed wua_df),
         # we leave the output directory clean instead of producing a
         # parquet/csv pair with no matching composite_hsi.json.
-        composite_df = apply_overlay(wua_df, overlay, method=method)
-        summary = composite_summary(wua_df, overlay, method=method)
+        if method == "geom_mean_per_cell":
+            composite_df, summary = self._maybe_run_per_cell_composite(
+                wua_df, overlay, per_cell_csi, warnings,
+            )
+            if composite_df is None:
+                return None, None
+        else:
+            composite_df = apply_overlay(wua_df, overlay, method=method)
+            summary = composite_summary(wua_df, overlay, method=method)
         if "parquet" in formats:
             self._atomic_write(
                 out_dir / "composite_wua_q.parquet",
@@ -1357,6 +1500,36 @@ class Case:
         ack: bool,
         warnings: list[str],
     ) -> float:
+        csi, areas = self._compute_cell_csi_and_area(
+            results, hsi_curves, species, stage, composite, ack, warnings,
+        )
+        if csi is None:
+            return 0.0
+        return float(cell_wua(csi, areas))
+
+    def _compute_cell_csi_and_area(
+        self,
+        results: list[Any],
+        hsi_curves: dict[tuple[str, str, str], HSICurve],
+        species: str,
+        stage: str,
+        composite: str,
+        ack: bool,
+        warnings: list[str],
+    ) -> tuple[np.ndarray | None, np.ndarray]:
+        """v2.4.0: per-cell CSI + per-cell area for a given (Q, species,
+        stage). Lifted out of :meth:`_compute_cell_wua` so the
+        per-cell composite path in :meth:`_maybe_run_composite_hsi`
+        can call :func:`apply_overlay_per_cell` directly without
+        re-running the hydraulic evaluation.
+
+        Returns ``(csi_per_cell, area_per_cell)`` — ``csi_per_cell``
+        is ``None`` when no HSI variables resolved (preserves the
+        original ``_compute_cell_wua`` warning behaviour). The
+        column-level path always sums the product to get the
+        reach-total WUA; the per-cell path consumes the arrays
+        directly.
+        """
         depths = np.array([r.depth_mean_m for r in results])
         velocities = np.array([r.velocity_mean_ms for r in results])
         areas = np.array([r.area_m2 for r in results])
@@ -1372,10 +1545,10 @@ class Case:
 
         if not suits:
             warnings.append(f"No HSI vars resolved for ({species}, {stage})")
-            return 0.0
+            return None, areas
 
         csi = composite_csi(suits, method=composite)  # type: ignore[arg-type]
-        return float(cell_wua(csi, areas))
+        return csi, areas
 
     def _write_hydraulic_netcdf(
         self, results: dict[float, list[Any]], sections: list[CrossSection], path: Path

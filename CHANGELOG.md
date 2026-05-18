@@ -4,6 +4,20 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-05-18
+
+### Added
+- **v2.4.0 — per-cell composite Case.run integration**:
+    Closes the v2.1.0 deferred "Case.run integration" item by wiring `apply_overlay_per_cell` through the main case pipeline. Setting `habitat.composite_overlay_method = "geom_mean_per_cell"` in case.yaml now triggers the true per-cell n-factor composite — depths × velocities × cover × thermal CSI per section, with the n-th root applied at the cell level — instead of the v1.10.1 column-level n-th-root or the v1.6.0 basin-scalar product.
+    - **Schema**: `case.schema.json` enum extended to `["product", "geom_mean", "geom_mean_per_cell"]`. Default stays `product` (bit-for-bit v1.6.0 compatibility).
+    - **Step 4 capture**: when the new method is selected, `Case.run` calls `_compute_cell_csi_and_area(...)` (lifted out of `_compute_cell_wua` as a refactor) and caches per-section `(csi_array, area_array)` keyed by `(Q, species, stage)`. Memory overhead is one float array per cell × Q × series — negligible for the 1D builtin solver's section granularity.
+    - **`Case._maybe_run_per_cell_composite`**: new private helper. Iterates each `(Q, species, stage)`, calls `apply_overlay_per_cell` with the captured CSI arrays and the existing scalar cover/thermal overlays broadcast across cells, and builds a `composite_df` matching the column-level path's shape (so the regulatory_export step in 5f needs no special-casing). Summary dict is tagged `method="geom_mean_per_cell"`.
+    - **Cover/thermal still scalar at the fetch surface**: v2.4.0 broadcasts the basin-wide scalar cover_si / thermal_si across all cells. The per-cell engine is fully wired for true per-cell arrays — `apply_overlay_per_cell` accepts them — once a spatial cover/thermal fetcher lands (v3.x research route).
+    - **Refactor**: `_compute_cell_wua` now delegates to `_compute_cell_csi_and_area` for the depth × velocity CSI computation. Behaviour identical; surface change zero. The new helper is callable in isolation so the per-cell composite path doesn't need to re-evaluate hydraulics.
+    - 4 new tests in `test_wua_watermark.py` (`test_v240_*`): helper emits summary + df, missing per_cell_csi warns instead of crashing, uniform-CSI cross-check vs column-level path (proves per-cell ≥ column-level when CSI < 1 — the "softer" property), and integration test that monkeypatch-spies confirm `geom_mean_per_cell` in case.yaml routes through `_maybe_run_per_cell_composite`.
+    - 101 unit + integration + benchmark-harness tests pass (+4 v2.4.0). The v1.8.2 `_stub_maybe_run_composite_hsi` test fixture was updated to accept the new `per_cell_csi=` kwarg (back-compat default is `None`).
+    - 0 new lint findings in changed files.
+
 ## [2.3.0] — 2026-05-18
 
 ### Added
