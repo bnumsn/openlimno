@@ -61,6 +61,21 @@ air-to-water temperatures, writes an EPSG:4326 GeoTIFF, and carries the
 per-sample cache/provenance trail. Native PRISM/NLDAS raster backends
 remain optional higher-resolution additions.
 
+**Deferred to v3.x — high-latitude projected-CRS buffering** (R9-3):
+v2.6.1's inline `section_locations.buffer_m` uses a cosine-latitude
+approximation when the raster CRS is geographic — accurate to ~1 %
+to about ±10.6° latitude, but at 60° latitude a 200 m buffer becomes
+~200 m N–S × 101 m E–W (an ellipse, not a circle). For temperate-zone
+reaches this is fine; for sub-polar work the right fix is to build
+the buffer in a local projected CRS via `pyproj.Geod` or
+`shapely.ops.transform`, which needs additional `pyproj` plumbing
+that's out of scope for v2.x. Users hitting this can either supply
+a projected raster directly (v2.6.1's CRS-reproject path keeps
+`buffer_m` in raster units when the raster CRS is projected) or
+pre-compute per-section thermal SI offline via
+`thermal_si_per_section` with explicitly projected geometries and
+plug it in via `data.thermal_si_per_section.uri`.
+
 ### Multi-parameter calibration (PEST++)
 
 `cli.py calibrate --algo pestpp-glm` now generates a PEST++ GLM

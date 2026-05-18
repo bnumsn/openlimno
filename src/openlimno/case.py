@@ -245,7 +245,12 @@ class Case:
         per_section_thermal_si = self._maybe_compute_per_section_thermal_si_from_raster(
             cfg, sections, warnings,
         )
-        if per_section_thermal_si is None:
+        # v2.6.1 (R9-4): treat empty arrays as "not present" so the
+        # CSV fallback fires when the raster path silently produces
+        # a zero-length result (edge case: 0 sections, malformed
+        # CSV that loaded as empty, etc.). ``len()`` on numpy arrays
+        # is well-defined for 1-D.
+        if per_section_thermal_si is None or len(per_section_thermal_si) == 0:
             per_section_thermal_si = self._maybe_load_per_section_thermal_si(
                 cfg, sections, warnings,
             )
@@ -384,11 +389,32 @@ class Case:
         )
         composite_summary_dict: dict | None = None
         composite_df: pd.DataFrame | None = None
+        # v2.6.1 (R9-7): if a per-section thermal SI array was loaded
+        # (either inline raster path or v2.5.1 CSV path) but no scalar
+        # ``thermal_metrics_dict`` was produced (no ``data.climate``),
+        # synthesise a scalar mean so ``CompositeOverlay.from_metrics``
+        # treats thermal as a present overlay. Without this, a
+        # case carrying ``data.thermal_raster`` + ``data.section_locations``
+        # but no ``data.climate`` would have
+        # ``CompositeOverlay.from_metrics(None, ...)`` → overlay_si =
+        # None → ``_maybe_run_composite_hsi`` returns early, silently
+        # skipping the entire composite step — defeating the v2.6.0
+        # charter promise that thermal_raster alone drives composite.
+        effective_thermal_metrics = thermal_metrics_dict
+        if (
+            effective_thermal_metrics is None
+            and per_section_thermal_si is not None
+            and len(per_section_thermal_si) > 0
+        ):
+            effective_thermal_metrics = {
+                "mean_SI": float(np.mean(per_section_thermal_si)),
+                "source": "per_section_thermal_si (v2.6.1 R9-7 synth)",
+            }
         try:
             composite_summary_dict, composite_df = (
                 self._maybe_run_composite_hsi(
                     wua_df,
-                    thermal_metrics_dict,
+                    effective_thermal_metrics,
                     cover_metrics_dict,
                     out_dir,
                     formats,
@@ -1442,21 +1468,87 @@ class Case:
             ),
         )
 
-        buffer_m = float(locs.get("buffer_m", 0.0) or 0.0)
+        raw_buffer_m = locs.get("buffer_m", 0.0)
+        if raw_buffer_m is None:
+            raw_buffer_m = 0.0
+        try:
+            buffer_m = float(raw_buffer_m)
+        except (TypeError, ValueError):
+            warnings.append(
+                f"section_locations.buffer_m must be a number, got "
+                f"{raw_buffer_m!r}. Falling back."
+            )
+            return None
+        # v2.6.1 (R9-5): refuse negative buffers loudly. The schema
+        # already declares minimum: 0, but a manually-edited case.yaml
+        # could slip through.
+        if buffer_m < 0.0:
+            warnings.append(
+                f"section_locations.buffer_m must be ≥ 0, got "
+                f"{buffer_m}. Falling back."
+            )
+            return None
         band = int(raster.get("band", 1) or 1)
 
-        if buffer_m <= 0.0:
-            # Point-sample path: use ``rasterio.sample`` so we read
-            # the single pixel at each section's (lon, lat). Cheaper
-            # and more direct than an "infinitesimal buffer" polygon
-            # for the zero-buffer case (which after the v2.5.1 R8-6
-            # mask fix would just produce an empty masked array).
-            import rasterio
+        # v2.6.1 (R9-1): validate / reproject coordinates so the
+        # rasterio.sample / thermal_si_per_section call sees coords
+        # in the RASTER's CRS, not whatever the section_locations CSV
+        # declares. Without this, a UTM raster + EPSG:4326 sections
+        # silently sample wildly wrong pixels.
+        import rasterio
+        locs_crs_str = str(locs.get("crs", "EPSG:4326"))
+        try:
+            with rasterio.open(raster_path) as src:
+                raster_crs = src.crs
+                raster_nodata = src.nodata
+                raster_bounds = src.bounds
+        except Exception as e:  # noqa: BLE001
+            warnings.append(
+                f"rasterio.open({raster_path}) failed: {e!r}. "
+                f"Falling back from inline raster path."
+            )
+            return None
+        if raster_crs is None:
+            warnings.append(
+                f"thermal_raster {raster_path.name} has no CRS "
+                f"declared; cannot safely sample. Falling back."
+            )
+            return None
+        try:
+            from rasterio.crs import CRS
+            locs_crs = CRS.from_user_input(locs_crs_str)
+        except Exception as e:  # noqa: BLE001
+            warnings.append(
+                f"section_locations.crs={locs_crs_str!r} parse failed: "
+                f"{e!r}. Falling back."
+            )
+            return None
 
-            coords = [
-                (float(r["lon"]), float(r["lat"]))
-                for _, r in locs_df.iterrows()
-            ]
+        # Collect raw (lon, lat) and reproject to raster CRS if needed.
+        raw_xs = locs_df["lon"].astype(float).to_numpy()
+        raw_ys = locs_df["lat"].astype(float).to_numpy()
+        if locs_crs == raster_crs:
+            xs, ys = raw_xs, raw_ys
+        else:
+            try:
+                from rasterio.warp import transform as warp_transform
+                xs_list, ys_list = warp_transform(
+                    locs_crs, raster_crs,
+                    raw_xs.tolist(), raw_ys.tolist(),
+                )
+                xs = np.asarray(xs_list, dtype=float)
+                ys = np.asarray(ys_list, dtype=float)
+            except Exception as e:  # noqa: BLE001
+                warnings.append(
+                    f"CRS reprojection {locs_crs_str} → "
+                    f"{raster_crs.to_string()} failed: {e!r}. "
+                    f"Falling back."
+                )
+                return None
+
+        if buffer_m <= 0.0:
+            # Point-sample path. coords are now in raster CRS.
+            coords = list(zip(xs.tolist(), ys.tolist(), strict=True))
             try:
                 with rasterio.open(raster_path) as src:
                     samples = list(src.sample(coords, indexes=band))
@@ -1469,31 +1561,58 @@ class Case:
             t_vals = np.array(
                 [float(s[0]) for s in samples], dtype=float,
             )
-            if not np.all(np.isfinite(t_vals)):
+            # v2.6.1 (R9-2): rasterio.sample returns the raster's
+            # nodata value (or 0 when nodata is None) for points
+            # outside bounds. ``np.isfinite`` accepts those finite
+            # sentinels and silently converts them into SI values.
+            # Use explicit outside-bounds check + nodata comparison.
+            min_x, min_y, max_x, max_y = raster_bounds
+            in_bounds = (
+                (xs >= min_x) & (xs <= max_x)
+                & (ys >= min_y) & (ys <= max_y)
+            )
+            valid = np.isfinite(t_vals) & in_bounds
+            if raster_nodata is not None and np.isfinite(raster_nodata):
+                valid &= np.abs(t_vals - float(raster_nodata)) > 1e-9
+            if not np.all(valid):
+                bad = np.where(~valid)[0].tolist()
                 warnings.append(
-                    "Some section locations sampled NaN from the "
-                    "thermal raster (likely outside bounds). "
-                    "Falling back from inline raster path."
+                    f"Section indices {bad} sampled outside the "
+                    f"thermal raster bounds or hit the nodata "
+                    f"sentinel. Falling back from inline raster path."
                 )
                 return None
             si = np.asarray(thermal_hsi(t_vals, tr), dtype=float)
             return np.clip(si, 0.0, 1.0)
 
-        # Buffered path: build per-section polygon in EPSG:4326 by
-        # converting buffer_m → degrees via cosine-latitude. Adequate
-        # for ≤ a few hundred metres at the latitudes Open-Meteo covers.
+        # Buffered path: build per-section polygon in raster CRS.
+        # When raster CRS is geographic (EPSG:4326), convert buffer_m
+        # → degrees via cosine-latitude (≤1% accurate to ~10° lat; see
+        # v3.x research-route for projected-CRS buffering).
+        # When raster CRS is projected (units = m), use buffer_m directly.
         geoms: list[Any] = []
-        for _, row in locs_df.iterrows():
-            lon, lat = float(row["lon"]), float(row["lat"])
-            cos_lat = max(abs(np.cos(np.radians(lat))), 1e-6)
-            deg_per_m_lon = 1.0 / (111_320.0 * cos_lat)
-            deg_per_m_lat = 1.0 / 110_540.0
-            buf_deg = buffer_m * min(deg_per_m_lon, deg_per_m_lat)
-            geoms.append(Point(lon, lat).buffer(buf_deg))
+        raster_is_geographic = bool(getattr(raster_crs, "is_geographic", False))
+        for x, y in zip(xs, ys, strict=True):
+            if raster_is_geographic:
+                # y is in degrees latitude in the raster CRS.
+                cos_lat = max(abs(np.cos(np.radians(float(y)))), 1e-6)
+                deg_per_m_lon = 1.0 / (111_320.0 * cos_lat)
+                deg_per_m_lat = 1.0 / 110_540.0
+                buf_radius = buffer_m * min(deg_per_m_lon, deg_per_m_lat)
+            else:
+                # Projected CRS in metres — buffer in raster units directly.
+                buf_radius = buffer_m
+            geoms.append(Point(float(x), float(y)).buffer(buf_radius))
 
         try:
             arr = thermal_si_per_section(
                 raster_path, geoms, tr, band=band,
+                # v2.6.1 (R9-6): the inline buffered path can produce
+                # sub-pixel geometries (≤ a few hundred metres in
+                # degree space at typical Open-Meteo resolution);
+                # all_touched=True ensures the geometry still captures
+                # the pixel(s) it overlaps.
+                all_touched=True,
             )
         except Exception as e:  # noqa: BLE001
             warnings.append(
@@ -1501,8 +1620,6 @@ class Case:
                 f"Falling back from inline raster path."
             )
             return None
-        # Defensive clamp (the raster + Stefan regression can produce
-        # tiny negatives near the lethal edge).
         return np.clip(arr.astype(float), 0.0, 1.0)
 
     def _maybe_load_per_section_thermal_si(

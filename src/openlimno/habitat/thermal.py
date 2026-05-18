@@ -236,6 +236,7 @@ def thermal_si_from_temperature_raster(
     tr: ThermalRange,
     *,
     band: int = 1,
+    all_touched: bool = False,
 ) -> tuple[float, dict[str, float]]:
     """Compute pixel-weighted thermal SI inside a geometry.
 
@@ -250,6 +251,14 @@ def thermal_si_from_temperature_raster(
         geometry: shapely geometry in the raster CRS.
         tr: thermal suitability curve.
         band: 1-based raster band index.
+        all_touched: forwarded to :func:`rasterio.mask.mask`. Default
+            ``False`` matches the pre-v2.6.0 "center-inside polygon"
+            semantics. Set ``True`` for sub-pixel buffer geometries
+            (e.g. metres-scale point buffers from the v2.6.0 inline
+            raster path) where center-inside testing would return
+            zero pixels and raise. (v2.6.1 R9-6: opt-in to preserve
+            back-compat for existing callers; the inline raster path
+            in :class:`Case` passes ``True`` itself.)
 
     Returns:
         ``(mean_si, stats)`` where ``mean_si`` is the mean per-pixel
@@ -262,12 +271,6 @@ def thermal_si_from_temperature_raster(
         # return masked, not silently filled with the nodata value
         # (which defaults to 0 °C when the source raster declares no
         # nodata — a 0 °C bias on every outside-geometry pixel).
-        # v2.6.0: ``all_touched=True`` so tight buffer geometries
-        # (e.g. ≤ pixel-size point buffers from the inline raster
-        # path) still capture the pixel(s) they overlap. Without it,
-        # a buffer smaller than the raster's pixel — common when the
-        # raster is sparse and the buffer is metres-scale — returns
-        # zero valid pixels and the helper raises RuntimeError.
         out, _ = rasterio.mask.mask(
             src,
             [mapping(geometry)],
@@ -275,7 +278,7 @@ def thermal_si_from_temperature_raster(
             nodata=nodata,
             filled=False,
             indexes=band,
-            all_touched=True,
+            all_touched=all_touched,
         )
 
     out_ma = np.ma.asarray(out)
@@ -310,11 +313,17 @@ def thermal_si_per_section(
     tr: ThermalRange,
     *,
     band: int = 1,
+    all_touched: bool = False,
 ) -> np.ndarray:
     """Return one mean thermal SI value per section geometry.
 
     The output shape matches ``section_geometries`` and is directly
     consumable by ``apply_overlay_per_cell(..., thermal_si_per_cell=...)``.
+
+    Args:
+        all_touched: forwarded to
+            :func:`thermal_si_from_temperature_raster` (v2.6.1 R9-6).
+            Set ``True`` for sub-pixel buffer geometries.
     """
     return np.array(
         [
@@ -323,6 +332,7 @@ def thermal_si_per_section(
                 geom,
                 tr,
                 band=band,
+                all_touched=all_touched,
             )[0]
             for geom in section_geometries
         ],
