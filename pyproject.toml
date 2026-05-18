@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openlimno"
-version = "2.4.0"
+version = "2.4.1"
 description = "Open-source ecological-flow and fish-habitat decision platform with hydraulic-model interoperability"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
@@ -141,9 +141,9 @@ quote-style = "double"
 # ---------------------------------------------------------------
 [tool.mypy]
 python_version = "3.11"
-# Pragmatic stance for a 2.0 science codebase: catch real type bugs without
-# fighting numpy/pandas dynamic typing. Strict mode is the goal post-2.0 once
-# upstream stubs (yaml, geopandas, rasterio) stabilise.
+# Pragmatic default gate for the whole package, including dynamic GUI/QGIS and
+# optional integration surfaces. The non-GUI core is checked separately with
+# `pixi run typecheck-strict-core`, which runs mypy --strict.
 strict = false
 ignore_missing_imports = true
 warn_return_any = false
@@ -162,10 +162,6 @@ disable_error_code = [
 ]
 plugins = []
 
-[[tool.mypy.overrides]]
-module = "tests.*"
-ignore_errors = true
-
 # ---------------------------------------------------------------
 # pytest
 # ---------------------------------------------------------------
@@ -177,6 +173,9 @@ markers = [
     "schism: requires external SCHISM binary",
     "qgis: requires QGIS environment",
     "mike: requires optional MIKE IO readers",
+    "osgeo: requires GDAL/OSGeo Python bindings",
+    "pestpp: requires external PEST++ pestpp-glm binary",
+    "workflow: requires Snakemake workflow runner",
     "online: tests that download or call live external services",
     "benchmark: validation benchmark, not unit test",
 ]

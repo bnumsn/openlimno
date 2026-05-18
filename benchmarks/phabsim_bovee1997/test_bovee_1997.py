@@ -12,7 +12,6 @@ import pytest
 
 from openlimno.habitat import (
     HSICurve,
-    cell_wua,
     composite_csi,
     require_independence_ack,
 )
@@ -104,7 +103,7 @@ def test_normal_depth_matches_closed_form(Q: float) -> None:
     assert result.depth_mean_m == pytest.approx(h_expected, rel=1e-3)
 
 
-@pytest.mark.parametrize("Q,wua_target", [
+@pytest.mark.parametrize(("Q", "wua_target"), [
     (0.5, expected_wua(0.5)),
     (1.5, expected_wua(1.5)),
     (4.0, expected_wua(4.0)),

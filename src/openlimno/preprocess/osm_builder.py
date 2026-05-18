@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -218,7 +217,7 @@ def sample_mesh_nodes(polyline: list[tuple[float, float]],
     from shapely.ops import substring
 
     full = LineString(polyline)
-    full_m = full.length * 111000  # rough metre length
+    full.length * 111000  # rough metre length
     # Centre the reach
     centre_along = full.length / 2
     half_deg = (spec.reach_length_m / 2) / 111000
@@ -242,7 +241,7 @@ def build_v_cross_sections(station_m: np.ndarray, spec: OSMCaseSpec) -> pd.DataF
     n_pts = 21
     half = spec.valley_width_m / 2
     offsets = np.linspace(-half, half, n_pts)
-    for i, station in enumerate(station_m):
+    for _i, station in enumerate(station_m):
         bank_elev = spec.bank_elevation_m - spec.slope * station
         depth_profile = spec.thalweg_depth_m * (1 - (offsets / half) ** 2)
         depth_profile = np.clip(depth_profile, 0, spec.thalweg_depth_m)

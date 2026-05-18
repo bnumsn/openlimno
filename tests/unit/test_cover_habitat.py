@@ -41,14 +41,21 @@ def test_default_riparian_cover_si_covers_all_worldcover_codes():
 def test_default_cover_si_priors_match_habitat_literature():
     """Sanity: tree cover ≥ shrubland ≥ grassland ≥ cropland ≥ built-up.
     Wetland sits between tree and grassland."""
-    from openlimno.habitat import DEFAULT_RIPARIAN_COVER_SI as t
-    assert t[10] > t[20] > t[30] > t[40] > t[50]
-    assert t[10] >= t[90] >= t[30]
+    from openlimno.habitat import DEFAULT_RIPARIAN_COVER_SI
+    assert (
+        DEFAULT_RIPARIAN_COVER_SI[10]
+        > DEFAULT_RIPARIAN_COVER_SI[20]
+        > DEFAULT_RIPARIAN_COVER_SI[30]
+        > DEFAULT_RIPARIAN_COVER_SI[40]
+        > DEFAULT_RIPARIAN_COVER_SI[50]
+    )
+    assert DEFAULT_RIPARIAN_COVER_SI[10] >= DEFAULT_RIPARIAN_COVER_SI[90] >= DEFAULT_RIPARIAN_COVER_SI[30]
 
 
 def test_cover_si_from_lulc_raster_aggregates_inside_polygon(tmp_path):
-    from openlimno.habitat import cover_si_from_lulc_raster
     from shapely.geometry import box
+
+    from openlimno.habitat import cover_si_from_lulc_raster
     # 10×10 raster: top half grassland (30, SI=0.4), bottom half cropland (40, SI=0.2)
     arr = np.zeros((10, 10), dtype=np.uint8)
     arr[:5, :] = 30
@@ -64,8 +71,9 @@ def test_cover_si_from_lulc_raster_aggregates_inside_polygon(tmp_path):
 
 
 def test_cover_si_from_lulc_raster_respects_custom_table(tmp_path):
-    from openlimno.habitat import cover_si_from_lulc_raster
     from shapely.geometry import box
+
+    from openlimno.habitat import cover_si_from_lulc_raster
     arr = np.full((4, 4), 30, dtype=np.uint8)  # all grassland
     tif = tmp_path / "lulc.tif"
     _write_lulc(tif, arr)
@@ -81,8 +89,9 @@ def test_cover_si_from_lulc_raster_respects_custom_table(tmp_path):
 def test_cover_si_from_lulc_raster_fails_on_all_nodata(tmp_path):
     """All-zero raster + table that doesn't include 0 → loud error,
     not silent NaN."""
-    from openlimno.habitat import cover_si_from_lulc_raster
     from shapely.geometry import box
+
+    from openlimno.habitat import cover_si_from_lulc_raster
     arr = np.zeros((4, 4), dtype=np.uint8)  # all no-data
     tif = tmp_path / "lulc.tif"
     _write_lulc(tif, arr)

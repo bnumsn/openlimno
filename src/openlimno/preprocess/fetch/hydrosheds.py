@@ -38,8 +38,7 @@ import zipfile
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-
-from osgeo import ogr, osr
+from typing import Any
 
 from openlimno.preprocess.fetch.cache import CacheEntry, cache_dir, cached_fetch
 
@@ -67,6 +66,35 @@ HYDROSHEDS_CITATION = (
     "world's large river systems. Hydrological Processes, 27(15): "
     "2171-2186, doi:10.1002/hyp.9740. https://www.hydrosheds.org/"
 )
+
+
+def _require_ogr() -> Any:
+    """Import GDAL/OGR only for code paths that actually need it."""
+    try:
+        from osgeo import ogr
+    except ModuleNotFoundError as e:
+        if e.name == "osgeo":
+            raise ImportError(
+                "HydroSHEDS vector operations require GDAL Python bindings "
+                "(`osgeo`). In pixi/conda environments, install the `gdal` "
+                "package or use the `qgis` environment."
+            ) from e
+        raise
+    return ogr
+
+
+def _require_ogr_osr() -> tuple[Any, Any]:
+    try:
+        from osgeo import ogr, osr
+    except ModuleNotFoundError as e:
+        if e.name == "osgeo":
+            raise ImportError(
+                "HydroSHEDS vector operations require GDAL Python bindings "
+                "(`osgeo`). In pixi/conda environments, install the `gdal` "
+                "package or use the `qgis` environment."
+            ) from e
+        raise
+    return ogr, osr
 
 
 @dataclass
@@ -232,6 +260,7 @@ def find_basin_at(
     directly to ``x, y``. Result dict has the basin's full attribute
     table + a ``geometry_wkt`` field for downstream serialisation.
     """
+    ogr = _require_ogr()
     ds = ogr.Open(str(shp_path))
     if ds is None:
         raise RuntimeError(f"could not open shapefile {shp_path}")
@@ -274,6 +303,7 @@ def upstream_basin_ids(
         sorted list of HYBAS_IDs in the contributing area (always
         contains at least ``start_hybas_id`` itself).
     """
+    ogr = _require_ogr()
     ds = ogr.Open(str(shp_path))
     if ds is None:
         raise RuntimeError(f"could not open shapefile {shp_path}")
@@ -338,6 +368,7 @@ def write_watershed_geojson(
     if not hybas_ids:
         raise ValueError("hybas_ids is empty")
     ids_set = set(hybas_ids)
+    ogr, osr = _require_ogr_osr()
     ds = ogr.Open(str(shp_path))
     if ds is None:
         raise RuntimeError(f"could not open shapefile {shp_path}")

@@ -12,15 +12,12 @@ access). These tests cover the bits that can run offline:
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
-from pathlib import Path
 
 import pandas as pd
 import pytest
 
 from openlimno.preprocess.fetch.cache import (
-    CacheEntry,
     _request_key,
     cache_dir,
     cached_fetch,
@@ -192,7 +189,7 @@ def test_clip_centerline_raises_when_no_overlap():
 def test_clip_centerline_raises_with_only_one_inside():
     """One vertex isn't enough to define a reach — must reject early."""
     cl = [(-114.5, 45.5), (-113.95, 44.95), (-113.50, 44.10)]
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="centerline vertices remain"):
         clip_centerline_to_bbox(cl, -113.96, 44.94, -113.94, 44.96)
 
 
@@ -229,7 +226,7 @@ def test_nwis_rating_curve_emits_clear_migration_error():
 # ---------------------------------------------------------------------
 def test_sidecar_record_writes_json_with_sha(tmp_path):
     """record_fetch writes a JSON list with the file's actual SHA-256."""
-    from openlimno.preprocess.fetch import record_fetch, read_sidecar
+    from openlimno.preprocess.fetch import read_sidecar, record_fetch
     (tmp_path / "data").mkdir()
     produced = tmp_path / "data" / "Q.csv"
     produced.write_text("time,Q\n2024-01-01,1.0\n")
@@ -253,7 +250,7 @@ def test_sidecar_record_is_idempotent_by_label(tmp_path):
     """Re-recording the same label REPLACES the earlier entry (so
     re-running init-from-osm doesn't stack stale records).
     """
-    from openlimno.preprocess.fetch import record_fetch, read_sidecar
+    from openlimno.preprocess.fetch import read_sidecar, record_fetch
     (tmp_path / "data").mkdir()
     f = tmp_path / "data" / "Q.csv"
     f.write_text("a")
@@ -344,7 +341,8 @@ def test_sidecar_corrupt_json_raises_loudly(tmp_path):
     SidecarCorruptedError with a clear remediation hint.
     """
     from openlimno.preprocess.fetch.sidecar import (
-        SidecarCorruptedError, read_sidecar,
+        SidecarCorruptedError,
+        read_sidecar,
     )
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / ".openlimno_external_sources.json").write_text(
@@ -359,7 +357,8 @@ def test_sidecar_wrong_root_type_raises_loudly(tmp_path):
     dict) is also corrupt — raise instead of silently returning [].
     """
     from openlimno.preprocess.fetch.sidecar import (
-        SidecarCorruptedError, read_sidecar,
+        SidecarCorruptedError,
+        read_sidecar,
     )
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / ".openlimno_external_sources.json").write_text(
@@ -458,7 +457,8 @@ def test_daymet_stefan_constants_are_named():
     calibration / sensitivity work needs them as exported names.
     """
     from openlimno.preprocess.fetch.daymet import (
-        STEFAN_AIR_TO_WATER_A, STEFAN_AIR_TO_WATER_B,
+        STEFAN_AIR_TO_WATER_A,
+        STEFAN_AIR_TO_WATER_B,
     )
     assert STEFAN_AIR_TO_WATER_A == 5.0
     assert STEFAN_AIR_TO_WATER_B == 0.75
@@ -476,8 +476,10 @@ def test_overpass_query_function_matches_actual_fetch():
     check params['data'], but that's a network-shape integration test.)
     """
     import inspect
+
     from openlimno.preprocess.osm_builder import (
-        build_overpass_query, fetch_river_polyline,
+        build_overpass_query,
+        fetch_river_polyline,
     )
     # Sanity: build_overpass_query is called from fetch_river_polyline
     src = inspect.getsource(fetch_river_polyline)
@@ -500,17 +502,16 @@ def test_dem_accepts_3deg_bbox():
     so just check the area-cap check itself fires on the right
     threshold by checking the math.)
     """
-    from openlimno.preprocess.fetch.dem import fetch_copernicus_dem
     # 3°×3° = 9.0 deg², at the cap (strict > so it's allowed)
     # We can't actually call without network, just assert the size
     # check doesn't trip. Construct a bbox that fails LATER (out of
     # coverage at high lat) so we can tell that the size-cap check
     # already passed.
-    import pytest as _pytest
+    from openlimno.preprocess.fetch.dem import fetch_copernicus_dem
     # 1°×1° well under cap — would proceed to fetch, but we don't
     # have network in the test; we expect it to raise something OTHER
     # than the size-cap error.
-    with _pytest.raises(ValueError) as excinfo:
+    with pytest.raises(ValueError, match="outside Copernicus") as excinfo:
         fetch_copernicus_dem(-114.0, 84.5, -113.0, 85.0)
     assert "outside Copernicus" in str(excinfo.value), (
         f"Expected coverage error for polar bbox, got: {excinfo.value}"
@@ -736,7 +737,8 @@ def test_watershed_sample_points_returns_centroid_plus_4_corners():
     centroid = pts[0]
     assert centroid == pytest.approx((38.5, 100.5))
     # 4 corners inset by 10% of each side
-    inset_dy = 0.1; inset_dx = 0.1
+    inset_dy = 0.1
+    inset_dx = 0.1
     expected_corners = {
         (38.0 + inset_dy, 100.0 + inset_dx),
         (38.0 + inset_dy, 101.0 - inset_dx),
@@ -792,9 +794,9 @@ def test_watershed_climate_aggregates_5_points_with_fake_fetcher(tmp_path):
     climate fetcher that returns site-dependent T_water (so the SD
     column is non-zero), aggregate, assert shape + simple arithmetic.
     """
-    import numpy as _np
     from openlimno.preprocess.fetch import (
-        WatershedClimateResult, fetch_watershed_climate,
+        WatershedClimateResult,
+        fetch_watershed_climate,
     )
     geojson = {
         "type": "Feature",
@@ -884,6 +886,7 @@ def test_hydrosheds_safe_extract_rejects_zip_slip(tmp_path):
     even though HydroSHEDS' own zips are trusted, the extraction
     helper is reusable infra."""
     import zipfile
+
     from openlimno.preprocess.fetch.hydrosheds import _safe_extract_zip
 
     bad_zip = tmp_path / "evil.zip"
@@ -928,6 +931,7 @@ def _build_mini_hydrobasins(shp_dir, basins):
     return shp_path
 
 
+@pytest.mark.osgeo
 def test_hydrosheds_upstream_walk_simple_chain(tmp_path):
     """4-basin layout: 1 ← 2 ← 3 ; 4 is independent.
     upstream(1) = {1,2,3}; upstream(4) = {4}.
@@ -950,6 +954,7 @@ def test_hydrosheds_upstream_walk_simple_chain(tmp_path):
     assert upstream_basin_ids(shp, 4) == [4]
 
 
+@pytest.mark.osgeo
 def test_hydrosheds_upstream_walk_unknown_id_raises(tmp_path):
     basins = [
         {"hybas_id": 1, "next_down": 0, "sub_area": 1.0,
@@ -961,6 +966,7 @@ def test_hydrosheds_upstream_walk_unknown_id_raises(tmp_path):
         upstream_basin_ids(shp, 999)
 
 
+@pytest.mark.osgeo
 def test_hydrosheds_find_basin_at_inside(tmp_path):
     basins = [
         {"hybas_id": 7, "next_down": 0, "sub_area": 10.0,
@@ -974,6 +980,7 @@ def test_hydrosheds_find_basin_at_inside(tmp_path):
     assert "geometry_wkt" in hit and "POLYGON" in hit["geometry_wkt"]
 
 
+@pytest.mark.osgeo
 def test_hydrosheds_find_basin_at_outside_returns_none(tmp_path):
     basins = [
         {"hybas_id": 7, "next_down": 0, "sub_area": 10.0,
@@ -984,6 +991,7 @@ def test_hydrosheds_find_basin_at_outside_returns_none(tmp_path):
     assert find_basin_at(shp, lat=0.0, lon=0.0) is None
 
 
+@pytest.mark.osgeo
 def test_hydrosheds_write_watershed_geojson_aggregates_area(tmp_path):
     basins = [
         {"hybas_id": 1, "next_down": 0, "sub_area": 100.0,
@@ -1011,6 +1019,7 @@ def test_hydrosheds_write_watershed_geojson_aggregates_area(tmp_path):
     assert feat["properties"]["area_km2"] == pytest.approx(170.0)
 
 
+@pytest.mark.osgeo
 def test_hydrosheds_write_watershed_geojson_missing_basin_raises(tmp_path):
     """If the caller passes a HYBAS_ID that isn't in the shapefile, we
     must FAIL — otherwise the produced watershed is a silent
@@ -1025,6 +1034,7 @@ def test_hydrosheds_write_watershed_geojson_missing_basin_raises(tmp_path):
         write_watershed_geojson(shp, [1, 99], tmp_path / "ws.geojson")
 
 
+@pytest.mark.osgeo
 def test_hydrosheds_does_not_enable_global_ogr_exceptions():
     """REGRESSION GUARD: importing hydrosheds.py must NOT call
     ``ogr.UseExceptions()``. Real HydroSHEDS shapefiles ship with a
@@ -1039,8 +1049,10 @@ def test_hydrosheds_does_not_enable_global_ogr_exceptions():
     suite and only break in production. This pin closes that gap.
     """
     import importlib
-    import openlimno.preprocess.fetch.hydrosheds  # noqa: F401
+
     from osgeo import ogr
+
+    import openlimno.preprocess.fetch.hydrosheds  # noqa: F401
     # Force a fresh import to be sure module-init didn't leave state
     importlib.reload(openlimno.preprocess.fetch.hydrosheds)
     # In exception mode GetUseExceptions() returns 1.
@@ -1125,7 +1137,8 @@ def test_cn_hydro_fetch_raises_when_no_adapter_registered():
     call. This is the v0.4 charter pin — OpenLimno's wheel never
     contains crawler code."""
     from openlimno.preprocess.fetch import (
-        ChinaHydroNotEnabledError, fetch_china_discharge,
+        ChinaHydroNotEnabledError,
+        fetch_china_discharge,
     )
     with pytest.raises(ChinaHydroNotEnabledError) as exc:
         fetch_china_discharge("mwr_river", "60100200", "2024-01-01", "2024-01-07")
@@ -1146,9 +1159,13 @@ def test_cn_hydro_register_adapter_dispatches_correctly():
     sets source_key + implements fetch_discharge round-trips through
     register_adapter → fetch_china_discharge."""
     import pandas as pd
+
     from openlimno.preprocess.fetch import (
-        ChinaDischargeResult, ChinaHydroAdapter,
-        fetch_china_discharge, list_registered_adapters, register_adapter,
+        ChinaDischargeResult,
+        ChinaHydroAdapter,
+        fetch_china_discharge,
+        list_registered_adapters,
+        register_adapter,
     )
     from openlimno.preprocess.fetch import cn_hydro as _cn
 
@@ -1185,7 +1202,8 @@ def test_cn_hydro_register_adapter_dispatches_correctly():
 
 def test_cn_hydro_register_rejects_empty_source_key():
     from openlimno.preprocess.fetch import (
-        ChinaDischargeResult, ChinaHydroAdapter, register_adapter,
+        ChinaHydroAdapter,
+        register_adapter,
     )
     class _BadAdapter(ChinaHydroAdapter):
         source_key = ""  # not allowed
@@ -1202,6 +1220,7 @@ def test_cn_hydro_module_contains_no_crawler_imports():
     reverse-engineering code; any future PR that pulls one of those
     in is a charter violation."""
     import inspect
+
     from openlimno.preprocess.fetch import cn_hydro
     src = inspect.getsource(cn_hydro)
     for forbidden in ("import requests", "import httpx", "import bs4",
@@ -1241,7 +1260,10 @@ def test_fishbase_starter_table_includes_common_phabsim_species():
 
 def test_fishbase_traits_returns_dataclass_for_known_species():
     from openlimno.preprocess.fetch import (
-        FishBaseTraits, WATER_TYPES, IUCN_STATUSES, fetch_fishbase_traits,
+        IUCN_STATUSES,
+        WATER_TYPES,
+        FishBaseTraits,
+        fetch_fishbase_traits,
     )
     t = fetch_fishbase_traits("Oncorhynchus mykiss")
     assert t is not None
@@ -1287,7 +1309,9 @@ def test_fishbase_starter_csv_water_types_all_valid():
     """Every row in the bundled CSV must use a value from
     WATER_TYPES — catches a typo at table-edit time."""
     from openlimno.preprocess.fetch import (
-        WATER_TYPES, list_starter_species, fetch_fishbase_traits,
+        WATER_TYPES,
+        fetch_fishbase_traits,
+        list_starter_species,
     )
     for name in list_starter_species():
         t = fetch_fishbase_traits(name)
@@ -1298,7 +1322,9 @@ def test_fishbase_starter_csv_water_types_all_valid():
 
 def test_fishbase_starter_csv_iucn_codes_all_valid():
     from openlimno.preprocess.fetch import (
-        IUCN_STATUSES, list_starter_species, fetch_fishbase_traits,
+        IUCN_STATUSES,
+        fetch_fishbase_traits,
+        list_starter_species,
     )
     for name in list_starter_species():
         t = fetch_fishbase_traits(name)
@@ -1311,7 +1337,8 @@ def test_fishbase_starter_csv_temp_ranges_consistent():
     """temperature_min_C < temperature_max_C for every row — catches
     a transposed-value typo at table-edit time."""
     from openlimno.preprocess.fetch import (
-        list_starter_species, fetch_fishbase_traits,
+        fetch_fishbase_traits,
+        list_starter_species,
     )
     for name in list_starter_species():
         t = fetch_fishbase_traits(name)
@@ -1598,7 +1625,10 @@ def test_soilgrids_constants_match_api_schema():
     """Pin the schema enums — a SoilGrids API rename would otherwise
     silently slip through."""
     from openlimno.preprocess.fetch.soilgrids import (
-        ALL_DEPTHS, ALL_STATISTICS, DEFAULT_DEPTHS, DEFAULT_PROPERTIES,
+        ALL_DEPTHS,
+        ALL_STATISTICS,
+        DEFAULT_DEPTHS,
+        DEFAULT_PROPERTIES,
     )
     assert "0-5cm" in ALL_DEPTHS
     assert "100-200cm" in ALL_DEPTHS
@@ -1850,6 +1880,7 @@ def test_worldcover_compute_class_histogram_aggregates_correctly(tmp_path):
     import numpy as _np
     import rasterio
     from rasterio.transform import from_origin
+
     from openlimno.preprocess.fetch.worldcover import _compute_class_histogram
 
     # 10×10 raster, 5 m pixel (5e-5°) — mix of cropland(40) and built(50).
@@ -1877,6 +1908,7 @@ def test_worldcover_compute_class_histogram_excludes_nodata(tmp_path):
     import numpy as _np
     import rasterio
     from rasterio.transform import from_origin
+
     from openlimno.preprocess.fetch.worldcover import _compute_class_histogram
 
     arr = _np.array([[0,0,40,40]] * 4, dtype=_np.uint8)
@@ -1898,5 +1930,5 @@ def test_hydrosheds_url_format_matches_provider_convention():
     """
     import openlimno.preprocess.fetch.hydrosheds as h
     assert "data.hydrosheds.org" in h.HYDROSHEDS_BASE
-    assert "Asia" == h.HYDROSHEDS_REGIONS["as"]
+    assert h.HYDROSHEDS_REGIONS["as"] == "Asia"
     assert 12 in h.HYDROBASINS_LEVELS

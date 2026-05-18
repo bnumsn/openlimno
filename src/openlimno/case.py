@@ -21,7 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 import numpy as np
 import pandas as pd
@@ -41,6 +41,13 @@ from openlimno.hydro.builtin_1d import (
     load_sections_from_parquet,
 )
 from openlimno.wedm import validate_case
+
+if TYPE_CHECKING:
+    from openlimno.habitat.composite import CompositeOverlay
+
+PerCellCsiMap: TypeAlias = dict[
+    tuple[float, str, str], tuple[np.ndarray, np.ndarray]
+]
 
 
 @dataclass
@@ -222,7 +229,7 @@ class Case:
             "composite_overlay_method", "product",
         )
         capture_per_cell = composite_overlay_method_for_capture == "geom_mean_per_cell"
-        per_cell_csi: dict[tuple[float, str, str], tuple[np.ndarray, np.ndarray]] = {}
+        per_cell_csi: PerCellCsiMap = {}
 
         wua_records: list[dict[str, Any]] = []
         for Q in discharges_m3s:
@@ -917,7 +924,7 @@ class Case:
 
     @staticmethod
     def _emit_regulatory_csv(
-        result,
+        result: pd.DataFrame,
         path: Path,
         *,
         quality_watermark: str | None = None,
@@ -1171,10 +1178,10 @@ class Case:
     def _maybe_run_per_cell_composite(
         self,
         wua_df: pd.DataFrame,
-        overlay,
-        per_cell_csi: dict | None,
+        overlay: CompositeOverlay,
+        per_cell_csi: PerCellCsiMap | None,
         warnings: list[str],
-    ) -> tuple[pd.DataFrame | None, dict | None]:
+    ) -> tuple[pd.DataFrame | None, dict[str, object] | None]:
         """v2.4.0: per-cell geometric-mean composite path.
 
         Consumes the ``per_cell_csi`` arrays captured during step 4
@@ -1251,7 +1258,7 @@ class Case:
             out_rows.append(out_row)
 
         composite_df = pd.DataFrame(out_rows)
-        by_series: list[dict] = []
+        by_series: list[dict[str, object]] = []
         for suffix, stats in by_series_stats.items():
             base_max = stats["base_max"]
             comp_max = stats["comp_max"]
@@ -1265,7 +1272,7 @@ class Case:
                 ),
             })
 
-        summary = {
+        summary: dict[str, object] = {
             "method": "geom_mean_per_cell",
             "cover_si": overlay.cover_si,
             "thermal_si": overlay.thermal_si,
@@ -1285,8 +1292,8 @@ class Case:
         formats: list[str],
         warnings: list[str],
         method: str = "product",
-        per_cell_csi: dict | None = None,
-    ) -> tuple[dict | None, pd.DataFrame | None]:
+        per_cell_csi: PerCellCsiMap | None = None,
+    ) -> tuple[dict[str, Any] | None, pd.DataFrame | None]:
         """v1.6.0: combine the per-cell depth × velocity WUA with the
         v1.1.1 thermal scalar and v1.5.0 cover scalar overlays into a
         single composite WUA-Q table.

@@ -13,7 +13,9 @@ When the unsteady solver lands (post-1.0; SPEC §13.1), this file becomes the
 home of the dam-break and shock-tube tests in Toro 2009 ch. 4.
 
 We retain the file in the standard benchmark slot so the SPEC §7 placeholder
-is satisfied with an explicit deferred-test marker.
+is satisfied by the steady-state Manning checks below. Unsteady Riemann cases
+stay documented in the research roadmap until there is an unsteady solver API
+to exercise; they are not collected as skipped tests.
 """
 
 from __future__ import annotations
@@ -43,10 +45,10 @@ def test_rectangular_geometry_machine_precision() -> None:
     P_exact = width + 2 * h
     R_exact = A_exact / P_exact
 
-    assert A == pytest.approx(A_exact, rel=1e-5)
-    assert T == pytest.approx(T_exact, rel=1e-5)
-    assert P == pytest.approx(P_exact, rel=1e-5)
-    assert R == pytest.approx(R_exact, rel=1e-5)
+    assert pytest.approx(A_exact, rel=1e-5) == A
+    assert pytest.approx(T_exact, rel=1e-5) == T
+    assert pytest.approx(P_exact, rel=1e-5) == P
+    assert pytest.approx(R_exact, rel=1e-5) == R
 
 
 def test_smooth_subcritical_flow_consistency() -> None:
@@ -68,8 +70,3 @@ def test_smooth_subcritical_flow_consistency() -> None:
     Q_exact = (1.0 / n) * A * R ** (2.0 / 3.0) * np.sqrt(S)
     Q_obtained = xs.manning_discharge(water_surface_m=h, slope=S)
     assert Q_obtained == pytest.approx(Q_exact, rel=1e-5)
-
-
-@pytest.mark.skip(reason="Unsteady SWE Riemann tests deferred to §13.1 (post-1.0)")
-def test_toro_dam_break_riemann() -> None:
-    """Placeholder: Toro 2009 dam-break problem when unsteady SWE lands."""

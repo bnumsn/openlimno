@@ -36,12 +36,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
 import rasterio
 import rasterio.mask
 from shapely.geometry import LineString, mapping, shape
+from shapely.geometry.base import BaseGeometry
 
 # Default WorldCover class → cover SI mapping. Override per case
 # via the ``cover_si_table`` kwarg if site calibration data exists.
@@ -60,27 +62,27 @@ DEFAULT_RIPARIAN_COVER_SI: dict[int, float] = {
 }
 
 
-def _load_geometry_from_geojson(geojson_path: Path | str):
+def _load_geometry_from_geojson(geojson_path: Path | str) -> BaseGeometry:
     """Parse a GeoJSON file into a single shapely geometry.
 
     Accepts FeatureCollection / Feature / Geometry roots; multiple
     features are merged into a MultiPolygon / collection.
     """
-    data = json.loads(Path(geojson_path).read_text())
+    data: Any = json.loads(Path(geojson_path).read_text())
     if data.get("type") == "FeatureCollection":
         geoms = [shape(f["geometry"]) for f in data["features"]]
         if len(geoms) == 1:
-            return geoms[0]
+            return cast(BaseGeometry, geoms[0])
         from shapely.geometry import GeometryCollection
         return GeometryCollection(geoms)
     if data.get("type") == "Feature":
-        return shape(data["geometry"])
-    return shape(data)
+        return cast(BaseGeometry, shape(data["geometry"]))
+    return cast(BaseGeometry, shape(data))
 
 
 def cover_si_from_lulc_raster(
     lulc_tif: Path | str,
-    geometry,
+    geometry: BaseGeometry,
     *,
     cover_si_table: dict[int, float] | None = None,
 ) -> tuple[float, dict[int, int]]:
@@ -138,7 +140,7 @@ def riparian_buffer_from_polyline(
     coords: list[tuple[float, float]],
     *,
     buffer_m: float = 50.0,
-):
+) -> BaseGeometry:
     """Build a riparian-buffer polygon around an EPSG:4326 polyline.
 
     The buffer is computed in metres but applied in degree-space
@@ -176,9 +178,9 @@ def riparian_buffer_from_polyline(
     # 1 metre at the mean latitude, buffer in the same unit, then
     # unscale.
     METRES_PER_DEG_LAT = 111_320.0
-    def to_metric(lon, lat):
+    def to_metric(lon: float, lat: float) -> tuple[float, float]:
         return lon * METRES_PER_DEG_LAT * cos_lat, lat * METRES_PER_DEG_LAT
-    def from_metric(x, y):
+    def from_metric(x: float, y: float) -> tuple[float, float]:
         return x / (METRES_PER_DEG_LAT * cos_lat), y / METRES_PER_DEG_LAT
 
     metric_coords = [to_metric(lon, lat) for lon, lat in coords]
@@ -186,11 +188,16 @@ def riparian_buffer_from_polyline(
     buf_m = line_m.buffer(buffer_m, cap_style="round", join_style="round")
     # Unscale geometry back to lon/lat
     from shapely.ops import transform
-    return transform(
-        lambda x, y, z=None: (*from_metric(x, y), z) if z is not None
-        else from_metric(x, y),
-        buf_m,
-    )
+
+    def unscale(
+        x: float, y: float, z: float | None = None,
+    ) -> tuple[float, float] | tuple[float, float, float]:
+        lon, lat = from_metric(x, y)
+        if z is not None:
+            return lon, lat, z
+        return lon, lat
+
+    return cast(BaseGeometry, transform(unscale, buf_m))
 
 
 def cover_si_from_polyline(

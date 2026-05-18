@@ -383,13 +383,13 @@ def composite_summary(
 
 
 def apply_overlay_per_cell(
-    csi_dv_per_cell,
-    area_per_cell,
+    csi_dv_per_cell: object,
+    area_per_cell: object,
     *,
-    cover_si_per_cell=None,
-    thermal_si_per_cell=None,
+    cover_si_per_cell: object | None = None,
+    thermal_si_per_cell: object | None = None,
     method: CompositeMethod = "geom_mean",
-) -> dict:
+) -> dict[str, object]:
     """True per-cell composite WUA with the n-factor geometric mean.
 
     Unlike :func:`apply_overlay` (which works on the column-level WUA-Q

@@ -40,7 +40,9 @@ sys.path.append("/usr/lib/python3/dist-packages")
 from qgis.core import QgsApplication, QgsProject
 from qgis.PyQt.QtCore import QEventLoop, QTimer
 from qgis.PyQt.QtWidgets import (
-    QApplication, QDialog, QFileDialog, QMessageBox,
+    QApplication,
+    QDialog,
+    QFileDialog,
 )
 
 QgsApplication.setPrefixPath("/usr", True)
@@ -204,7 +206,8 @@ def test_symlink_refusal():
             build_case(spec, out)
             record("T4.symlink_refusal", "FAIL", "expected ValueError")
         except ValueError as e:
-            assert "symlink" in str(e).lower()
+            if "symlink" not in str(e).lower():
+                raise
             record("T4.symlink_refusal", "PASS",
                     f"refused with: {str(e)[:80]}…")
     except Exception as e:
@@ -228,7 +231,8 @@ def test_bad_bbox():
             build_case(spec, out)
             record("T5.bad_bbox", "FAIL", "expected ValueError")
         except ValueError as e:
-            assert "no waterway" in str(e).lower(), str(e)
+            if "no waterway" not in str(e).lower():
+                raise
             record("T5.bad_bbox", "PASS",
                     f"clean error: {str(e)[:80]}…")
     except Exception as e:
@@ -247,7 +251,8 @@ def test_run_case():
     case_yaml = case_dir / "case.yaml"
     if not case_yaml.is_file():
         record("T6.run_case", "SKIP", "T1 didn't produce case.yaml")
-        win.close(); return
+        win.close()
+        return
     win.ctl._load_case_layers(case_dir)
     # Patch _discover_case_yaml to skip dialog
     win.ctl._discover_case_yaml = lambda: case_yaml
@@ -273,14 +278,17 @@ def test_run_case():
 
     if not done["value"]:
         record("T6.run_case", "FAIL", "timed out after 60s")
-        win.close(); return
+        win.close()
+        return
     if done["tb"]:
         record("T6.run_case", "FAIL", f"worker raised: {done['tb'][-200:]}")
-        win.close(); return
+        win.close()
+        return
     out_nc = case_dir / "out/hydraulics.nc"
     if not out_nc.is_file():
         record("T6.run_case", "FAIL", "hydraulics.nc not produced")
-        win.close(); return
+        win.close()
+        return
     win.ctl._load_hydraulics_layer(out_nc)
     grab(win, "06_run_case")
     record("T6.run_case", "PASS", done["summary"][:100])
@@ -298,7 +306,8 @@ def test_open_hydraulic():
     nc = OUT_ROOT / "case-bbox/out/hydraulics.nc"
     if not nc.is_file():
         record("T7.open_hydraulic", "SKIP", "T6 didn't produce hydraulics.nc")
-        win.close(); return
+        win.close()
+        return
 
     # Patch the file dialog
     orig = QFileDialog.getOpenFileName
@@ -308,10 +317,10 @@ def test_open_hydraulic():
         win.ctl.open_hydraulic_nc()
         layers = list(QgsProject.instance().mapLayers().values())
         # Anything that's not the OSM basemap counts as the loaded result
-        added = [l for l in layers if l.name() != "OpenStreetMap"]
+        added = [layer for layer in layers if layer.name() != "OpenStreetMap"]
         if not added:
             record("T7.open_hydraulic", "FAIL",
-                    f"no layer added; layers={[l.name() for l in layers]}")
+                    f"no layer added; layers={[layer.name() for layer in layers]}")
         else:
             kind = type(added[0]).__name__
             grab(win, "07_open_hydraulic")
@@ -333,7 +342,8 @@ def test_auto_discovery():
     case_dir = OUT_ROOT / "case-bbox"
     if not (case_dir / "data/cross_section.parquet").is_file():
         record("T8.auto_discovery", "SKIP", "no T1 case")
-        win.close(); return
+        win.close()
+        return
     # Load the case so its data/ is reachable from layer sources
     win.ctl._load_case_layers(case_dir)
     # _load_case_layers now stashes _xs_parquet directly when memory
@@ -375,7 +385,8 @@ def test_appimage_launches():
             record("T9.appimage_launches", "FAIL",
                     f"exited early with code {rc}")
         except subprocess.TimeoutExpired:
-            p.kill(); p.wait()
+            p.kill()
+            p.wait()
             record("T9.appimage_launches", "PASS",
                     "alive after 10s (event loop running)")
     except Exception as e:
@@ -395,7 +406,8 @@ def test_plot_profile():
     nc = OUT_ROOT / "case-bbox/out/hydraulics.nc"
     if not (xs.is_file() and nc.is_file()):
         record("T10.plot_profile", "SKIP", "no T1+T6 outputs")
-        win.close(); return
+        win.close()
+        return
 
     # Drive _render_profile_dialog directly with prepared rows
     from openlimno.gui_core.controller import _read_wua_parquet

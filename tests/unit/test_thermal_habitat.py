@@ -147,7 +147,9 @@ def test_thermal_chain_with_fishbase_and_openmeteo_schema(tmp_path):
     against a synthetic Open-Meteo-schema climate DataFrame. Pins the
     fetcher × habitat coupling that v1.1.0 ships."""
     from openlimno.habitat import (
-        ThermalRange, thermal_suitability_series, thermal_metrics,
+        ThermalRange,
+        thermal_metrics,
+        thermal_suitability_series,
     )
     from openlimno.preprocess.fetch import fetch_fishbase_traits
     # Rainbow trout: T 9..18 °C from FishBase

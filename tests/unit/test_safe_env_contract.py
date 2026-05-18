@@ -148,7 +148,7 @@ def test_safe_env_preserves_proxy_vars(var):
     Symptom on regression: reviewer fails with ``connection refused``
     / ``network unreachable`` despite working from a regular shell.
     """
-    inside = _run_safe_env_dump({var: f"http://proxy.example:8080"})
+    inside = _run_safe_env_dump({var: "http://proxy.example:8080"})
     assert inside.get(var) == "http://proxy.example:8080", (
         f"REGRESSION: proxy var {var!r} stripped — users behind a "
         f"corporate proxy can't run reviewers. Add it back to the "
@@ -177,7 +177,7 @@ def test_safe_env_preserves_ca_bundle_vars(var):
     )
 
 
-@pytest.mark.parametrize("var,value", [
+@pytest.mark.parametrize(("var", "value"), [
     ("LANG", "en_US.UTF-8"),
     ("LC_ALL", "en_US.UTF-8"),
     ("TMPDIR", "/var/tmp"),

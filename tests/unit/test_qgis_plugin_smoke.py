@@ -100,6 +100,7 @@ def test_v07_qgis_plugin_wires_fetch_toolbar_entry():
     """And pin that the plugin file references the method — without
     this the controller method exists but no GUI surface exposes it."""
     import inspect
+
     from openlimno.qgis.openlimno_qgis_plugin import plugin as _plugin_mod
     src = inspect.getsource(_plugin_mod)
     assert "fetch_data_into_case" in src, (
@@ -115,6 +116,7 @@ def test_v08_fetch_data_into_case_uses_qprocess_not_qthread():
     can't take the QGIS process with it. If a future refactor
     swaps back to QThread that crash-isolation goes away."""
     import inspect
+
     from openlimno.gui_core.controller import Controller
     src = inspect.getsource(Controller.fetch_data_into_case)
     assert "QProcess" in src, (

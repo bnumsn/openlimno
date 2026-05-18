@@ -431,18 +431,18 @@ def calibrate(case_yaml: str, observed: str, algo: str, initial_n: float, slope:
     from openlimno.hydro.builtin_1d import load_sections_from_parquet
     from openlimno.workflows import calibrate_manning_n
 
+    obs_path = Path(observed)
+    if obs_path.suffix == ".parquet":
+        obs = pd.read_parquet(obs_path)
+    else:
+        obs = pd.read_csv(obs_path)
+
     case = Case.from_yaml(case_yaml)
     cross_section_path = case._resolve(case.config["data"]["cross_section"])
     sections = load_sections_from_parquet(cross_section_path, manning_n=initial_n)
     if not sections:
         console.print("[red]✗[/] no cross-sections found in case data")
         sys.exit(1)
-
-    obs_path = Path(observed)
-    if obs_path.suffix == ".parquet":
-        obs = pd.read_parquet(obs_path)
-    else:
-        obs = pd.read_csv(obs_path)
 
     res = calibrate_manning_n(
         cross_section=sections[0],
@@ -1320,7 +1320,8 @@ def fetch(
             )
         try:
             w_region = wparts[1]
-            w_lat = float(wparts[2]); w_lon = float(wparts[3])
+            w_lat = float(wparts[2])
+            w_lon = float(wparts[3])
             w_level = int(wparts[4]) if len(wparts) == 5 else 12
         except ValueError as e:
             raise click.UsageError(
@@ -1377,7 +1378,8 @@ def fetch(
                 "--fetch-soil must be 'soilgrids:LAT:LON'"
             )
         try:
-            s_lat = float(sparts[1]); s_lon = float(sparts[2])
+            s_lat = float(sparts[1])
+            s_lon = float(sparts[2])
         except ValueError as e:
             raise click.UsageError(
                 f"--fetch-soil parse error: {fetch_soil!r}"
@@ -1416,8 +1418,10 @@ def fetch(
                 "'worldcover:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX[:YEAR]'"
             )
         try:
-            l_lon_min = float(lparts[1]); l_lat_min = float(lparts[2])
-            l_lon_max = float(lparts[3]); l_lat_max = float(lparts[4])
+            l_lon_min = float(lparts[1])
+            l_lat_min = float(lparts[2])
+            l_lon_max = float(lparts[3])
+            l_lat_max = float(lparts[4])
             l_year = int(lparts[5]) if len(lparts) == 6 else 2021
         except ValueError as e:
             raise click.UsageError(
@@ -1581,8 +1585,10 @@ def fetch(
             )
         c_source, c_lat_s, c_lon_s, sy_s, ey_s = cparts
         try:
-            c_lat = float(c_lat_s); c_lon = float(c_lon_s)
-            c_sy = int(sy_s); c_ey = int(ey_s)
+            c_lat = float(c_lat_s)
+            c_lon = float(c_lon_s)
+            c_sy = int(sy_s)
+            c_ey = int(ey_s)
         except ValueError as e:
             raise click.UsageError(
                 f"--fetch-climate parse error: {fetch_climate!r}"
@@ -1735,12 +1741,14 @@ def init_from_osm(
     bbox_tuple = None
     if bbox:
         try:
-            parts = [float(x.strip()) for x in bbox.split(",")]
-            if len(parts) != 4:
+            bbox_parts = [float(x.strip()) for x in bbox.split(",")]
+            if len(bbox_parts) != 4:
                 raise ValueError
-            bbox_tuple = tuple(parts)
-        except (ValueError, IndexError):
-            raise click.BadParameter("--bbox must be 'lon_min,lat_min,lon_max,lat_max'")
+            bbox_tuple = tuple(bbox_parts)
+        except (ValueError, IndexError) as e:
+            raise click.BadParameter(
+                "--bbox must be 'lon_min,lat_min,lon_max,lat_max'"
+            ) from e
 
     if not (river or bbox_tuple or polyline_path):
         raise click.UsageError("Provide --river, --bbox, or --polyline")
@@ -1796,7 +1804,7 @@ def init_from_osm(
             bbox=bbox_tuple, river_name=river, region_name=region,
         )
         if bbox_tuple:
-            osm_params = {"bbox": list(bbox_tuple)}
+            osm_params: dict[str, object] = {"bbox": list(bbox_tuple)}
         else:
             osm_params = {"river_name": river, "region_name": region}
         _rf(
@@ -1890,13 +1898,13 @@ def init_from_osm(
             fetch_nwis_daily_discharge,
             record_fetch,
         )
-        parts = fetch_discharge.split(":")
-        if len(parts) != 4 or parts[0] != "usgs-nwis":
+        discharge_parts = fetch_discharge.split(":")
+        if len(discharge_parts) != 4 or discharge_parts[0] != "usgs-nwis":
             raise click.UsageError(
                 "--fetch-discharge must be 'usgs-nwis:SITE_ID:START:END' "
                 f"(got {fetch_discharge!r})"
             )
-        _, site, start, end = parts
+        _, site, start, end = discharge_parts
         # Validate date format to avoid a silent 400 from NWIS — they
         # require YYYY-MM-DD and we just pass through what the user
         # typed (round-1 review).
@@ -2169,7 +2177,8 @@ def init_from_osm(
                 f"(got {fetch_soil!r})"
             )
         try:
-            s_lat = float(sparts[1]); s_lon = float(sparts[2])
+            s_lat = float(sparts[1])
+            s_lon = float(sparts[2])
         except ValueError as e:
             raise click.UsageError(
                 f"--fetch-soil lat/lon must be decimal; got {fetch_soil!r}"
@@ -2242,8 +2251,10 @@ def init_from_osm(
                 f"(got {fetch_lulc!r})"
             )
         try:
-            l_lon_min = float(lparts[1]); l_lat_min = float(lparts[2])
-            l_lon_max = float(lparts[3]); l_lat_max = float(lparts[4])
+            l_lon_min = float(lparts[1])
+            l_lat_min = float(lparts[2])
+            l_lon_max = float(lparts[3])
+            l_lat_max = float(lparts[4])
             l_year = int(lparts[5]) if len(lparts) == 6 else 2021
         except ValueError as e:
             raise click.UsageError(
@@ -2328,8 +2339,10 @@ def init_from_osm(
             )
         source, lat_s, lon_s, sy_s, ey_s = cparts
         try:
-            c_lat = float(lat_s); c_lon = float(lon_s)
-            c_sy = int(sy_s); c_ey = int(ey_s)
+            c_lat = float(lat_s)
+            c_lon = float(lon_s)
+            c_sy = int(sy_s)
+            c_ey = int(ey_s)
         except ValueError as e:
             raise click.UsageError(
                 f"--fetch-climate lat/lon must be decimal, years must be "

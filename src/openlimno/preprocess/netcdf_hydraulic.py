@@ -208,10 +208,10 @@ def _find_roles(ds: xr.Dataset) -> dict[str, str | None]:
 def _time_dim(da: xr.DataArray) -> str | None:
     for dim in da.dims:
         if _norm(dim) == "time" or _norm(dim).endswith("time"):
-            return dim
+            return str(dim)
         coord = da.coords.get(dim)
         if coord is not None and np.issubdtype(coord.dtype, np.datetime64):
-            return dim
+            return str(dim)
     return None
 
 

@@ -5,8 +5,8 @@ Exercises the same code path that QGIS' plugin manager uses
 a mock ``iface``. This catches regressions in the gui_core →
 plugin.py wiring without spinning up a full QGIS desktop session.
 
-Skipped automatically if the bundled QGIS Python is not importable —
-i.e. CI runs missing the ``qgis`` apt package.
+Marked as ``qgis`` so the default quality gate can exclude it while the
+QGIS development environment still runs the real plugin wiring.
 """
 from __future__ import annotations
 
@@ -14,15 +14,14 @@ import sys
 
 import pytest
 
-pytest.importorskip("qgis", reason="qgis bindings not on path")
-pytest.importorskip("qgis.core", reason="qgis.core not importable")
-
-from qgis.core import QgsApplication  # noqa: E402
+pytestmark = pytest.mark.qgis
 
 
 @pytest.fixture(scope="module")
 def qgs_app():
     """One QgsApplication per test module — initQgis is expensive."""
+    from qgis.core import QgsApplication
+
     QgsApplication.setPrefixPath("/usr", True)
     app = QgsApplication([], False)  # gui_enabled=False → offscreen
     app.initQgis()
@@ -197,6 +196,7 @@ def test_read_parquet_async_does_not_leak_qobjects(plugin, tmp_path):
     count must NOT scale linearly with N.
     """
     import gc
+
     from qgis.PyQt.QtCore import QEventLoop, QObject, QTimer
 
     p, _ = plugin
@@ -210,7 +210,9 @@ def test_read_parquet_async_does_not_leak_qobjects(plugin, tmp_path):
         return sum(1 for obj in gc.get_objects() if isinstance(obj, QObject))
 
     def _spin_event_loop(ms: int = 200) -> None:
-        loop = QEventLoop(); QTimer.singleShot(ms, loop.quit); loop.exec()
+        loop = QEventLoop()
+        QTimer.singleShot(ms, loop.quit)
+        loop.exec()
 
     # Warm up so any one-shot setup objects materialise before baseline.
     state = {"done": False}

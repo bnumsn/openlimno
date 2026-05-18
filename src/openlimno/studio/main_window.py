@@ -10,9 +10,9 @@ Wires gui_core.Controller to a standalone PyQt5 window:
 """
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from qgis.core import (
     QgsCoordinateReferenceSystem,
@@ -64,13 +64,13 @@ class _StatusBarIfaceShim:
     the same two methods Controller uses so it Just Works.
     """
 
-    def __init__(self, qstatus_bar):
+    def __init__(self, qstatus_bar: Any) -> None:
         self._sb = qstatus_bar
 
-    def showMessage(self, msg, timeout=0):  # noqa: N802 (Qt API)
+    def showMessage(self, msg: str, timeout: int = 0) -> None:  # noqa: N802 (Qt API)
         self._sb.showMessage(msg, timeout)
 
-    def clearMessage(self):  # noqa: N802 (Qt API)
+    def clearMessage(self) -> None:  # noqa: N802 (Qt API)
         self._sb.clearMessage()
 
 
@@ -88,7 +88,9 @@ class MainWindow(QMainWindow):
 
         # ---- Central area: message bar + canvas stacked vertically
         central = QWidget(self)
-        v = QVBoxLayout(central); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(0)
+        v = QVBoxLayout(central)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
         self._message_bar = QgsMessageBar(central)
         v.addWidget(self._message_bar)
         self.canvas = QgsMapCanvas(central)
@@ -132,7 +134,7 @@ class MainWindow(QMainWindow):
         self.ctl = Controller(self)
 
         # ---- Build menus + toolbars
-        self._nav_tools = {}  # cached map tools so they're not GC'd
+        self._nav_tools: dict[str, Any] = {}  # cached map tools so they're not GC'd
         self._build_menus_and_toolbars()
 
         # ---- Default basemap (OSM tiles) — loaded after canvas exists
@@ -144,20 +146,20 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # gui_core.Host protocol implementation
     # ------------------------------------------------------------------
-    def main_window(self):
+    def main_window(self) -> Any:
         return self
 
-    def map_canvas(self):
+    def map_canvas(self) -> Any:
         return self.canvas
 
-    def message_bar(self):
+    def message_bar(self) -> Any:
         return self._message_bar
 
-    def status_bar(self):
+    def status_bar(self) -> Any:
         return self._status_bar_iface
 
     # ------------------------------------------------------------------
-    def _on_xy_coords(self, point) -> None:
+    def _on_xy_coords(self, point: Any) -> None:
         self._coord_label.setText(f"{point.x():.6f}, {point.y():.6f}")
 
     # ------------------------------------------------------------------
@@ -191,20 +193,27 @@ class MainWindow(QMainWindow):
         nav_group = QActionGroup(self)
         nav_group.setExclusive(True)
 
-        a_pan = QAction("Pan", self); a_pan.setCheckable(True); a_pan.setChecked(True)
+        a_pan = QAction("Pan", self)
+        a_pan.setCheckable(True)
+        a_pan.setChecked(True)
         self._nav_tools["pan"] = QgsMapToolPan(self.canvas)
         a_pan.triggered.connect(lambda: self.canvas.setMapTool(self._nav_tools["pan"]))
-        nav_group.addAction(a_pan); nav_tb.addAction(a_pan)
+        nav_group.addAction(a_pan)
+        nav_tb.addAction(a_pan)
 
-        a_zin = QAction("Zoom in", self); a_zin.setCheckable(True)
+        a_zin = QAction("Zoom in", self)
+        a_zin.setCheckable(True)
         self._nav_tools["zin"] = QgsMapToolZoom(self.canvas, False)
         a_zin.triggered.connect(lambda: self.canvas.setMapTool(self._nav_tools["zin"]))
-        nav_group.addAction(a_zin); nav_tb.addAction(a_zin)
+        nav_group.addAction(a_zin)
+        nav_tb.addAction(a_zin)
 
-        a_zout = QAction("Zoom out", self); a_zout.setCheckable(True)
+        a_zout = QAction("Zoom out", self)
+        a_zout.setCheckable(True)
         self._nav_tools["zout"] = QgsMapToolZoom(self.canvas, True)
         a_zout.triggered.connect(lambda: self.canvas.setMapTool(self._nav_tools["zout"]))
-        nav_group.addAction(a_zout); nav_tb.addAction(a_zout)
+        nav_group.addAction(a_zout)
+        nav_tb.addAction(a_zout)
 
         nav_tb.addSeparator()
 
@@ -228,7 +237,13 @@ class MainWindow(QMainWindow):
         self.addToolBar(Qt.TopToolBarArea, ol_tb)
         m_tools = mb.addMenu("&Tools")
 
-        def _ol_action(text, slot, *, checkable=False, on_toolbar=True):
+        def _ol_action(
+            text: str,
+            slot: Any,
+            *,
+            checkable: bool = False,
+            on_toolbar: bool = True,
+        ) -> Any:
             a = QAction(text, self)
             if checkable:
                 a.setCheckable(True)

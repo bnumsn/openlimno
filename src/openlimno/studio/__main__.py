@@ -67,7 +67,6 @@ def main() -> int:
     _ensure_qgis_importable()
 
     from qgis.core import QgsApplication
-    from qgis.PyQt.QtWidgets import QApplication
 
     # Prefix path tells QGIS where its resources (svg/, i18n/, ...) live.
     # `/usr` on Debian; bundled installers will override this.

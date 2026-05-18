@@ -17,9 +17,9 @@ import hashlib
 import json
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 
 def cache_dir(subdir: str = "") -> Path:

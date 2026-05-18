@@ -42,26 +42,26 @@ def _ensure_openlimno_importable() -> None:
 class _PluginHost:
     """Adapter from QGIS iface to gui_core.Host protocol."""
 
-    def __init__(self, iface):
+    def __init__(self, iface: Any) -> None:
         self._iface = iface
 
-    def main_window(self):
+    def main_window(self) -> Any:
         return self._iface.mainWindow()
 
-    def map_canvas(self):
+    def map_canvas(self) -> Any:
         return self._iface.mapCanvas()
 
-    def message_bar(self):
+    def message_bar(self) -> Any:
         return self._iface.messageBar()
 
-    def status_bar(self):
+    def status_bar(self) -> Any:
         return self._iface.statusBarIface()
 
 
 class OpenLimnoPlugin:
     """Plugin object instantiated by QGIS at startup."""
 
-    def __init__(self, iface):
+    def __init__(self, iface: Any) -> None:
         self.iface = iface
         self.actions: list[Any] = []
         self.menu = "&OpenLimno"
@@ -79,14 +79,14 @@ class OpenLimnoPlugin:
 
         icon = QIcon()
 
-        def _menu_only(text, slot):
+        def _menu_only(text: str, slot: Any) -> Any:
             a = QAction(icon, text, self.iface.mainWindow())
             a.triggered.connect(slot)
             self.iface.addPluginToMenu(self.menu, a)
             self.actions.append(a)
             return a
 
-        def _toolbar_too(text, slot):
+        def _toolbar_too(text: str, slot: Any) -> Any:
             a = _menu_only(text, slot)
             self.iface.addToolBarIcon(a)
             return a

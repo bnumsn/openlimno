@@ -1,6 +1,6 @@
 [workspace]
 name = "openlimno"
-version = "1.3.0"
+version = "2.4.1"
 description = "Open-source ecological-flow and fish-habitat decision platform"
 authors = ["OpenLimno Contributors <hello@openlimno.org>"]
 channels = ["conda-forge"]
@@ -8,7 +8,7 @@ platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
 license = "Apache-2.0"
 license-file = "LICENSE"
 homepage = "https://openlimno.org"
-repository = "https://github.com/bnumsn/openlimno"
+repository = "https://github.com/openlimno/openlimno"
 
 # ---------------------------------------------------------------
 # Core runtime dependencies (1.0 minimal)
@@ -44,8 +44,6 @@ scipy = ">=1.12"
 # snakemake-minimal: moved to [feature.workflow] (osx-arm64 wheels missing
 # from conda-forge as of 2026-Q2; users who need Snakefile execution opt in
 # via `pixi install -e workflow`). Core OpenLimno does not import snakemake.
-# pestpp: out-of-scope for 1.0 (PEST++ multi-parameter calibration is 1.x;
-# ADR-0011); reinstate when 1.x branches.
 
 # ---------------------------------------------------------------
 # Optional integrations (1.0 wraps these via subprocess)
@@ -84,7 +82,8 @@ mkdocstrings-python = ">=1.10"
 
 # Snakemake feature — installed via PyPI (snakemake is on bioconda for conda
 # users but PyPI is universal). Use `pixi install -e workflow` to opt in.
-# Tests skip cleanly when snakemake isn't installed.
+# Workflow-marked tests are outside the default gate; run `test-workflow`
+# in the workflow environment to exercise them.
 [feature.workflow.pypi-dependencies]
 snakemake = ">=8"
 
@@ -124,12 +123,19 @@ all = { features = ["dev", "docs", "schism"], solve-group = "all" }
 # Tasks
 # ---------------------------------------------------------------
 [tasks]
-test = "pytest tests/ -v"
+test = 'pytest tests/ benchmarks/_compare -v -m "not online and not qgis and not osgeo and not pestpp and not workflow"'
+test-all = "pytest tests/ benchmarks/_compare -v"
+test-online = "pytest tests/integration -v -m online"
+test-osgeo = "pytest tests/unit/test_preprocess_fetch.py tests/unit/test_xs_rows_cache.py -v -m osgeo"
+test-qgis = "pytest tests/integration/test_qgis_plugin_shim.py -v"
+test-workflow = "pytest tests/integration/test_snakemake_calibrate.py -v -m workflow"
 test-cov = "pytest tests/ --cov=src/openlimno --cov-report=term-missing --cov-report=xml"
-lint = "ruff check src/ tests/"
-lint-fix = "ruff check --fix src/ tests/"
+lint = "ruff check src/ tests/ benchmarks/_compare"
+lint-fix = "ruff check --fix src/ tests/ benchmarks/_compare"
 format = "ruff format src/ tests/"
 typecheck = "mypy src/openlimno"
+typecheck-strict-core = 'mypy --strict src/openlimno --exclude "src/openlimno/(gui_core|studio|qgis)/"'
+typecheck-strict-gui-qgis = "mypy --strict src/openlimno/gui_core src/openlimno/studio src/openlimno/qgis --ignore-missing-imports --allow-untyped-decorators --allow-untyped-calls"
 validate-schemas = "python -m openlimno.wedm.validate_schemas"
 docs-serve = { cmd = "mkdocs serve", env = { ENVIRONMENT = "default" } }
 docs-build = "mkdocs build --strict"
@@ -139,4 +145,4 @@ benchmark-phabsim = "pytest benchmarks/phabsim_bovee1997 -v"
 benchmark-all = { depends-on = ["benchmark-mms", "benchmark-toro", "benchmark-phabsim"] }
 
 # Pre-commit hook: composite quality gate
-check = { depends-on = ["lint", "typecheck", "test", "validate-schemas"] }
+check = { depends-on = ["lint", "typecheck", "typecheck-strict-core", "typecheck-strict-gui-qgis", "test", "validate-schemas"] }

@@ -10,6 +10,7 @@ import csv
 import math
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NoReturn, Protocol
 
@@ -38,7 +39,7 @@ def _read_wua_csv(path: str) -> list[dict[str, str]]:
     return list(csv.DictReader(data_lines))
 
 
-class _NoArrowExceptionAvailable(Exception):
+class _NoArrowExceptionAvailable(Exception):  # noqa: N818
     """Sentinel for vendor pyarrow builds with no recognizable Arrow*
     classes. Falls into one of the ``_ARROW_*`` tuples but never
     matches anything real — keeps ``isinstance`` checks syntactically
@@ -98,7 +99,7 @@ def _build_arrow_catch_tuples() -> tuple[tuple[type, ...], tuple[type, ...]]:
 _ARROW_TRANSIENT, _ARROW_PERMANENT = _build_arrow_catch_tuples()
 
 
-class MissingParquetBackend(RuntimeError):
+class MissingParquetBackend(RuntimeError):  # noqa: N818
     """Neither pyarrow nor GDAL/OGR is importable. Cache wrapper
     short-circuits this subclass before the broader RuntimeError
     clause — retry can't install a missing dependency.
@@ -145,7 +146,7 @@ def _normalize_parquet_exception(exc: BaseException, phase: str) -> NoReturn:
     raise exc  # propagate unclassified (plain ValueError, etc.)
 
 
-def _read_via_pyarrow(pq, path: str) -> list[dict[str, Any]]:
+def _read_via_pyarrow(pq: Any, path: str) -> list[dict[str, Any]]:
     """Pyarrow path: stream batches so peak memory stays bounded."""
     # READ phase: open + parse footer. ``_normalize_parquet_exception``
     # classifies Arrow exceptions + ``MemoryError``; plain ``ValueError``
@@ -168,7 +169,7 @@ def _read_via_pyarrow(pq, path: str) -> list[dict[str, Any]]:
     return rows
 
 
-def _read_via_ogr(ogr, path: str) -> list[dict[str, Any]]:
+def _read_via_ogr(ogr: Any, path: str) -> list[dict[str, Any]]:
     """GDAL/OGR path: secondary backend covering parquet variants
     pyarrow can't read (vendor encodings, older format revisions).
     """
@@ -229,7 +230,7 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
             # pyarrow failed and no OGR to retry with — surface
             # pyarrow's specific error rather than masking it as
             # "missing backend."
-            raise pyarrow_error
+            raise pyarrow_error  # noqa: B904 — preserve pyarrow's original cause
         raise MissingParquetBackend(
             "neither pyarrow nor GDAL available to read parquet"
         ) from e
@@ -283,9 +284,9 @@ class Controller:
     def _read_parquet_async(
         self,
         path: str,
-        read_fn,
-        on_success,
-        on_error,
+        read_fn: Callable[[str], list[dict[str, Any]]],
+        on_success: Callable[[list[dict[str, Any]]], None],
+        on_error: Callable[[str], None],
         label: str = "Reading parquet…",
     ) -> None:
         """Run ``read_fn(path)`` on a background QThread, then invoke
@@ -319,7 +320,11 @@ class Controller:
             finished = pyqtSignal(list)
             error = pyqtSignal(str)
 
-            def __init__(self, p: str, fn) -> None:
+            def __init__(
+                self,
+                p: str,
+                fn: Callable[[str], list[dict[str, Any]]],
+            ) -> None:
                 super().__init__()
                 self._p = p
                 self._fn = fn
@@ -362,7 +367,7 @@ class Controller:
         handle = (thread, worker, progress)
         self._async_handles.add(handle)
 
-        def _cleanup_and_dispatch(callback, arg) -> None:
+        def _cleanup_and_dispatch(callback: Callable[[Any], None], arg: Any) -> None:
             thread.quit()
             thread.wait()
             progress.close()
@@ -422,7 +427,11 @@ class Controller:
 
     def open_wua_q(self) -> None:
         from qgis.PyQt.QtWidgets import (
-            QDialog, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem,
+            QDialog,
+            QFileDialog,
+            QMessageBox,
+            QTableWidget,
+            QTableWidgetItem,
             QVBoxLayout,
         )
 
@@ -435,7 +444,7 @@ class Controller:
         if not path:
             return
 
-        def _show_rows(rows) -> None:
+        def _show_rows(rows: list[dict[str, Any]]) -> None:
             if not rows:
                 return
             dlg = QDialog(self.host.main_window())
@@ -469,7 +478,7 @@ class Controller:
         if not xs_path:
             return
 
-        def _continue_with_rows(rows) -> None:
+        def _continue_with_rows(rows: list[dict[str, Any]]) -> None:
             if not rows:
                 QMessageBox.warning(self.host.main_window(), "OpenLimno",
                                     f"Could not read {xs_path}")
@@ -490,8 +499,12 @@ class Controller:
         the slow parquet read can run on a background QThread.
         """
         from qgis.PyQt.QtWidgets import (
-            QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-            QFormLayout, QMessageBox,
+            QComboBox,
+            QDialog,
+            QDialogButtonBox,
+            QFileDialog,
+            QFormLayout,
+            QMessageBox,
         )
 
         stations = sorted({float(r["station_m"]) for r in rows})
@@ -506,7 +519,8 @@ class Controller:
         dlg = QDialog(self.host.main_window())
         dlg.setWindowTitle("Plot cross-section")
         form = QFormLayout(dlg)
-        cb_station = QComboBox(); cb_station.addItems([f"{s:g}" for s in stations])
+        cb_station = QComboBox()
+        cb_station.addItems([f"{s:g}" for s in stations])
         form.addRow("station_m:", cb_station)
         cb_q = QComboBox()
         discharges: list[float] = []
@@ -524,7 +538,8 @@ class Controller:
                                       f"Failed to read discharges: {e}")
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
                                 QDialogButtonBox.StandardButton.Cancel)
-        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
         form.addRow(bb)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
@@ -540,9 +555,20 @@ class Controller:
     # ------------------------------------------------------------------
     def build_case_from_osm(self) -> None:
         from qgis.PyQt.QtWidgets import (
-            QButtonGroup, QDialog, QDialogButtonBox, QDoubleSpinBox,
-            QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-            QMessageBox, QPushButton, QRadioButton, QSpinBox, QWidget,
+            QButtonGroup,
+            QDialog,
+            QDialogButtonBox,
+            QDoubleSpinBox,
+            QFileDialog,
+            QFormLayout,
+            QHBoxLayout,
+            QLabel,
+            QLineEdit,
+            QMessageBox,
+            QPushButton,
+            QRadioButton,
+            QSpinBox,
+            QWidget,
         )
 
         dlg = QDialog(self.host.main_window())
@@ -572,15 +598,18 @@ class Controller:
 
         form.addRow(QLabel("<b>Reach location</b>"))
         form.addRow(rb_bbox, e_bbox)
-        polyline_row = QWidget(); pl = QHBoxLayout(polyline_row); pl.setContentsMargins(0, 0, 0, 0)
+        polyline_row = QWidget()
+        pl = QHBoxLayout(polyline_row)
+        pl.setContentsMargins(0, 0, 0, 0)
         pl.addWidget(e_polyline)
         btn_browse = QPushButton("Browse…")
 
-        def _browse():
+        def _browse() -> None:
             p, _ = QFileDialog.getOpenFileName(dlg, "Select LineString GeoJSON",
                                                   "", "GeoJSON (*.geojson *.json)")
             if p:
-                e_polyline.setText(p); rb_polyline.setChecked(True)
+                e_polyline.setText(p)
+                rb_polyline.setChecked(True)
         btn_browse.clicked.connect(_browse)
         pl.addWidget(btn_browse)
         form.addRow(rb_polyline, polyline_row)
@@ -588,12 +617,29 @@ class Controller:
         form.addRow("    river name:", e_river)
         form.addRow("    region:", e_region)
 
-        e_n = QSpinBox(); e_n.setRange(3, 200); e_n.setValue(11)
-        e_reach = QDoubleSpinBox(); e_reach.setRange(0.1, 100); e_reach.setValue(1.0); e_reach.setSuffix(" km")
-        e_w = QDoubleSpinBox(); e_w.setRange(1, 500); e_w.setValue(10); e_w.setSuffix(" m")
-        e_d = QDoubleSpinBox(); e_d.setRange(0.1, 50); e_d.setValue(1.0); e_d.setSuffix(" m")
-        e_elev = QDoubleSpinBox(); e_elev.setRange(0, 9000); e_elev.setValue(1500); e_elev.setSuffix(" m")
-        e_slope = QDoubleSpinBox(); e_slope.setRange(0.0001, 0.5); e_slope.setValue(0.002); e_slope.setDecimals(4)
+        e_n = QSpinBox()
+        e_n.setRange(3, 200)
+        e_n.setValue(11)
+        e_reach = QDoubleSpinBox()
+        e_reach.setRange(0.1, 100)
+        e_reach.setValue(1.0)
+        e_reach.setSuffix(" km")
+        e_w = QDoubleSpinBox()
+        e_w.setRange(1, 500)
+        e_w.setValue(10)
+        e_w.setSuffix(" m")
+        e_d = QDoubleSpinBox()
+        e_d.setRange(0.1, 50)
+        e_d.setValue(1.0)
+        e_d.setSuffix(" m")
+        e_elev = QDoubleSpinBox()
+        e_elev.setRange(0, 9000)
+        e_elev.setValue(1500)
+        e_elev.setSuffix(" m")
+        e_slope = QDoubleSpinBox()
+        e_slope.setRange(0.0001, 0.5)
+        e_slope.setValue(0.002)
+        e_slope.setDecimals(4)
         e_species = QLineEdit("oncorhynchus_mykiss")
 
         form.addRow(QLabel("<b>Geometry & habitat</b>"))
@@ -607,7 +653,8 @@ class Controller:
 
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
                                 QDialogButtonBox.StandardButton.Cancel)
-        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
         form.addRow(bb)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
@@ -692,9 +739,9 @@ class Controller:
         spec = OSMCaseSpec(**spec_kwargs)
 
         # Show "in progress" + flush event loop so the message bar appears
-        from qgis.PyQt.QtWidgets import QApplication
-        from qgis.PyQt.QtGui import QGuiApplication
         from qgis.PyQt.QtCore import Qt
+        from qgis.PyQt.QtGui import QGuiApplication
+        from qgis.PyQt.QtWidgets import QApplication
 
         self.host.message_bar().pushMessage(
             "OpenLimno", "Fetching OSM polyline + building case…",
@@ -730,7 +777,7 @@ class Controller:
     # ------------------------------------------------------------------
     def run_case(self) -> None:
         from qgis.PyQt.QtCore import QThread, pyqtSignal
-        from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox
+        from qgis.PyQt.QtWidgets import QFileDialog
 
         # Re-entry guard. Without this, a second click while the first
         # solver is still running spawns a competing QThread that races
@@ -764,11 +811,11 @@ class Controller:
             finished_ok = pyqtSignal(str)
             failed = pyqtSignal(str)
 
-            def __init__(self, case_yaml_, parent=None):
+            def __init__(self, case_yaml_: Path, parent: Any = None) -> None:
                 super().__init__(parent)
                 self._case_yaml = case_yaml_
 
-            def run(self_):  # noqa: N805 (Qt API; outer self is closure)
+            def run(self_) -> None:  # noqa: N805 (Qt API; outer self is closure)
                 try:
                     self_.status.emit(f"Loading {self_._case_yaml.name}…")
                     from openlimno.case import Case
@@ -793,7 +840,12 @@ class Controller:
         self._run_case_worker = worker
         worker.start()
 
-    def _on_run_finished(self, case_yaml: Path, summary, traceback_text):
+    def _on_run_finished(
+        self,
+        case_yaml: Path,
+        summary: str | None,
+        traceback_text: str | None,
+    ) -> None:
         from qgis.PyQt.QtWidgets import QMessageBox
 
         self.host.status_bar().clearMessage()
@@ -835,9 +887,17 @@ class Controller:
         """
         from qgis.PyQt.QtCore import QProcess
         from qgis.PyQt.QtWidgets import (
-            QDialog, QDialogButtonBox, QDoubleSpinBox,
-            QFileDialog, QFormLayout, QGroupBox, QLabel, QLineEdit,
-            QMessageBox, QSpinBox, QVBoxLayout,
+            QDialog,
+            QDialogButtonBox,
+            QDoubleSpinBox,
+            QFileDialog,
+            QFormLayout,
+            QGroupBox,
+            QLabel,
+            QLineEdit,
+            QMessageBox,
+            QSpinBox,
+            QVBoxLayout,
         )
 
         # 1. Pick the case dir.
@@ -885,19 +945,29 @@ class Controller:
 
         # DEM group
         gb_dem = QGroupBox("DEM (Copernicus GLO-30, global)")
-        gb_dem.setCheckable(True); gb_dem.setChecked(False)
+        gb_dem.setCheckable(True)
+        gb_dem.setChecked(False)
         outer.addWidget(gb_dem)
         # No params — uses default bbox.
 
         # Watershed group
         gb_ws = QGroupBox("Watershed (HydroSHEDS HydroBASINS)")
-        gb_ws.setCheckable(True); gb_ws.setChecked(False)
+        gb_ws.setCheckable(True)
+        gb_ws.setChecked(False)
         ws_form = QFormLayout(gb_ws)
         e_ws_region = QLineEdit("as")
         e_ws_region.setPlaceholderText("af / ar / as / au / eu / gr / na / sa / si")
-        e_ws_lat = QDoubleSpinBox(); e_ws_lat.setRange(-90, 90); e_ws_lat.setDecimals(4); e_ws_lat.setValue(ctr_lat)
-        e_ws_lon = QDoubleSpinBox(); e_ws_lon.setRange(-180, 180); e_ws_lon.setDecimals(4); e_ws_lon.setValue(ctr_lon)
-        e_ws_level = QSpinBox(); e_ws_level.setRange(1, 12); e_ws_level.setValue(12)
+        e_ws_lat = QDoubleSpinBox()
+        e_ws_lat.setRange(-90, 90)
+        e_ws_lat.setDecimals(4)
+        e_ws_lat.setValue(ctr_lat)
+        e_ws_lon = QDoubleSpinBox()
+        e_ws_lon.setRange(-180, 180)
+        e_ws_lon.setDecimals(4)
+        e_ws_lon.setValue(ctr_lon)
+        e_ws_level = QSpinBox()
+        e_ws_level.setRange(1, 12)
+        e_ws_level.setValue(12)
         ws_form.addRow("region:", e_ws_region)
         ws_form.addRow("pour lat:", e_ws_lat)
         ws_form.addRow("pour lon:", e_ws_lon)
@@ -906,25 +976,36 @@ class Controller:
 
         # Soil group
         gb_soil = QGroupBox("Soil (ISRIC SoilGrids 250 m)")
-        gb_soil.setCheckable(True); gb_soil.setChecked(False)
+        gb_soil.setCheckable(True)
+        gb_soil.setChecked(False)
         soil_form = QFormLayout(gb_soil)
-        e_soil_lat = QDoubleSpinBox(); e_soil_lat.setRange(-90, 90); e_soil_lat.setDecimals(4); e_soil_lat.setValue(ctr_lat)
-        e_soil_lon = QDoubleSpinBox(); e_soil_lon.setRange(-180, 180); e_soil_lon.setDecimals(4); e_soil_lon.setValue(ctr_lon)
+        e_soil_lat = QDoubleSpinBox()
+        e_soil_lat.setRange(-90, 90)
+        e_soil_lat.setDecimals(4)
+        e_soil_lat.setValue(ctr_lat)
+        e_soil_lon = QDoubleSpinBox()
+        e_soil_lon.setRange(-180, 180)
+        e_soil_lon.setDecimals(4)
+        e_soil_lon.setValue(ctr_lon)
         soil_form.addRow("lat:", e_soil_lat)
         soil_form.addRow("lon:", e_soil_lon)
         outer.addWidget(gb_soil)
 
         # LULC group
         gb_lulc = QGroupBox("LULC (ESA WorldCover 10 m, uses default bbox)")
-        gb_lulc.setCheckable(True); gb_lulc.setChecked(False)
+        gb_lulc.setCheckable(True)
+        gb_lulc.setChecked(False)
         lulc_form = QFormLayout(gb_lulc)
-        e_lulc_year = QSpinBox(); e_lulc_year.setRange(2020, 2021); e_lulc_year.setValue(2021)
+        e_lulc_year = QSpinBox()
+        e_lulc_year.setRange(2020, 2021)
+        e_lulc_year.setValue(2021)
         lulc_form.addRow("year:", e_lulc_year)
         outer.addWidget(gb_lulc)
 
         # Species group
         gb_sp = QGroupBox("Species (GBIF taxonomy + occurrences, uses default bbox)")
-        gb_sp.setCheckable(True); gb_sp.setChecked(False)
+        gb_sp.setCheckable(True)
+        gb_sp.setChecked(False)
         sp_form = QFormLayout(gb_sp)
         e_sp_name = QLineEdit("")
         e_sp_name.setPlaceholderText("e.g., Salmo trutta — Latin binomial")
@@ -933,17 +1014,23 @@ class Controller:
 
         # Climate group
         gb_clim = QGroupBox("Climate (Open-Meteo archive, global)")
-        gb_clim.setCheckable(True); gb_clim.setChecked(False)
+        gb_clim.setCheckable(True)
+        gb_clim.setChecked(False)
         clim_form = QFormLayout(gb_clim)
-        e_clim_sy = QSpinBox(); e_clim_sy.setRange(1940, 2099); e_clim_sy.setValue(2020)
-        e_clim_ey = QSpinBox(); e_clim_ey.setRange(1940, 2099); e_clim_ey.setValue(2024)
+        e_clim_sy = QSpinBox()
+        e_clim_sy.setRange(1940, 2099)
+        e_clim_sy.setValue(2020)
+        e_clim_ey = QSpinBox()
+        e_clim_ey.setRange(1940, 2099)
+        e_clim_ey.setValue(2024)
         clim_form.addRow("start year:", e_clim_sy)
         clim_form.addRow("end year:", e_clim_ey)
         outer.addWidget(gb_clim)
 
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
                               QDialogButtonBox.StandardButton.Cancel)
-        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
         outer.addWidget(bb)
 
         if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -1043,7 +1130,7 @@ class Controller:
         # time) so the user sees per-fetcher progress.
         self._fetch_log = bytearray()  # type: ignore[attr-defined]
 
-        def _on_stdout(_proc=proc):
+        def _on_stdout(_proc: Any = proc) -> None:
             chunk = bytes(_proc.readAllStandardOutput())
             self._fetch_log += chunk
             for raw_line in chunk.splitlines():
@@ -1052,10 +1139,14 @@ class Controller:
                     self.host.status_bar().showMessage(line[:160])
         proc.readyReadStandardOutput.connect(_on_stdout)
 
-        def _on_done(exit_code, exit_status, _case_dir=case_dir):
-            from qgis.PyQt.QtCore import QProcess as _QP
+        def _on_done(
+            exit_code: int,
+            exit_status: Any,
+            _case_dir: Path = case_dir,
+        ) -> None:
+            from qgis.PyQt.QtCore import QProcess
             log_text = bytes(self._fetch_log).decode("utf-8", errors="replace")
-            if exit_status == _QP.CrashExit:
+            if exit_status == QProcess.CrashExit:
                 self._on_fetch_finished(
                     _case_dir, None,
                     f"Subprocess crashed (signal):\n\n{log_text[-2000:]}",
@@ -1136,11 +1227,15 @@ class Controller:
 
     def _load_case_layers(self, case_dir: Path) -> list[str]:
         try:
-            from netCDF4 import Dataset
             import pandas as pd
+            from netCDF4 import Dataset
             from qgis.core import (
-                QgsFeature, QgsField, QgsGeometry, QgsPointXY,
-                QgsProject, QgsVectorLayer,
+                QgsFeature,
+                QgsField,
+                QgsGeometry,
+                QgsPointXY,
+                QgsProject,
+                QgsVectorLayer,
             )
             from qgis.PyQt.QtCore import QVariant
         except ImportError:
@@ -1174,12 +1269,13 @@ class Controller:
                                     QgsField("station_m", QVariant.Double)])
                 lyr.updateFields()
                 feats = []
-                for i, (x, y, s) in enumerate(zip(xs, ys, stations)):
+                for i, (x, y, s) in enumerate(zip(xs, ys, stations, strict=False)):
                     f = QgsFeature()
                     f.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(float(x), float(y))))
                     f.setAttributes([i, float(s)])
                     feats.append(f)
-                pr.addFeatures(feats); lyr.updateExtents()
+                pr.addFeatures(feats)
+                lyr.updateExtents()
                 QgsProject.instance().addMapLayer(lyr)
                 added.append(lyr.name())
             except Exception as e:
@@ -1222,7 +1318,8 @@ class Controller:
                     f.setGeometry(QgsGeometry.fromPolylineXY([end1, end2]))
                     f.setAttributes([float(st)])
                     feats.append(f)
-                pr.addFeatures(feats); lyr.updateExtents()
+                pr.addFeatures(feats)
+                lyr.updateExtents()
                 QgsProject.instance().addMapLayer(lyr)
                 added.append(lyr.name())
             except Exception as e:
@@ -1235,7 +1332,7 @@ class Controller:
             )
         return added
 
-    def _zoom_canvas_to_layer(self, layer) -> None:
+    def _zoom_canvas_to_layer(self, layer: Any) -> None:
         """Zoom canvas to a layer's extent, transforming CRS if needed.
 
         Canvas is typically EPSG:3857 (so OSM tiles align); mesh / xs
@@ -1293,11 +1390,13 @@ class Controller:
             if not self._xs_parquet:
                 for p in xs_candidates:
                     if p.is_file():
-                        self._xs_parquet = str(p); break
+                        self._xs_parquet = str(p)
+                        break
             if not self._hyd_nc:
                 for p in hyd_candidates:
                     if p.is_file():
-                        self._hyd_nc = str(p); break
+                        self._hyd_nc = str(p)
+                        break
 
         msg = []
         msg.append(f"xs ✓ {Path(self._xs_parquet).name}" if self._xs_parquet else "xs ✗")
@@ -1308,8 +1407,13 @@ class Controller:
 
     def activate_pick_tool(self, checked: bool) -> None:
         from qgis.core import (
-            QgsCoordinateTransform, QgsFeatureRequest, QgsGeometry,
-            QgsPointXY, QgsProject, QgsRectangle, QgsVectorLayer,
+            QgsCoordinateTransform,
+            QgsFeatureRequest,
+            QgsGeometry,
+            QgsPointXY,
+            QgsProject,
+            QgsRectangle,
+            QgsVectorLayer,
         )
         from qgis.gui import QgsMapTool
         from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox
@@ -1339,10 +1443,10 @@ class Controller:
         controller = self
 
         class _ClickTool(QgsMapTool):
-            def __init__(self, canvas):
+            def __init__(self, canvas: Any) -> None:
                 super().__init__(canvas)
 
-            def canvasReleaseEvent(self, e):  # noqa: N802 (Qt API)
+            def canvasReleaseEvent(self, e: Any) -> None:  # noqa: N802 (Qt API)
                 pt = self.toMapCoordinates(e.pos())
                 all_layers = list(QgsProject.instance().mapLayers().values())
                 cands = [layer for layer in all_layers if isinstance(layer, QgsVectorLayer)]
@@ -1355,7 +1459,7 @@ class Controller:
                 if not cands:
                     QMessageBox.information(
                         controller.host.main_window(), "OpenLimno",
-                        f"No vector layer in this project.",
+                        "No vector layer in this project.",
                     )
                     return
                 tol = controller.host.map_canvas().mapUnitsPerPixel() * 18
@@ -1396,13 +1500,16 @@ class Controller:
                     fields = [fd.name() for fd in layer.fields()]
                     if "station_m" in fields:
                         try:
-                            station = float(f["station_m"]); hit_layer = layer.name(); break
+                            station = float(f["station_m"])
+                            hit_layer = layer.name()
+                            break
                         except (TypeError, ValueError):
                             pass
                     if "node_id" in fields:
                         try:
                             station = float(f["node_id"]) * 100.0
-                            hit_layer = layer.name(); break
+                            hit_layer = layer.name()
+                            break
                         except (TypeError, ValueError):
                             pass
                 if station is None:
@@ -1450,7 +1557,7 @@ class Controller:
         path = os.path.realpath(path)
         cache = getattr(self, "_xs_rows_cache", {})
 
-        def _stat(p):
+        def _stat(p: str) -> tuple[float, int] | None:
             try:
                 return (os.path.getmtime(p), os.path.getsize(p))
             except OSError:
@@ -1540,7 +1647,7 @@ class Controller:
             return
         cache_key = self._xs_parquet
 
-        def _continue_with_rows(rows) -> None:
+        def _continue_with_rows(rows: list[dict[str, Any]]) -> None:
             if not rows:
                 return
             self._plot_at_station_dialog(rows, station)
@@ -1560,7 +1667,10 @@ class Controller:
         cold-cache read can run on a background QThread.
         """
         from qgis.PyQt.QtWidgets import (
-            QComboBox, QDialog, QDialogButtonBox, QFormLayout,
+            QComboBox,
+            QDialog,
+            QDialogButtonBox,
+            QFormLayout,
         )
 
         stations = sorted({float(r["station_m"]) for r in rows})
@@ -1579,21 +1689,29 @@ class Controller:
                 dlg = QDialog(self.host.main_window())
                 dlg.setWindowTitle(f"Q for station {station:g} m")
                 form = QFormLayout(dlg)
-                cb = QComboBox(); cb.addItems([f"{q:g}" for q in discharges])
+                cb = QComboBox()
+                cb.addItems([f"{q:g}" for q in discharges])
                 idx = min(range(len(discharges)),
                             key=lambda i: abs(discharges[i] - 7.0))
                 cb.setCurrentIndex(idx)
                 form.addRow("Q (m³/s):", cb)
                 bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
                                         QDialogButtonBox.StandardButton.Cancel)
-                bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
+                bb.accepted.connect(dlg.accept)
+                bb.rejected.connect(dlg.reject)
                 form.addRow(bb)
                 if dlg.exec() == QDialog.DialogCode.Accepted:
                     target_Q = float(cb.currentText())
 
         self._render_profile_dialog(rows, stations, station, target_Q)
 
-    def _render_profile_dialog(self, rows, stations, target_station, target_Q) -> None:
+    def _render_profile_dialog(
+        self,
+        rows: list[dict[str, Any]],
+        stations: list[float],
+        target_station: float,
+        target_Q: float | None,
+    ) -> None:
         from qgis.PyQt.QtWidgets import QDialog, QMessageBox, QVBoxLayout
 
         sec = sorted(

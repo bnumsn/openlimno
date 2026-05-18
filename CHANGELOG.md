@@ -4,6 +4,25 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.4.1] — 2026-05-18
+
+### Fixed
+- **v2.4.1 — pre-1.6.0 baseline lint clean-up + quality-gate closure**:
+    Closes the 3.x research-route item #5 (housekeeping). Repository-wide `ruff check src tests benchmarks/_compare` baseline dropped from **195 errors → 0 errors**, primarily by mechanical splitting of E702 multi-statement-on-one-line patterns in legacy files and targeted follow-up fixes for the remaining test/style findings.
+    - **E702 mass split (90 → 0)**: wrote a tokenize-aware splitter (`/tmp/split_e702.py`) that locates `; `-separated statements on single lines (outside of strings and comments) and splits them into separate lines preserving indent. 62 lines across 6 files (`cli.py`, `gui_core/controller.py`, `studio/main_window.py`, `tests/integration/studio_workflows_smoke.py`, `tests/integration/test_qgis_plugin_shim.py`, `tests/unit/test_preprocess_fetch.py`) rewritten cleanly. All 101 tests still pass after the rewrite — splitter is safe.
+    - **`ruff --fix` clean-up (74 + 1 fixed)**: import sorting (I001), unused imports (F401), trailing whitespace, etc.
+    - **`ruff --unsafe-fixes` (7 fixed)**: minor semantics-preserving rewrites (e.g. dict comprehensions, redundant casts).
+    - **Targeted manual fixes (5)**:
+        - `B904` `raise ... from e` in `cli.py:1749` (BadParameter from ValueError/IndexError) and `gui_core/controller.py:232` (re-raise pyarrow_error from OSError). Preserves the original exception chain for debugging.
+        - `F821 pd undefined` in `preprocess/fetch/dem.py:292` — `pd.DataFrame` was used in a return-type annotation but pandas wasn't module-imported (only inside the function body). Added `if TYPE_CHECKING: import pandas as pd` so the annotation resolves without forcing pandas as a hard module-import dependency.
+        - `E741` ambiguous `l` rename to `layer` in two list comprehensions in `studio_workflows_smoke.py`.
+    - **Follow-up closure of the remaining 21 findings**: tightened broad `pytest.raises(...)` assertions with `match=`, removed blind `pytest.raises(Exception)` cases, replaced asserts-inside-except in the manual Studio smoke script, handled legacy exception class names with scoped `noqa`, and cleaned the remaining import/naming issues.
+    - **Dependency/import hardening**: HydroSHEDS no longer imports `osgeo` at package import time. GDAL/OGR is loaded only on functions that need vector operations, so cache/DEM/NWIS/etc. can be imported and tested without a GDAL Python binding installed.
+    - **Quality-gate repairs**: restored pyarrow parquet error cause chains when OGR fallback is unavailable, fixed `mypy` findings in NetCDF/DEM/CLI/Studio code paths, made the benchmark harness importable as a package, and made AppImage smoke tests use `APPIMAGE_EXTRACT_AND_RUN=1` so they pass in FUSE-less CI/container runners.
+    - **Metadata alignment**: README, `pyproject.toml`, `pixi.toml`, and pixi test/lint task coverage now agree on v2.4.1 and include `benchmarks/_compare` in the default test surface.
+    - **No-skip default gate**: optional QGIS, OSGeo/GDAL, Snakemake, and live/real-fixture tests are marked and split into explicit pixi tasks (`test-qgis`, `test-osgeo`, `test-workflow`, `test-online`, `test-all`) so the default quality gate does not report skipped tests in the baseline environment.
+    - Verified: `pixi run check` passes; default pytest reports 528 passed / 30 deselected / 0 skipped; `pixi run mypy src/openlimno` reports no issues.
+
 ## [2.4.0] — 2026-05-18
 
 ### Added
@@ -432,9 +451,13 @@ Lint: the v1.6.0 — v2.0.0 changeset files all pass `ruff check` at their own c
     - **E. Provenance full SPEC §1 P7 fields** — added per-file SHA-256 of all referenced WEDM data, pixi.lock SHA, parameter fingerprint (case + studyplan + discharges hash), wua_quality_grade
     - **F. Biological observation readers** — `read_fish_sampling`, `read_redd_count`, `read_pit_tag_event`, `read_rst_count`, `read_edna_sample`, `read_macroinvertebrate_sample`, plus `validate_biological_table` with full WEDM schema validation (8 unit tests)
     - **G. SCHISM real input generation** — `_write_hgrid_from_ugrid` converts a UGRID-2D NetCDF into proper hgrid.gr3 ASCII; `_render_param_nml` produces a runnable param.nml skeleton; vgrid.in (depth-averaged) and bctides.in stub written
-- **Final test count: 180 passing**, 1 skipped (post-1.0 unsteady SWE)
+- **Final test count: 180 passing** at the time of the M3-M4 sweep. The
+  post-1.0 unsteady SWE placeholder was later removed so the benchmark file
+  no longer collects a skipped test.
 - Code: ~4,600 LoC src, ~2,500 LoC tests
-- Remaining `NotImplementedError`s in code are intentional out-of-scope guards (PEST++ multi-parameter scoped to 1.x; unknown hydro backend rejected)
+- Remaining `NotImplementedError`s in code are intentional out-of-scope guards
+  (external PEST++ runner/container validation is research-route work; unknown
+  hydro backend rejected)
 
 - **Final-completion sweep v2 (2026-05-07)** — last 8 honest gaps closed:
     - **33. Drift-egg auto-runs from `case.run()`**: `metric: drifting-egg` plus `habitat.drifting_egg` block now drives `evaluate_drifting_egg()` per discharge and writes `drift_egg.csv`; constant + CSV temperature forcing supported. Schema extended (case.schema.json `habitat.drifting_egg`).

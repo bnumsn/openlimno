@@ -19,12 +19,16 @@ with rasterio.merge.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
 import rasterio
+
+if TYPE_CHECKING:
+    import pandas as pd
 import rasterio.merge
 import rasterio.warp
 import rasterio.windows
@@ -102,7 +106,7 @@ def fetch_copernicus_dem(
             f"lat_min={lat_min} lat_max={lat_max}. Need lon_max > lon_min, "
             f"lat_max > lat_min."
         )
-    if not (-84 < lat_min and lat_max < 84):
+    if not (lat_min > -84 and lat_max < 84):
         raise ValueError(
             f"DEM bbox extends outside Copernicus GLO-30 coverage "
             f"(84°S to 84°N). Got lat_min={lat_min}, lat_max={lat_max}. "
@@ -148,7 +152,7 @@ def fetch_copernicus_dem(
                     u, lon_min, lat_min, lon_max, lat_max
                 ),
             )
-        except _TileNotFound:
+        except _TileNotFoundError:
             # Ocean tiles or missing — skip, real bbox might still have
             # land tiles.
             continue
@@ -199,7 +203,7 @@ def fetch_copernicus_dem(
     )
 
 
-class _TileNotFound(Exception):
+class _TileNotFoundError(Exception):
     """Internal: tile doesn't exist (e.g., ocean cell)."""
 
 
@@ -211,7 +215,7 @@ def _stream_tile_subset(
     try:
         src = rasterio.open(vsi_url)
     except rasterio.errors.RasterioIOError as e:
-        raise _TileNotFound(str(e)) from e
+        raise _TileNotFoundError(str(e)) from e
     try:
         # Compute window from bbox
         window = rasterio.windows.from_bounds(
@@ -226,11 +230,11 @@ def _stream_tile_subset(
             # Bbox edge touches tile boundary but no real overlap — common
             # when ``lat_max`` equals the next tile's SW lat (math.floor
             # promotes it to the upper tile, which has zero overlap).
-            raise _TileNotFound(
+            raise _TileNotFoundError(
                 f"Tile {tile_url} doesn't overlap bbox: {e}"
             ) from e
         if window.width <= 0 or window.height <= 0:
-            raise _TileNotFound(
+            raise _TileNotFoundError(
                 f"Tile {tile_url} doesn't overlap bbox after pixel snap"
             )
         data = src.read(window=window)
@@ -289,7 +293,7 @@ def cut_cross_sections_from_dem(
     section_width_m: float = 30.0,
     points_per_section: int = 21,
     campaign_id: str | None = None,
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """Cut perpendicular cross-sections from a DEM along a centerline.
 
     Produces a WEDM-shaped ``cross_section.parquet`` DataFrame ready
@@ -317,18 +321,18 @@ def cut_cross_sections_from_dem(
     if len(centerline) < 2:
         raise ValueError("centerline must have at least 2 vertices")
 
-    centerline = np.asarray(centerline, dtype=float)  # (N, 2) lon, lat
+    centerline_arr = np.asarray(centerline, dtype=float)  # (N, 2) lon, lat
 
     # Cumulative arc length in METERS — convert lat/lon segments to
     # local-tangent meters via small-angle approximation (good to <1 m
     # for typical 1-km reaches).
-    lat_mean = float(np.mean(centerline[:, 1]))
+    lat_mean = float(np.mean(centerline_arr[:, 1]))
     m_per_deg_lat = 111_132.0
     m_per_deg_lon = 111_320.0 * math.cos(math.radians(lat_mean))
-    seg_m = np.zeros(len(centerline))
-    for i in range(1, len(centerline)):
-        dlon = (centerline[i, 0] - centerline[i - 1, 0]) * m_per_deg_lon
-        dlat = (centerline[i, 1] - centerline[i - 1, 1]) * m_per_deg_lat
+    seg_m = np.zeros(len(centerline_arr))
+    for i in range(1, len(centerline_arr)):
+        dlon = (centerline_arr[i, 0] - centerline_arr[i - 1, 0]) * m_per_deg_lon
+        dlat = (centerline_arr[i, 1] - centerline_arr[i - 1, 1]) * m_per_deg_lat
         seg_m[i] = seg_m[i - 1] + math.hypot(dlon, dlat)
     total_m = float(seg_m[-1])
     if total_m <= 0:
@@ -353,7 +357,7 @@ def cut_cross_sections_from_dem(
         for stn_m in stations_m:
             # Interpolate centerline at arc length stn_m
             lon_c, lat_c, tan_lon, tan_lat = _interp_centerline(
-                centerline, seg_m, stn_m, m_per_deg_lat, m_per_deg_lon
+                centerline_arr, seg_m, stn_m, m_per_deg_lat, m_per_deg_lon
             )
             # Perpendicular direction (rotate tangent 90°)
             perp_lon = -tan_lat
@@ -373,9 +377,9 @@ def cut_cross_sections_from_dem(
             xs, ys = xf.transform(sample_lons, sample_lats)
         else:
             xs, ys = sample_lons, sample_lats
-        elevations = list(dem_src.sample(zip(xs, ys)))
+        elevations = list(dem_src.sample(zip(xs, ys, strict=False)))
 
-    for (stn_m, j, dist_m), z_arr in zip(sample_meta, elevations):
+    for (stn_m, j, dist_m), z_arr in zip(sample_meta, elevations, strict=False):
         z = float(z_arr[0]) if len(z_arr) > 0 else float("nan")
         rows.append(
             {

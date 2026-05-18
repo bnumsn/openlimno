@@ -5,7 +5,7 @@
 > hydraulic results, MIKE 21/FM/1D projects, passage analysis, species evidence,
 > and regulatory reports.
 
-**Status**: package metadata is **v2.1.1** (Production/Stable). The **v2.0.0**
+**Status**: package metadata is **v2.4.1** (Production/Stable). The **v2.0.0**
 cut on 2026-05-18 is the major stable surface freeze, following a 6-round
 codex+gemini review chain that closed 28/29 substantive findings on the
 v1.6.0 → v1.10.1 composite-overlay + atomic-write surface area. The v1.0.0

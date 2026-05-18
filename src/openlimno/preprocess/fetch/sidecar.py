@@ -30,7 +30,6 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-
 SIDECAR_NAME = ".openlimno_external_sources.json"
 
 

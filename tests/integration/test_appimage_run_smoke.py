@@ -35,7 +35,7 @@ def built_case(tmp_path_factory):
         pytest.skip(f"fixture missing at {FIXTURE} — run setup script")
     out = tmp_path_factory.mktemp("appimage-smoke")
     shutil.copytree(FIXTURE, out, dirs_exist_ok=True)
-    yield out
+    return out
 
 
 def _run_smoke(executable: Path, case_yaml: Path) -> str:
@@ -43,6 +43,11 @@ def _run_smoke(executable: Path, case_yaml: Path) -> str:
     env = os.environ.copy()
     env["PATH"] = "/usr/bin:/bin"
     env["QT_QPA_PLATFORM"] = "offscreen"
+    if executable.suffix == ".AppImage":
+        # CI/container runners often lack FUSE. AppImageKit supports
+        # extract-and-run as the non-FUSE execution path for exactly
+        # that environment.
+        env["APPIMAGE_EXTRACT_AND_RUN"] = "1"
     r = subprocess.run(
         [str(executable), "--smoke-run-case", str(case_yaml)],
         env=env, capture_output=True, text=True, timeout=120,
