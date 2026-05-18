@@ -1442,6 +1442,7 @@ def test_v182_caserunresult_population_through_case_run(monkeypatch, tmp_path):
     def _stub_maybe_run_composite_hsi(
         self, wua_df, thermal_metrics_dict, cover_metrics_dict,
         out_dir, formats, warnings, method="product", per_cell_csi=None,
+        per_section_thermal_si=None,
     ):
         return sentinel_summary, sentinel_df
 
@@ -2709,3 +2710,174 @@ def test_v240_geom_mean_per_cell_threads_through_case_run(monkeypatch):
     # this assertion only proves the method *reached* the helper. The
     # _maybe_run_per_cell_composite call only happens when an overlay
     # is present — separately exercised by the unit tests above.
+
+
+# ---------------------------------------------------------------------------
+# v2.5.1 — 8th-pass review patches (R8-1, R8-5, R8-6)
+# ---------------------------------------------------------------------------
+
+
+def test_v251_per_cell_composite_recovers_underscored_stage():
+    """R8-1: ``_maybe_run_per_cell_composite`` used to split species/
+    stage via ``suffix.rsplit('_', 1)``. For species ``salmo_trutta`` +
+    stage ``juvenile_winter`` the split returned
+    ``('salmo_trutta_juvenile', 'winter')`` — neither tuple matched
+    the actual ``per_cell_csi`` key, silently falling back to base
+    WUA. v2.5.1 uses a suffix-to-pair lookup built from the actual
+    keys, so any species/stage naming works."""
+    import numpy as np
+    import pandas as pd
+
+    from openlimno.case import Case
+    from openlimno.habitat.composite import CompositeOverlay
+
+    case = object.__new__(Case)
+    overlay = CompositeOverlay.from_metrics(
+        {"mean_SI": 0.62}, {"mean_si": 0.4255},
+    )
+    q_list = [1.0, 5.0]
+    species, stage = "salmo_trutta", "juvenile_winter"
+    suffix = f"{species}_{stage}"
+    wua_df = pd.DataFrame({
+        "discharge_m3s": q_list,
+        f"wua_m2_{suffix}": [100.0, 200.0],
+    })
+    per_cell_csi = {
+        (q, species, stage): (
+            np.array([0.5, 0.7, 0.3]),
+            np.array([10.0, 20.0, 15.0]),
+        )
+        for q in q_list
+    }
+    composite_df, summary = case._maybe_run_per_cell_composite(
+        wua_df, overlay, per_cell_csi, warnings=[],
+    )
+    assert summary is not None
+    comp_col = f"wua_m2_composite_{suffix}"
+    assert comp_col in composite_df.columns
+    # If R8-1 had regressed, composite would equal base (silent
+    # fallback). We pin that it differs (per-cell engine actually ran).
+    base_vals = wua_df[f"wua_m2_{suffix}"].tolist()
+    comp_vals = composite_df[comp_col].tolist()
+    assert comp_vals != base_vals, (
+        f"R8-1 regression: per-cell engine did not fire for stage "
+        f"with underscore. base={base_vals} comp={comp_vals}"
+    )
+
+
+def test_v251_per_section_thermal_si_loaded_from_csv(tmp_path, monkeypatch):
+    """R8-5: setting ``data.thermal_si_per_section.uri`` to a CSV with
+    one row per cross-section must (a) be loaded by
+    ``_maybe_load_per_section_thermal_si`` into a numpy array of the
+    right length, (b) propagate through ``_maybe_run_per_cell_composite``
+    so the per-cell apply_overlay_per_cell call uses the array
+    (not the scalar broadcast)."""
+    if not CASE_YAML.exists():
+        pytest.skip("Lemhi example missing")
+    import pandas as pd
+
+    from openlimno.case import Case
+
+    # 1. Build a fake per-section thermal SI CSV beside the Lemhi case.
+    from openlimno.hydro.builtin_1d import load_sections_from_parquet
+
+    case = Case.from_yaml(CASE_YAML)
+    xs_path = case._resolve(case.config["data"]["cross_section"])
+    sections = load_sections_from_parquet(xs_path, manning_n=0.035)
+    n = len(sections)
+    si_csv = CASE_YAML.parent / "thermal_si_per_section.test.csv"
+    df = pd.DataFrame({
+        "station_m": [s.station_m for s in sections],
+        "thermal_si": [0.5] * n,
+    })
+    df.to_csv(si_csv, index=False)
+    try:
+        arr = case._maybe_load_per_section_thermal_si(
+            {"data": {"thermal_si_per_section": {"uri": si_csv.name}}},
+            sections,
+            warnings=[],
+        )
+        assert arr is not None
+        assert arr.shape == (n,)
+        assert arr.tolist() == [0.5] * n
+    finally:
+        si_csv.unlink(missing_ok=True)
+
+
+def test_v251_per_section_thermal_si_length_mismatch_warns(tmp_path):
+    """R8-5 fail-loud: CSV length != number of sections → warning +
+    fall back to scalar (returns None)."""
+    if not CASE_YAML.exists():
+        pytest.skip("Lemhi example missing")
+    import pandas as pd
+
+    from openlimno.case import Case
+    from openlimno.hydro.builtin_1d import load_sections_from_parquet
+
+    case = Case.from_yaml(CASE_YAML)
+    xs_path = case._resolve(case.config["data"]["cross_section"])
+    sections = load_sections_from_parquet(xs_path, manning_n=0.035)
+    si_csv = CASE_YAML.parent / "thermal_si_short.test.csv"
+    df = pd.DataFrame({"station_m": [0.0, 1.0], "thermal_si": [0.5, 0.5]})
+    df.to_csv(si_csv, index=False)
+    try:
+        warnings: list[str] = []
+        arr = case._maybe_load_per_section_thermal_si(
+            {"data": {"thermal_si_per_section": {"uri": si_csv.name}}},
+            sections,
+            warnings,
+        )
+        assert arr is None
+        assert any("length" in w for w in warnings), (
+            f"R8-5 length-mismatch warning missing: {warnings}"
+        )
+    finally:
+        si_csv.unlink(missing_ok=True)
+
+
+def test_v251_thermal_si_raster_handles_nodata_none(tmp_path):
+    """R8-6: ``thermal_si_from_temperature_raster`` on a raster with
+    ``nodata=None`` must not include geometry-outside zero-filled
+    pixels in the mean. Build a raster that is genuinely 0 °C inside
+    a small subregion + 20 °C elsewhere, and verify the SI mean of
+    a geometry inside the 20 °C area doesn't drop because the
+    rasterio mask filled the outside with 0.
+    """
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_bounds
+    from shapely.geometry import box
+
+    from openlimno.habitat import ThermalRange, thermal_si_from_temperature_raster
+
+    # 4×4 grid, all 20 °C. No nodata declared.
+    raster_path = tmp_path / "T_uniform.tif"
+    arr = np.full((4, 4), 20.0, dtype=np.float32)
+    transform = from_bounds(0.0, 0.0, 4.0, 4.0, 4, 4)
+    with rasterio.open(
+        raster_path, "w", driver="GTiff", height=4, width=4,
+        count=1, dtype="float32", crs="EPSG:4326",
+        transform=transform,
+    ) as dst:
+        dst.write(arr, 1)
+
+    # ThermalRange where 20 °C sits inside the preferred range.
+    tr = ThermalRange(
+        T_opt_min=18.0, T_opt_max=22.0,
+        T_lethal_min=5.0, T_lethal_max=30.0,
+    )
+
+    # Geometry covers only the upper-left 2x2 region (4 pixels out
+    # of 16). With v2.4.0 buggy filling, the 12 outside pixels would
+    # come back as 0.0 °C, biasing the mean far below 20.
+    geom = box(0.0, 2.0, 2.0, 4.0)
+    mean_si, stats = thermal_si_from_temperature_raster(raster_path, geom, tr)
+
+    # All 4 inside-geometry pixels are 20 °C → SI must be close to
+    # the SI at 20 °C (which is well inside the optimal range).
+    assert stats["mean_temperature_C"] == pytest.approx(20.0)
+    assert stats["pixel_count"] == 4.0  # exactly 4 pixels inside
+    assert mean_si > 0.5, (
+        f"R8-6 regression: mean_si={mean_si} too low — geometry-"
+        f"outside zero pixels likely still being counted."
+    )

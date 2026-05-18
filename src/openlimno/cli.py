@@ -479,10 +479,26 @@ def calibrate(
         console.print(f"  control: {workspace.control_file}")
         console.print(f"  run:     pestpp-glm {workspace.control_file.name}")
         if run_pestpp:
-            run_result = run_pestpp_glm_workspace(
-                workspace,
-                executable=pestpp_exe,
-            )
+            # v2.5.1 (R8-8): wrap subprocess.run's FileNotFoundError /
+            # RuntimeError into a clean ClickException so a missing
+            # pestpp-glm binary doesn't dump a Python traceback to a
+            # CLI user. The library function itself stays raise-loud.
+            try:
+                run_result = run_pestpp_glm_workspace(
+                    workspace,
+                    executable=pestpp_exe,
+                )
+            except FileNotFoundError as e:
+                raise click.ClickException(
+                    f"PEST++ executable {pestpp_exe!r} not found on PATH. "
+                    f"Install it via `pixi run -e pestpp pestpp-glm` or "
+                    f"pass --pestpp-exe=/path/to/pestpp-glm. "
+                    f"(underlying error: {e})"
+                ) from e
+            except RuntimeError as e:
+                raise click.ClickException(
+                    f"pestpp-glm exited with a non-zero status: {e}"
+                ) from e
             console.print("[green]✓[/] pestpp-glm completed")
             console.print(f"  command: {' '.join(run_result.command)}")
             console.print(f"  returncode: {run_result.returncode}")

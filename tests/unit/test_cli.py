@@ -200,6 +200,47 @@ def test_calibrate_pestpp_glm_generates_workspace(tmp_path: Path) -> None:
     assert (out_dir / "run_openlimno_calibration.py").exists()
 
 
+def test_v251_wua_plot_cli_writes_png_via_atomic_write(tmp_path: Path) -> None:
+    """v2.5.1 (R8-9): pin that the CLI ``openlimno wua --plot`` route
+    actually writes a PNG to disk.
+
+    v2.3.0 fixed a latent v1.9.2 R5-3 regression where matplotlib's
+    ``fig.savefig`` raised ``Format 'tmp' is not supported`` because
+    the publish tempfile from ``Case._atomic_write`` ends in
+    ``.tmp``. The fix passes ``format="png"`` explicitly. v2.3.0
+    covered the headless ``plot_wua_q`` path but NOT this CLI route
+    end-to-end, so the regression could re-emerge if anyone
+    refactored the CLI invocation without touching the helper.
+    """
+    if not LEMHI_CASE.exists():
+        pytest.skip("Lemhi example missing")
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "wua",
+            str(LEMHI_CASE),
+            "--species", "oncorhynchus_mykiss",
+            "--stage", "spawning",
+            "--plot",
+            "--n-q", "3",
+        ],
+    )
+    assert result.exit_code == 0, (
+        f"CLI exited {result.exit_code}; output:\n{result.output}"
+    )
+    # Output PNG lives under the case's output_dir (lemhi out/...).
+    # The CLI prints "plot saved: <path>"; assert that path exists.
+    saved_lines = [
+        line for line in result.output.splitlines()
+        if "plot saved:" in line
+    ]
+    assert saved_lines, f"no 'plot saved' line in CLI output:\n{result.output}"
+    png_path = Path(saved_lines[-1].split("plot saved:", 1)[1].strip())
+    assert png_path.exists(), f"PNG not on disk: {png_path}"
+    assert png_path.stat().st_size > 0, "PNG file is empty"
+
+
 def test_preprocess_import_model_lists_supported_paths() -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["preprocess", "import-model", "--list-supported"])

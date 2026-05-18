@@ -171,6 +171,17 @@
             "end_year": { "type": "integer", "minimum": 1940 }
           }
         },
+        "thermal_si_per_section": {
+          "type": "object",
+          "description": "v2.5.1 (R8-5): pre-computed per-section thermal SI for the geom_mean_per_cell composite path. CSV with columns 'station_m' and 'thermal_si'; one row per cross-section in the same order as data.cross_section. Build it offline via openlimno.habitat.thermal_si_per_section(temperature_raster, [section_geoms], ThermalRange).",
+          "additionalProperties": false,
+          "required": ["uri"],
+          "properties": {
+            "uri": { "type": "string", "format": "uri-reference" },
+            "source_raster_uri": { "type": "string", "format": "uri-reference" },
+            "source_raster_citation": { "type": "string" }
+          }
+        },
         "fishbase_traits": {
           "type": "object",
           "description": "v0.8.1: curated FishBase species traits patched in by --fetch-fishbase. Consumed by thermal habitat module (v1.1.0+).",

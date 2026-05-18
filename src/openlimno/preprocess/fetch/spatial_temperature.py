@@ -81,9 +81,18 @@ def fetch_open_meteo_temperature_raster(
         raise ValueError("only aggregation='mean' is currently supported")
 
     west, south, east, north = bbox
-    lons = np.linspace(west, east, width)
+    # v2.5.1 (R8-3): sample at PIXEL CENTERS, not bbox edges, so the
+    # sampled values align with the GeoTIFF affine transform built by
+    # ``from_bounds(west, south, east, north, width, height)`` (whose
+    # row/col 0 occupies the bbox top-left CORNER and whose pixel
+    # centers sit a half-pixel inside the bbox). Sampling at corners
+    # produced a half-pixel-equivalent geographic shift between the
+    # raster's CRS-declared extent and its actual sampled values.
+    dlon = (east - west) / width
+    dlat = (north - south) / height
+    lons = west + dlon * (np.arange(width) + 0.5)
     # GeoTIFF rows are north-to-south.
-    lats = np.linspace(north, south, height)
+    lats = north - dlat * (np.arange(height) + 0.5)
     arr = np.full((height, width), np.nan, dtype=np.float32)
     caches: list[CacheEntry] = []
     citation = OPENMETEO_CITATION

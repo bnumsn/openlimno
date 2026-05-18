@@ -4,6 +4,24 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.5.1] — 2026-05-18
+
+### Fixed
+- **v2.5.1 — 8th-pass review patches (R8-1 / R8-3 / R8-4 / R8-5 / R8-6 / R8-7 / R8-8 / R8-9)**:
+    8th-pass codex+gemini review of the v2.1.0 → v2.5.0 7-ship span surfaced 3 MED + 5 LOW findings (one gemini misread dropped). This point release closes all 8.
+    - **R8-7 (MED codex): `openlimno.__version__` resolved to stale installed-wheel metadata `0.1.0a10`** instead of the source-tree version, poisoning every `provenance.json` written from a source checkout. Fixed by hardcoding `__version__ = "2.5.1"` in `src/openlimno/__init__.py` and dropping the `importlib.metadata.version()` lookup. New `tests/unit/test_version_consistency.py` pins the source-tree constant to `pyproject.toml`'s `[project].version`.
+    - **R8-6 (MED codex): `thermal_si_from_temperature_raster` zero-bias** when the source raster declares `nodata=None`. `rasterio.mask.mask(..., filled=True)` silently fills geometry-outside pixels with `0`, which the validity mask then accepted (since `nodata is None` skipped the not-equal check), pulling mean temperature + SI down. Fixed by switching to `filled=False` and using the masked array's `.mask` as the authoritative outside-geometry indicator.
+    - **R8-5 (MED codex): per-section thermal SI not actually wired into `Case.run`.** v2.5.0 shipped `thermal_si_per_section` and `fetch_open_meteo_temperature_raster` as library APIs but `Case.run` still reduced `data.climate` to a single basin-wide scalar `mean_SI` — the v2.0.0 charter "per-cell raster overlay" path was NOT closed end-to-end. v2.5.1 adds: new schema key `data.thermal_si_per_section.uri` (CSV with `station_m` + `thermal_si` columns), `Case._maybe_load_per_section_thermal_si` (length + range validation, fail-loud warnings + scalar fallback), threading through `_maybe_run_composite_hsi(..., per_section_thermal_si=...)` → `_maybe_run_per_cell_composite` → `apply_overlay_per_cell(thermal_si_per_cell=<array>)`. Back-compat preserved when the CSV is absent.
+    - **R8-1 (LOW gemini + codex): species/stage suffix `rsplit("_", 1)` fragile** for species/stage names containing underscores (e.g. species `salmo_trutta` + stage `juvenile_winter`). Fixed by building a `suffix → (species, stage)` map from the actual `per_cell_csi` keys rather than parsing flattened column names.
+    - **R8-3 (LOW gemini + codex): half-pixel grid misalignment** in `fetch_open_meteo_temperature_raster`. `np.linspace(west, east, width)` sampled bbox corners, but `from_bounds` places pixel *centers* a half-pixel inside the bbox. Fixed to sample at pixel centers: `west + dlon * (np.arange(width) + 0.5)`.
+    - **R8-4 (LOW gemini): redundant `typecheck` in `pixi run check`**. The two strict gates (`typecheck-strict-core` + `typecheck-strict-gui-qgis`) cover every file under stricter rules; the additional non-strict `mypy src/openlimno` pass was pure CI churn. Dropped.
+    - **R8-8 (LOW codex): `--run-pestpp` traceback when binary missing**. Wrapped `FileNotFoundError` and `RuntimeError` in `click.ClickException` with actionable messages.
+    - **R8-9 (LOW codex): CLI `wua --plot` route not directly integration-tested**. v2.3.0 fixed the latent v1.9.2 R5-3 regression but only covered it via the headless API path. Added `test_v251_wua_plot_cli_writes_png_via_atomic_write` to pin the CLI end-to-end.
+    - Reviewer-flagged but invalid: gemini's R8-2 ("crash on `nodata=None`") misread the source — the `if nodata is not None:` guard was already present. Discarded.
+    - 4 new tests in `test_wua_watermark.py` (`test_v251_*`) + 1 new test in `test_cli.py` + 1 new test file `test_version_consistency.py`.
+    - **8-round review chain summary**: 35 + 8 = 43 substantive findings; 42 closed; 1 deferred (F11 cosmetic naming).
+    - Verified: `ruff check` 0 findings; `mypy --strict` core (59 files) + GUI/QGIS (9 files) clean; 539 passed / 6 skipped (h5py absent) / 31 deselected on the default test gate.
+
 ## [2.5.0] — 2026-05-18
 
 ### Added

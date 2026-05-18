@@ -258,17 +258,24 @@ def thermal_si_from_temperature_raster(
     """
     with rasterio.open(temperature_raster) as src:
         nodata = src.nodata
+        # v2.5.1 (R8-6): use ``filled=False`` so geometry-outside pixels
+        # return masked, not silently filled with the nodata value
+        # (which defaults to 0 °C when the source raster declares no
+        # nodata — a 0 °C bias on every outside-geometry pixel).
         out, _ = rasterio.mask.mask(
             src,
             [mapping(geometry)],
             crop=True,
             nodata=nodata,
-            filled=True,
+            filled=False,
             indexes=band,
         )
 
-    arr = np.asarray(out, dtype=float)
+    out_ma = np.ma.asarray(out)
+    arr = np.asarray(out_ma.filled(np.nan), dtype=float)
     valid = np.isfinite(arr)
+    if np.ma.is_masked(out_ma):
+        valid &= ~np.ma.getmaskarray(out_ma)
     if nodata is not None:
         valid &= arr != float(nodata)
     values = arr[valid]

@@ -230,6 +230,18 @@ class Case:
         )
         capture_per_cell = composite_overlay_method_for_capture == "geom_mean_per_cell"
         per_cell_csi: PerCellCsiMap = {}
+        # v2.5.1 (R8-5): load optional pre-computed per-section thermal SI
+        # array from ``data.thermal_si_per_section.uri`` (CSV with
+        # ``station_m`` + ``thermal_si`` columns). Users build it via
+        # ``openlimno.habitat.thermal_si_per_section(temperature_raster,
+        # [section_geoms], ThermalRange)`` offline and reference it from
+        # case.yaml — the Case.run pipeline then passes the array (not
+        # a scalar broadcast) through to apply_overlay_per_cell, closing
+        # the per-cell raster-overlay YAML path the v2.0.0 charter
+        # promised.
+        per_section_thermal_si = self._maybe_load_per_section_thermal_si(
+            cfg, sections, warnings,
+        )
 
         wua_records: list[dict[str, Any]] = []
         for Q in discharges_m3s:
@@ -376,6 +388,7 @@ class Case:
                     warnings,
                     method=composite_overlay_method,
                     per_cell_csi=per_cell_csi if capture_per_cell else None,
+                    per_section_thermal_si=per_section_thermal_si,
                 )
             )
         except Exception as e:  # noqa: BLE001
@@ -1181,6 +1194,8 @@ class Case:
         overlay: CompositeOverlay,
         per_cell_csi: PerCellCsiMap | None,
         warnings: list[str],
+        *,
+        per_section_thermal_si: np.ndarray | None = None,
     ) -> tuple[pd.DataFrame | None, dict[str, object] | None]:
         """v2.4.0: per-cell geometric-mean composite path.
 
@@ -1219,30 +1234,56 @@ class Case:
             for c in base_cols
         }
 
+        # v2.5.1 (R8-1): build a suffix → (species, stage) lookup from
+        # the actual per_cell_csi keys. Previously
+        # ``suffix.rsplit("_", 1)`` mis-split species/stage when either
+        # contained underscores (e.g. species ``salmo_trutta`` + stage
+        # ``juvenile_winter`` collapsed into a non-existent key,
+        # silently falling back to base WUA).
+        suffix_to_pair: dict[str, tuple[str, str]] = {}
+        for (_q_key, sp, st) in per_cell_csi:
+            suffix_to_pair[f"{sp}_{st}"] = (sp, st)
+
         for _, row in wua_df.iterrows():
             Q = float(row["discharge_m3s"])
             out_row: dict[str, Any] = {"discharge_m3s": Q}
             for col in base_cols:
                 out_row[col] = row[col]
                 suffix = col[len("wua_m2_"):]
-                # Recover (species, stage) from the suffix by splitting
-                # on the last underscore — same convention the rest of
-                # the pipeline uses.
-                if "_" not in suffix:
+                pair = suffix_to_pair.get(suffix)
+                if pair is None:
+                    # No HSI vars resolved → fall back to base value.
                     composite_wua = float(row[col])
                 else:
-                    species, stage = suffix.rsplit("_", 1)
+                    species, stage = pair
                     key = (Q, species, stage)
                     if key not in per_cell_csi:
-                        # No HSI vars resolved → fall back to base value.
                         composite_wua = float(row[col])
                     else:
                         csi_arr, area_arr = per_cell_csi[key]
+                        # v2.5.1 (R8-5): when a per-section thermal SI
+                        # array was loaded from
+                        # ``data.thermal_si_per_section.uri``, pass it
+                        # cell-wise to ``apply_overlay_per_cell``
+                        # instead of the basin-scalar ``overlay.thermal_si``
+                        # — closes the YAML-driven per-cell raster
+                        # overlay path the v2.0.0 charter promised.
+                        # The per-section array length is validated
+                        # against ``len(sections)`` at load time
+                        # (``_maybe_load_per_section_thermal_si``).
+                        thermal_arg: object | None
+                        if (
+                            per_section_thermal_si is not None
+                            and per_section_thermal_si.shape == csi_arr.shape
+                        ):
+                            thermal_arg = per_section_thermal_si
+                        else:
+                            thermal_arg = overlay.thermal_si
                         result = apply_overlay_per_cell(
                             csi_arr,
                             area_arr,
                             cover_si_per_cell=overlay.cover_si,
-                            thermal_si_per_cell=overlay.thermal_si,
+                            thermal_si_per_cell=thermal_arg,
                             method="geom_mean",
                         )
                         composite_wua = float(result["wua_composite_m2"])
@@ -1283,6 +1324,67 @@ class Case:
         }
         return composite_df, summary
 
+    def _maybe_load_per_section_thermal_si(
+        self,
+        cfg: dict,
+        sections: list[Any],
+        warnings: list[str],
+    ) -> np.ndarray | None:
+        """v2.5.1 (R8-5): load ``data.thermal_si_per_section.uri`` (a
+        CSV with ``station_m`` and ``thermal_si`` columns) into a
+        per-section thermal-SI array aligned with ``sections``.
+
+        Returns ``None`` when the block is absent (preserves v1.x
+        behaviour). Returns ``None`` + warning when the CSV is
+        present but invalid (length mismatch, missing columns, out-of-
+        range values) so the run degrades to scalar thermal overlay
+        rather than aborting.
+        """
+        data_block = cfg.get("data", {}) or {}
+        block = data_block.get("thermal_si_per_section")
+        if not isinstance(block, dict):
+            return None
+        uri = block.get("uri")
+        if not uri:
+            return None
+        path = (self.case_dir / uri).resolve()
+        if not path.is_file():
+            warnings.append(
+                f"data.thermal_si_per_section.uri ({uri}) not found at "
+                f"{path} — falling back to scalar thermal overlay."
+            )
+            return None
+        try:
+            df = pd.read_csv(path)
+        except Exception as e:  # noqa: BLE001
+            warnings.append(
+                f"data.thermal_si_per_section CSV read failed: {e!r}. "
+                f"Falling back to scalar thermal overlay."
+            )
+            return None
+        if "thermal_si" not in df.columns:
+            warnings.append(
+                f"data.thermal_si_per_section CSV {path.name} lacks a "
+                f"'thermal_si' column; falling back to scalar."
+            )
+            return None
+        if len(df) != len(sections):
+            warnings.append(
+                f"data.thermal_si_per_section length {len(df)} != "
+                f"number of sections {len(sections)}. Falling back to "
+                f"scalar thermal overlay."
+            )
+            return None
+        arr = df["thermal_si"].astype(float).to_numpy()
+        if (arr < -1e-9).any() or (arr > 1.0 + 1e-9).any():
+            warnings.append(
+                f"data.thermal_si_per_section values out of [0, 1] "
+                f"(min={arr.min()}, max={arr.max()}); falling back to "
+                f"scalar."
+            )
+            return None
+        return np.clip(arr, 0.0, 1.0)
+
     def _maybe_run_composite_hsi(
         self,
         wua_df: pd.DataFrame,
@@ -1293,6 +1395,7 @@ class Case:
         warnings: list[str],
         method: str = "product",
         per_cell_csi: PerCellCsiMap | None = None,
+        per_section_thermal_si: np.ndarray | None = None,
     ) -> tuple[dict[str, Any] | None, pd.DataFrame | None]:
         """v1.6.0: combine the per-cell depth × velocity WUA with the
         v1.1.1 thermal scalar and v1.5.0 cover scalar overlays into a
@@ -1364,6 +1467,7 @@ class Case:
         if method == "geom_mean_per_cell":
             composite_df, summary = self._maybe_run_per_cell_composite(
                 wua_df, overlay, per_cell_csi, warnings,
+                per_section_thermal_si=per_section_thermal_si,
             )
             if composite_df is None:
                 return None, None

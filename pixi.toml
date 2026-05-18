@@ -1,6 +1,6 @@
 [workspace]
 name = "openlimno"
-version = "2.5.0"
+version = "2.5.1"
 description = "Open-source ecological-flow and fish-habitat decision platform"
 authors = ["OpenLimno Contributors <hello@openlimno.org>"]
 channels = ["conda-forge"]
@@ -153,4 +153,8 @@ benchmark-phabsim = "pytest benchmarks/phabsim_bovee1997 -v"
 benchmark-all = { depends-on = ["benchmark-mms", "benchmark-toro", "benchmark-phabsim"] }
 
 # Pre-commit hook: composite quality gate
-check = { depends-on = ["lint", "typecheck", "typecheck-strict-core", "typecheck-strict-gui-qgis", "test", "validate-schemas"] }
+# v2.5.1 (R8-4): dropped redundant base ``typecheck`` (non-strict
+# ``mypy src/openlimno``). The two strict tasks together check every
+# file in src/openlimno under stricter rules, so the non-strict pass
+# was pure CI churn.
+check = { depends-on = ["lint", "typecheck-strict-core", "typecheck-strict-gui-qgis", "test", "validate-schemas"] }
