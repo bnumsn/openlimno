@@ -182,7 +182,15 @@ def wua(case_yaml: str, species: str, stage: str, plot: bool, n_q: int) -> None:
         # so the CLI's --plot output inherits the same atomic+umask
         # contract as the rest of the OpenLimno output suite.
         from openlimno.case import Case
-        Case._atomic_write(png, lambda p: fig.savefig(p, dpi=120))
+        # v2.3.0: matplotlib's savefig infers format from the file
+        # extension, and ``_atomic_write``'s publish tempfile ends in
+        # ``.tmp`` — pass ``format="png"`` explicitly or savefig will
+        # raise "Format 'tmp' is not supported". Latent bug from
+        # v1.9.2's R5-3 ship that the existing test suite missed
+        # because no integration test ran ``--plot`` end-to-end.
+        Case._atomic_write(
+            png, lambda p: fig.savefig(p, dpi=120, format="png"),
+        )
         console.print(f"[green]✓[/] plot saved: {png}")
 
 

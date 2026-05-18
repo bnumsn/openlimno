@@ -4,6 +4,23 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.3.0] — 2026-05-18
+
+### Added
+- **v2.3.0 — Studio path A headless API**:
+    Per memory `project_studio`, OpenLimno Studio is the PyQt5 + PyQGIS-as-library independent desktop application that replaces the QGIS plugin distribution path post-1.0. v2.3.0 ships the **core headless API** that Studio's GUI sits on top of — the case-run + plotting surface that doesn't need QGIS bindings, used by both the GUI controller and the existing CLI ``wua-q --plot``.
+    - **`openlimno.studio.headless.run_case_with_plots(case_yaml, discharges_m3s=..., plot=True)`** — single-call API that loads a case, runs the full WUA-Q pipeline, and (optionally) renders the canonical `wua_q_curve.png` alongside the rest of the run artefacts. Returns a `HeadlessRunResult` dataclass with paths to every produced artefact, the HSI quality grade, and the run's warnings.
+    - **`openlimno.studio.headless.plot_wua_q(wua_q_df, png_path, *, title, quality_grade, dpi)`** — pure plotting function. Renders the same axes / legend / watermark conventions as `examples/lemhi/quickstart.py` (red TENTATIVE banner at quality C, grey footnote at quality B). Routes the PNG write through `Case._atomic_write` so the file inherits the v1.9.0+ atomic-write + umask contract.
+    - **GUI controller and CLI consolidation**: both `openlimno.gui_core.Controller._RunCaseWorker` and `cli.py wua-q --plot` previously inlined a near-identical case-run + plot pipeline. v2.3.0's headless API consolidates the contract; v3.x will migrate the existing call sites to delegate.
+
+### Fixed
+- **v2.3.0 — latent v1.9.2 R5-3 regression in CLI `wua-q --plot`**:
+    Building the v2.3.0 headless plot path surfaced a latent bug introduced by v1.9.2's R5-3 ship (atomic-write for the WUA-Q plot). `Case._atomic_write` allocates a publish tempfile with a `.tmp` suffix; matplotlib's `fig.savefig` infers the writer from the file extension and raised `ValueError: Format 'tmp' is not supported` whenever the v1.9.2 path was actually invoked. The v1.9.2 test suite never exercised the CLI's `--plot` end-to-end (the v1.9.2 atomic-write integration tests covered netcdf and binary-bytes paths but not matplotlib), so the regression slipped through the 5th/6th/7th-pass reviews.
+    - `cli.py wua-q --plot` now passes `format="png"` explicitly to `fig.savefig` inside the atomic-write callback.
+    - `studio.headless.plot_wua_q` follows the same pattern — `fig.savefig(p, dpi=dpi, format="png")` — and is the route forward for any future plot-writer integration.
+    - 4 new integration tests in `tests/integration/test_studio_headless.py`: end-to-end Lemhi run produces all artefacts with umask perms (catches the regression), `plot=False` skips the PNG, standalone `plot_wua_q` atomic-write contract with no orphan tempfiles, and quality-grade-C overlay produces a measurably larger PNG than grade-A (proves the watermark is being rendered, not silently dropped).
+    - 97 unit + integration tests pass (+4 v2.3.0). 0 lint findings in changed files (`studio/headless.py`, `studio/__init__.py`, `tests/integration/test_studio_headless.py`, the cli.py 9-line patch). The 11 pre-existing ruff findings in `studio/main_window.py` are baseline drift flagged for the v3.x housekeeping ship.
+
 ## [2.2.0] — 2026-05-18
 
 ### Added
