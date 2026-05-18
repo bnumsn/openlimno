@@ -118,7 +118,7 @@ def validate(case_yaml: str) -> None:
     "--executor",
     type=click.Choice(["local"]),
     default="local",
-    help="1.0 supports only local; HPC/cloud in §13",
+    help="v1.x/2.x supports only local; HPC/cloud per SPEC §13",
 )
 @click.option("--manning-n", default=0.035, type=float, help="Channel roughness")
 @click.option("--slope", default=0.002, type=float, help="Bed slope")
@@ -402,19 +402,22 @@ def passage(
     "--algo",
     default="scipy",
     type=click.Choice(["scipy", "pestpp-glm"]),
-    help="scipy = M2 1-parameter; pestpp-glm = 1.x multi-parameter",
+    help="scipy = built-in 1-parameter; pestpp-glm = multi-parameter (v3.x research route)",
 )
 @click.option("--initial-n", default=0.035, type=float)
 @click.option("--slope", default=0.002, type=float)
 def calibrate(case_yaml: str, observed: str, algo: str, initial_n: float, slope: float) -> None:
     """Calibrate Manning's n against an observed rating curve.
 
-    M2: scipy-based 1-parameter; PEST++ multi-parameter in 1.x.
+    v2.x: scipy-based 1-parameter; PEST++ multi-parameter on the v3.x
+    research route.
     """
     import pandas as pd
 
     if algo == "pestpp-glm":
-        raise NotImplementedError("PEST++ multi-parameter calibration is 1.x")
+        raise NotImplementedError(
+            "PEST++ multi-parameter calibration is on the v3.x research route"
+        )
 
     from openlimno.case import Case
     from openlimno.hydro.builtin_1d import load_sections_from_parquet

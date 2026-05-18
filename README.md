@@ -5,13 +5,16 @@
 > hydraulic results, MIKE 21/FM/1D projects, passage analysis, species evidence,
 > and regulatory reports.
 
-**Status**: package metadata is **v1.3.0**; the **v1.0.0** line is the
-production-stable surface freeze, with **338 tests pass** and **10/10 fetcher
-e2e PASS** against live APIs recorded at that milestone.
+**Status**: package metadata is **v2.1.1** (Production/Stable). The **v2.0.0**
+cut on 2026-05-18 is the major stable surface freeze, following a 6-round
+codex+gemini review chain that closed 28/29 substantive findings on the
+v1.6.0 → v1.10.1 composite-overlay + atomic-write surface area. The v1.0.0
+production-stable line (338 tests pass, 10/10 fetcher e2e PASS against live
+APIs) remains the documented 1.x baseline.
 All 1.0-scope modules implemented end-to-end; case YAML drives the full pipeline:
 hydraulics → HSI/WUA cell+HMU → drift egg → regulatory export (CN-SL712 / US-FERC / EU-WFD) → provenance.
 v0.3 → v0.8 added a subscription-free fetch surface (9 fetchers, global coverage, see below).
-1.0.x will not break the user-facing fetch / case-schema / habitat surfaces; see [`docs/RELEASE_v1.0.0.md`](./docs/RELEASE_v1.0.0.md) for the stability commitments.
+v2.x will not break the user-facing fetch / case-schema / habitat surfaces; see [`docs/RELEASE_v1.0.0.md`](./docs/RELEASE_v1.0.0.md) for the 1.0 stability commitments and [`CHANGELOG.md`](./CHANGELOG.md) for the v2.0.0 charter.
 See [`tools/m0_checklist/M0_CHECKLIST.md`](./tools/m0_checklist/M0_CHECKLIST.md) for the deployment checklist
 (maintainer signing, real SCHISM container build, QGIS LTS testing, real basin study).
 

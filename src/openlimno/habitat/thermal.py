@@ -34,8 +34,12 @@ a temporal overlay that multiplies into total habitat:
 
     HSI_total(t, x) = HSI_geom(t, x) × thermal_SI(t)
 
-The 1.0.x line keeps the two computations independent; integration
-(true 4D thermal habitat) is a 1.x research-roadmap item.
+The v1.x / v2.x lines keep the two computations independent; true
+4-D thermal habitat (spatially varying T(x) per-cell raster) is on
+the v3.x research route. v2.1.0's
+:func:`openlimno.habitat.composite.apply_overlay_per_cell` already
+accepts a per-cell thermal-SI array, so once a spatial T(x) fetcher
+lands the per-cell engine is ready to consume it.
 """
 from __future__ import annotations
 

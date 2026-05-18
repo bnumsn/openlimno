@@ -4,6 +4,21 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.1.1] — 2026-05-18
+
+### Fixed
+- **v2.1.1 — 7th-pass review patches (R7-1 … R7-6)**:
+    7th-pass codex+gemini review of v2.0.0 (run after the v2.1.0 library-API close-out of the per-cell deferral) surfaced 6 documentation findings; this point release closes all of them. No source-code semantic changes — pure docs/strings polish.
+    - **R7-1 (HIGH gemini / LOW codex): 6-round review table arithmetic in v2.0.0 changelog was inconsistent.** Σ row claimed 30 / 28 / 2 but per-row sums were 29 / 25 / 3. Recomputed honestly: 29 findings total, 28 closed by the end of round 6 (v1.10.1), 1 open at v2.0.0 (F11, cosmetic). The "true per-cell geom_mean" listed under v2.0.0 deferrals is a separate charter-scope decision (not a numbered review finding) and v2.1.0 closed it at the library-API level. Table now carries an explicit "Closed by" column tracing each round's findings to the patch ship that resolved them.
+    - **R7-2 (LOW codex): README status block stale.** Top of `README.md` said "package metadata is v1.3.0; the v1.0.0 line is the production-stable surface freeze" — out of date for a tagged v2.0.0 release. Updated to "package metadata is v2.1.1 (Production/Stable). The v2.0.0 cut on 2026-05-18 is the major stable surface freeze" with a backward pointer to the 1.0 docs preserved.
+    - **R7-3 (LOW codex): `composite.py` module docstring routed deferred work to "v2.x", contradicting the v2.0.0 charter language ("v3.x research route").** Updated to reflect that v2.1.0's `apply_overlay_per_cell` shipped the library-API surface, the Case.run integration is staged for v2.2.0+, and the spatial T(x) thermal raster is on the v3.x research route.
+    - **R7-4 (MED gemini): "460 tests pass at v2.0.0" claim did not reproduce.** `pytest --collect-only -q` reports 441 in this dev environment (109 tests in `test_preprocess_fetch.py` fail to collect due to missing `osgeo`; 22 individual tests skip due to `h5py` / `osgeo` / `qgis`). Headline corrected to the verifiable 441-collected figure with the skip context inline. The per-ship CHANGELOG entries already document the exact pass/skip count at their own ship time and remain unchanged.
+    - **R7-5 (LOW gemini): `cli.py` and `thermal.py` still carried "1.0" / "1.x" wording.** `cli.py:121` help text "1.0 supports only local" → "v1.x/2.x supports only local; HPC/cloud per SPEC §13". `cli.py:405` calibrate algo help "1.x multi-parameter" → "v3.x research route". `cli.py:412` docstring "PEST++ multi-parameter in 1.x" → "v3.x research route" + clearer NotImplementedError text. `thermal.py:37` module docstring "1.0.x line keeps the two computations independent; integration … is a 1.x research-roadmap item" → "v1.x / v2.x lines keep the two computations independent; true 4-D thermal habitat is on the v3.x research route" + cross-reference to v2.1.0's `apply_overlay_per_cell` which is already ready to consume per-cell thermal arrays once a spatial T(x) fetcher lands.
+    - **R7-6 (LOW gemini): "0 lint findings in v1.6.0 — v2.0.0 changeset" was technically true but misleading.** Replaced with a precise statement: "the v1.6.0 — v2.0.0 changeset files all pass `ruff check` at their own commit time (no new findings introduced by any ship in the chain). The overall repository baseline still carries ~170—189 findings in pre-existing files (`cli.py`, `gui_core/controller.py`, several `preprocess/fetch/` modules); those are pre-1.6.0 baseline drift and are an explicit clean-up task for the v3.x housekeeping."
+    - Reviewer-flagged but invalid: gemini also reported "Premature v2.1.0 branding in source comments". gemini reviewed the working tree (which had the v2.1.0 changes from the parallel ship) instead of the v2.0.0 tag. Discarded as out-of-scope for v2.0.0 review.
+    - No new tests in this ship — pure docs/strings changes. 0 lint findings in the changed files.
+    - **7-round review chain summary:** 35 findings surfaced (29 R1 — R6 + 6 R7); 34 closed; 1 deferred (F11 cosmetic).
+
 ## [2.1.0] — 2026-05-18
 
 ### Added
@@ -36,17 +51,23 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ### 6-round review chain — final summary
 
-| Round | Ship targets         | Findings | Closed | Deferred |
-|-------|----------------------|----------|--------|----------|
-| 1     | v1.6.0 + v1.7.0      | 11       | 8      | 2 (F7 + F9 in v1.8.0) |
-| 2     | v1.7.1 + v1.8.0      | 5        | 5      | 0 |
-| 3     | v1.8.1               | 5        | 5      | 0 |
-| 4     | v1.8.2               | 1        | 1      | 0 (R4 permission regression closed in v1.8.3) |
-| 5     | v1.9.0               | 4        | 3      | 1 (R5-3 closed in v1.9.2) |
-| 6     | v1.10.0              | 3        | 3      | 0 (F11 instructed-defer) |
-| **Σ** |                      | **30**   | **28** | **2** |
+Findings × closing-ship matrix. Each finding is counted in the row of the round that *surfaced* it; closures shipped in a later round are noted in the "Closed by" column. F11 (cosmetic `_composite_view` naming) is the lone review-chain deferral remaining at v2.0.0; the "true per-cell 4-way geom_mean" listed under deferrals is a separate charter-scope decision, not a numbered review finding, and v2.1.0 closed it at the library-API level.
 
-460 tests pass at v2.0.0 (73 composite-overlay + atomic-write tests in `test_wua_watermark.py`, ~390 other unit tests, 6 integration). 0 lint findings in the v1.6.0 — v2.0.0 change set's changed files. The 2 pre-existing failures in `test_cover_habitat` and `test_thermal_habitat` (transitive `osgeo` import) are environmental on the dev machine, unrelated to OpenLimno code.
+| Round | Reviewed (commit)   | Findings | Closed | Closed by                                  | Open at v2.0.0 |
+|-------|---------------------|---------:|-------:|--------------------------------------------|---------------:|
+| 1     | v1.6.0 + v1.7.0     |       11 |     10 | v1.7.1 (×8) + v1.8.0 (×2 — F7, F9)         |   1 (F11 defer) |
+| 2     | v1.7.1 + v1.8.0     |        5 |      5 | v1.8.1                                     |   0 |
+| 3     | v1.8.1              |        5 |      5 | v1.8.2                                     |   0 |
+| 4     | v1.8.2              |        1 |      1 | v1.8.3                                     |   0 |
+| 5     | v1.9.0              |        4 |      4 | v1.9.1 (×2 — R5-1, R5-2) + v1.9.2 (×1 — R5-3) + absorbed-already (×1) | 0 |
+| 6     | v1.10.0             |        3 |      3 | v1.10.1                                    |   0 |
+| **Σ** |                     |   **29** | **28** |                                            | **1** |
+
+At v2.0.0, the only review-chain finding still open is **F11** (cosmetic `_composite_view` column-rename — would force a coordinated update across regulatory_export modules to no functional benefit). The per-cell true geometric mean was not a numbered review finding but a v2.0.0 charter-scope decision; v2.1.0's `apply_overlay_per_cell` ships that surface at the library-API level (the Case.run integration is staged for v2.2.0+).
+
+441 tests collected by `pytest --collect-only` against this dev environment (osgeo and h5py unavailable; the 109 tests in `test_preprocess_fetch.py` fail to collect, and 22 individual tests skip on osgeo/h5py/QGIS). 73 composite-overlay + atomic-write tests in `test_wua_watermark.py`. The CHANGELOG body for each individual ship documents the exact tests pass/skip count at that ship; the headline "460" in early drafts of this section was approximate and has been replaced with the verifiable 441-collected figure.
+
+Lint: the v1.6.0 — v2.0.0 changeset files all pass `ruff check` at their own commit time (no new findings introduced by any ship in the chain). The overall repository baseline still carries ~170—189 findings in pre-existing files (`cli.py`, `gui_core/controller.py`, several `preprocess/fetch/` modules); those are pre-1.6.0 baseline drift and are an explicit clean-up task for the v3.x housekeeping.
 
 ### Fixed
 - **v1.10.1 — 6th-pass review patches (R6-1 + R6-2 + R6-3)**:

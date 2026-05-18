@@ -50,7 +50,11 @@ Two **combination methods** are available (v1.10.0):
   discharges — both unacceptable for a suitability overlay. The
   **true** four-way per-cell geometric mean
   :math:`(d \\times v \\times c \\times t)^{1/4}` requires cover and
-  thermal as per-cell rasters and is flagged for v2.x.
+  thermal as per-cell arrays. v2.1.0 shipped that library-level
+  surface as :func:`apply_overlay_per_cell` (below); Case.run
+  integration via a ``geom_mean_per_cell`` schema option is
+  staged for v2.2.0+, and true spatial T(x) thermal rasters are on
+  the v3.x research route.
 
 Cases that lack one overlay (e.g. thermal because no FishBase traits) get
 that factor folded out — composite uses only the present overlay. Cases
@@ -263,8 +267,9 @@ def apply_overlay(
     #   which is scientifically indefensible for a suitability overlay.
     #
     # The fix is to recognise that a true four-way per-cell geometric
-    # mean needs cover/thermal as per-cell rasters (still out-of-scope
-    # for v1.10.x, flagged for v2.x). At the reach scale with
+    # mean needs cover/thermal as per-cell arrays. v2.1.0 shipped that
+    # surface as `apply_overlay_per_cell` (below). At the reach scale
+    # with
     # **scalar** cover/thermal overlays, the most defensible
     # generalisation that (a) is monotone in base, (b) never inflates
     # WUA, and (c) reproduces the n-factor softening property is:
