@@ -204,6 +204,28 @@
             "source_citation": { "type": "string" }
           }
         },
+        "cover_si_per_section": {
+          "type": "object",
+          "description": "v2.7.0: pre-computed per-section cover SI for the geom_mean_per_cell composite path. CSV with columns 'station_m' and 'cover_si'; one row per cross-section in the same order as data.cross_section. Symmetric to data.thermal_si_per_section (v2.5.1); build it offline via openlimno.habitat.cover_si_per_section(lulc_tif, [section_geoms]).",
+          "additionalProperties": false,
+          "required": ["uri"],
+          "properties": {
+            "uri": { "type": "string", "format": "uri-reference" },
+            "source_raster_uri": { "type": "string", "format": "uri-reference" },
+            "source_raster_citation": { "type": "string" }
+          }
+        },
+        "cover_raster": {
+          "type": "object",
+          "description": "v2.7.0: WorldCover-style LULC GeoTIFF for the inline per-section cover SI pipeline. Symmetric to data.thermal_raster (v2.6.0). The raster is evaluated at each section's geometry (built from data.section_locations); each pixel's LULC code is mapped to cover SI via DEFAULT_RIPARIAN_COVER_SI (override planned for v3.x). Point-sample (buffer_m=0) reads the single pixel code; buffered (buffer_m>0) takes the pixel-weighted mean SI inside the polygon.",
+          "additionalProperties": false,
+          "required": ["uri"],
+          "properties": {
+            "uri": { "type": "string", "format": "uri-reference" },
+            "band": { "type": "integer", "minimum": 1, "default": 1 },
+            "source_citation": { "type": "string" }
+          }
+        },
         "fishbase_traits": {
           "type": "object",
           "description": "v0.8.1: curated FishBase species traits patched in by --fetch-fishbase. Consumed by thermal habitat module (v1.1.0+).",

@@ -4,6 +4,24 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.7.0] — 2026-05-18
+
+### Added
+- **v2.7.0 — inline cover-SI raster path in `Case.run`** (closes the last v3.x scalar→raster asymmetry):
+    Symmetric mirror of the v2.6.0 thermal raster pipeline. v2.0.0's charter promised that *both* cover and thermal overlays could drive the per-cell composite from raster inputs; thermal landed in v2.6.0 (engine) + v2.6.1 (CRS/bounds polish), and cover stayed on the scalar `watershed_cover_si` path through v2.6.1. v2.7.0 closes that asymmetry — `Case.run` now accepts `data.cover_raster.uri` and computes per-section cover SI inline.
+    - **New schema keys**:
+        - `data.cover_si_per_section.uri` — pre-computed CSV (columns `station_m`, `cover_si`), symmetric to v2.5.1 `data.thermal_si_per_section.uri`.
+        - `data.cover_raster.uri` — LULC GeoTIFF (e.g. WorldCover); evaluated at each section via `data.section_locations`. Symmetric to v2.6.0 `data.thermal_raster.uri`.
+    - **`Case._maybe_compute_per_section_cover_si_from_raster`**: parses section_locations, reprojects to raster CRS if needed, then either point-samples the LULC code at each section (`buffer_m=0`, mapped via `DEFAULT_RIPARIAN_COVER_SI`) or builds buffered polygons and delegates to `cover_si_per_section` for pixel-weighted mean SI. Inherits the v2.6.1 CRS-mismatch, outside-bounds, nodata-sentinel, negative-buffer, and shapely-fallback fail-loud guarantees.
+    - **`Case._maybe_load_per_section_cover_si`**: parses pre-computed CSV. Symmetric to v2.5.1 thermal CSV loader, same length/range/missing-column validation.
+    - **Priority order** in `Case.run` for cover: inline raster → CSV → v1.5.0 scalar `watershed_cover_si`. Each falls back cleanly with fail-loud warnings on inconsistency.
+    - **Symmetric R9-7 synth**: when `per_section_cover_si` is present but no scalar `cover_metrics_dict` was produced (no `data.lulc` + `data.watershed`), `Case.run` synthesises `effective_cover_metrics = {"mean_si": float(np.mean(per_section_cover_si))}` so `CompositeOverlay.from_metrics` treats cover as a present overlay. Closes the cover-only analogue of the v2.6.1 R9-7 thermal-only path.
+    - **`cover_si_from_lulc_raster` + `cover_si_per_section` gain `all_touched: bool = False` keyword** (back-compat). The inline cover-raster path passes `True` for sub-pixel buffer geometries — symmetric to the v2.6.1 R9-6 keyword on the thermal API.
+    - **Threading through to `apply_overlay_per_cell`**: when `per_section_cover_si.shape == csi_arr.shape`, the per-cell composite call gets the array (cell-wise SI); otherwise it falls back to the basin-wide scalar `overlay.cover_si`. Symmetric to the v2.5.1 R8-5 thermal contract.
+    - 6 new tests in `test_wua_watermark.py` (`test_v270_*`): inline LULC point sample, outside-bounds warning, buffered path, CSV load, CSV length-mismatch fallback, end-to-end "cover-only drives composite" via the Lemhi case.
+    - **v2.0.0 charter end-to-end YAML-driven per-cell raster overlay**: now complete for *both* cover and thermal. A case.yaml with `composite_overlay_method=geom_mean_per_cell` + (`data.thermal_raster` OR `data.thermal_si_per_section`) + (`data.cover_raster` OR `data.cover_si_per_section`) drives the full per-cell composite end-to-end with zero offline preprocessing required.
+    - Verified: `ruff check` 0 findings; `mypy --strict` core (59 files) + GUI/QGIS (9 files) clean; 557 passed / 6 skipped (h5py absent) / 31 deselected on the default test gate.
+
 ## [2.6.1] — 2026-05-18
 
 ### Fixed

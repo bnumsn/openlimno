@@ -1442,7 +1442,7 @@ def test_v182_caserunresult_population_through_case_run(monkeypatch, tmp_path):
     def _stub_maybe_run_composite_hsi(
         self, wua_df, thermal_metrics_dict, cover_metrics_dict,
         out_dir, formats, warnings, method="product", per_cell_csi=None,
-        per_section_thermal_si=None,
+        per_section_thermal_si=None, per_section_cover_si=None,
     ):
         return sentinel_summary, sentinel_df
 
@@ -3121,13 +3121,17 @@ def test_v261_r97_per_section_thermal_si_alone_drives_composite(tmp_path, monkey
 
     real_run_per_cell = Case._maybe_run_per_cell_composite
 
-    def _spy_per_cell(self, wua_df, overlay, per_cell_csi, warnings, *, per_section_thermal_si=None):
+    def _spy_per_cell(
+        self, wua_df, overlay, per_cell_csi, warnings, *,
+        per_section_thermal_si=None, per_section_cover_si=None,
+    ):
         captured["per_cell_called"] = True
         captured["overlay_thermal_si"] = overlay.thermal_si
         captured["per_section_array_present"] = per_section_thermal_si is not None
         return real_run_per_cell(
             self, wua_df, overlay, per_cell_csi, warnings,
             per_section_thermal_si=per_section_thermal_si,
+            per_section_cover_si=per_section_cover_si,
         )
 
     monkeypatch.setattr(Case, "_maybe_run_per_cell_composite", _spy_per_cell)
@@ -3373,3 +3377,228 @@ def test_v261_r94_empty_array_falls_back_to_csv():
     assert chosen is csv_arr, (
         "R9-4 regression: empty array not falling back to CSV."
     )
+
+
+# ---------------------------------------------------------------------------
+# v2.7.0 — cover-SI raster path (symmetric to v2.6.0 thermal)
+# ---------------------------------------------------------------------------
+
+
+def _build_lulc_raster(tmp_path, code_value: int = 60):
+    """Helper: 4×4 LULC GeoTIFF spanning lon 0..4, lat 0..4 with a
+    single class code. Code 60 in ESA WorldCover is "Bare/sparse
+    vegetation" — has a DEFAULT_RIPARIAN_COVER_SI mapping.
+    """
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_bounds
+
+    path = tmp_path / "lulc.tif"
+    arr = np.full((4, 4), code_value, dtype=np.uint8)
+    with rasterio.open(
+        path, "w", driver="GTiff",
+        height=4, width=4, count=1, dtype="uint8",
+        crs="EPSG:4326",
+        transform=from_bounds(0.0, 0.0, 4.0, 4.0, 4, 4),
+    ) as dst:
+        dst.write(arr, 1)
+    return path
+
+
+def test_v270_inline_lulc_raster_point_sample(tmp_path):
+    """v2.7.0: ``_maybe_compute_per_section_cover_si_from_raster``
+    point-samples a LULC raster and returns per-section SI via
+    DEFAULT_RIPARIAN_COVER_SI lookup."""
+    import pandas as pd
+
+    from openlimno.case import Case
+    from openlimno.habitat.cover import DEFAULT_RIPARIAN_COVER_SI
+
+    raster_path = _build_lulc_raster(tmp_path, code_value=60)
+    locs_path = tmp_path / "loc.csv"
+    pd.DataFrame({
+        "station_m": [0.0, 100.0, 200.0],
+        "lon": [1.0, 2.0, 3.0],
+        "lat": [1.0, 2.0, 3.0],
+    }).to_csv(locs_path, index=False)
+
+    case = object.__new__(Case)
+    case.case_yaml_path = tmp_path / "case.yaml"
+    cfg = {"data": {
+        "cover_raster": {"uri": raster_path.name},
+        "section_locations": {"uri": locs_path.name, "buffer_m": 0},
+    }}
+    arr = case._maybe_compute_per_section_cover_si_from_raster(
+        cfg, [object()] * 3, warnings=[],
+    )
+    assert arr is not None
+    assert arr.shape == (3,)
+    expected = DEFAULT_RIPARIAN_COVER_SI.get(60, 0.0)
+    assert all(v == pytest.approx(expected) for v in arr), (
+        f"got {arr.tolist()} expected all {expected}"
+    )
+
+
+def test_v270_inline_lulc_raster_outside_bounds_warns(tmp_path):
+    """v2.7.0: a section outside the raster bounds → warning +
+    fallback (no silent SI=0)."""
+    import pandas as pd
+
+    from openlimno.case import Case
+
+    raster_path = _build_lulc_raster(tmp_path, code_value=60)
+    locs_path = tmp_path / "loc.csv"
+    pd.DataFrame({
+        "station_m": [0.0, 100.0],
+        "lon": [1.0, 100.0],  # 100 is outside 0..4
+        "lat": [1.0, 100.0],
+    }).to_csv(locs_path, index=False)
+
+    case = object.__new__(Case)
+    case.case_yaml_path = tmp_path / "case.yaml"
+    cfg = {"data": {
+        "cover_raster": {"uri": raster_path.name},
+        "section_locations": {"uri": locs_path.name, "buffer_m": 0},
+    }}
+    warnings: list[str] = []
+    arr = case._maybe_compute_per_section_cover_si_from_raster(
+        cfg, [object(), object()], warnings,
+    )
+    assert arr is None
+    assert any("outside" in w.lower() or "nodata" in w.lower() for w in warnings)
+
+
+def test_v270_inline_lulc_raster_buffered_path(tmp_path):
+    """v2.7.0: buffered path delegates to ``cover_si_per_section``
+    and returns SI in [0, 1]."""
+    import pandas as pd
+
+    from openlimno.case import Case
+
+    raster_path = _build_lulc_raster(tmp_path, code_value=60)
+    locs_path = tmp_path / "loc.csv"
+    pd.DataFrame({
+        "station_m": [0.0, 100.0],
+        "lon": [1.0, 2.0],
+        "lat": [1.0, 2.0],
+    }).to_csv(locs_path, index=False)
+
+    case = object.__new__(Case)
+    case.case_yaml_path = tmp_path / "case.yaml"
+    cfg = {"data": {
+        "cover_raster": {"uri": raster_path.name},
+        "section_locations": {"uri": locs_path.name, "buffer_m": 50_000},
+    }}
+    arr = case._maybe_compute_per_section_cover_si_from_raster(
+        cfg, [object(), object()], warnings=[],
+    )
+    assert arr is not None
+    assert arr.shape == (2,)
+    assert all(0.0 <= si <= 1.0 for si in arr)
+
+
+def test_v270_load_per_section_cover_si_csv(tmp_path):
+    """v2.7.0: ``_maybe_load_per_section_cover_si`` reads a CSV with
+    ``station_m`` + ``cover_si`` columns aligned to sections order."""
+    import pandas as pd
+
+    from openlimno.case import Case
+
+    case = object.__new__(Case)
+    case.case_yaml_path = tmp_path / "case.yaml"
+    csv_path = tmp_path / "cover_csv.csv"
+    pd.DataFrame({
+        "station_m": [0.0, 100.0],
+        "cover_si": [0.3, 0.7],
+    }).to_csv(csv_path, index=False)
+    cfg = {"data": {"cover_si_per_section": {"uri": csv_path.name}}}
+    arr = case._maybe_load_per_section_cover_si(
+        cfg, [object(), object()], warnings=[],
+    )
+    assert arr is not None
+    assert arr.tolist() == [0.3, 0.7]
+
+
+def test_v270_cover_csv_length_mismatch_warns(tmp_path):
+    """v2.7.0: cover CSV length mismatch with sections → fallback."""
+    import pandas as pd
+
+    from openlimno.case import Case
+
+    case = object.__new__(Case)
+    case.case_yaml_path = tmp_path / "case.yaml"
+    csv_path = tmp_path / "short_cover.csv"
+    pd.DataFrame({
+        "station_m": [0.0],
+        "cover_si": [0.5],
+    }).to_csv(csv_path, index=False)
+    cfg = {"data": {"cover_si_per_section": {"uri": csv_path.name}}}
+    warnings: list[str] = []
+    arr = case._maybe_load_per_section_cover_si(
+        cfg, [object(), object(), object()], warnings,
+    )
+    assert arr is None
+    assert any("length" in w.lower() for w in warnings)
+
+
+def test_v270_cover_si_drives_composite_alone(monkeypatch):
+    """v2.7.0 symmetric R9-7: ``data.cover_raster`` +
+    ``data.section_locations`` alone (no ``data.lulc`` /
+    ``data.watershed``, no thermal) drives the composite step.
+    Pre-fix this would have hit
+    ``CompositeOverlay.from_metrics(None, None) → overlay_si is None``
+    and silently skipped composite.
+    """
+    if not CASE_YAML.exists():
+        pytest.skip("Lemhi example missing")
+    from openlimno.case import Case
+
+    captured: dict[str, object] = {}
+    real_run_per_cell = Case._maybe_run_per_cell_composite
+
+    def _spy(
+        self, wua_df, overlay, per_cell_csi, warnings, *,
+        per_section_thermal_si=None, per_section_cover_si=None,
+    ):
+        captured["per_cell_called"] = True
+        captured["overlay_cover_si"] = overlay.cover_si
+        captured["per_section_cover_present"] = per_section_cover_si is not None
+        return real_run_per_cell(
+            self, wua_df, overlay, per_cell_csi, warnings,
+            per_section_thermal_si=per_section_thermal_si,
+            per_section_cover_si=per_section_cover_si,
+        )
+
+    monkeypatch.setattr(Case, "_maybe_run_per_cell_composite", _spy)
+
+    import pandas as pd
+    import yaml
+
+    from openlimno.hydro.builtin_1d import load_sections_from_parquet
+
+    cfg = yaml.safe_load(CASE_YAML.read_text())
+    cfg["habitat"]["composite_overlay_method"] = "geom_mean_per_cell"
+    case_dir = CASE_YAML.parent
+    xs_path = (case_dir / cfg["data"]["cross_section"]).resolve()
+    sections = load_sections_from_parquet(xs_path, manning_n=0.035)
+    cover_csv = CASE_YAML.parent / "cover_si_alone.csv"
+    pd.DataFrame({
+        "station_m": [s.station_m for s in sections],
+        "cover_si": [0.45] * len(sections),
+    }).to_csv(cover_csv, index=False)
+    cfg.setdefault("data", {})["cover_si_per_section"] = {"uri": cover_csv.name}
+    y2 = CASE_YAML.parent / "case.cover_alone.yaml"
+    y2.write_text(yaml.safe_dump(cfg))
+    try:
+        result = Case.from_yaml(y2).run(discharges_m3s=[3.0])
+    finally:
+        y2.unlink(missing_ok=True)
+        cover_csv.unlink(missing_ok=True)
+
+    assert captured.get("per_cell_called"), (
+        "v2.7.0 regression: cover-only case did not enter composite path."
+    )
+    assert captured.get("per_section_cover_present"), (
+        "v2.7.0 regression: per_section_cover_si did not thread through."
+    )
+    assert result.composite_summary is not None

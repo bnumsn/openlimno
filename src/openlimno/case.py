@@ -255,6 +255,18 @@ class Case:
                 cfg, sections, warnings,
             )
 
+        # v2.7.0: symmetric per-section cover SI pipeline (mirrors
+        # the v2.6.0 thermal raster path). Priority order is the
+        # same: inline LULC raster (zero-step) → pre-computed CSV →
+        # scalar broadcast (the v1.5.0 watershed_cover_si path).
+        per_section_cover_si = self._maybe_compute_per_section_cover_si_from_raster(
+            cfg, sections, warnings,
+        )
+        if per_section_cover_si is None or len(per_section_cover_si) == 0:
+            per_section_cover_si = self._maybe_load_per_section_cover_si(
+                cfg, sections, warnings,
+            )
+
         wua_records: list[dict[str, Any]] = []
         for Q in discharges_m3s:
             row: dict[str, Any] = {"discharge_m3s": Q}
@@ -410,18 +422,34 @@ class Case:
                 "mean_SI": float(np.mean(per_section_thermal_si)),
                 "source": "per_section_thermal_si (v2.6.1 R9-7 synth)",
             }
+        # v2.7.0: symmetric synth for cover_metrics_dict so a case
+        # carrying ``data.cover_raster`` + ``data.section_locations``
+        # alone (no ``data.lulc`` + ``data.watershed``) still drives
+        # the composite step. Same pattern as the v2.6.1 R9-7 thermal
+        # synth.
+        effective_cover_metrics = cover_metrics_dict
+        if (
+            effective_cover_metrics is None
+            and per_section_cover_si is not None
+            and len(per_section_cover_si) > 0
+        ):
+            effective_cover_metrics = {
+                "mean_si": float(np.mean(per_section_cover_si)),
+                "source": "per_section_cover_si (v2.7.0 synth)",
+            }
         try:
             composite_summary_dict, composite_df = (
                 self._maybe_run_composite_hsi(
                     wua_df,
                     effective_thermal_metrics,
-                    cover_metrics_dict,
+                    effective_cover_metrics,
                     out_dir,
                     formats,
                     warnings,
                     method=composite_overlay_method,
                     per_cell_csi=per_cell_csi if capture_per_cell else None,
                     per_section_thermal_si=per_section_thermal_si,
+                    per_section_cover_si=per_section_cover_si,
                 )
             )
         except Exception as e:  # noqa: BLE001
@@ -1229,6 +1257,7 @@ class Case:
         warnings: list[str],
         *,
         per_section_thermal_si: np.ndarray | None = None,
+        per_section_cover_si: np.ndarray | None = None,
     ) -> tuple[pd.DataFrame | None, dict[str, object] | None]:
         """v2.4.0: per-cell geometric-mean composite path.
 
@@ -1312,10 +1341,23 @@ class Case:
                             thermal_arg = per_section_thermal_si
                         else:
                             thermal_arg = overlay.thermal_si
+                        # v2.7.0: per-section cover SI mirrors the
+                        # v2.5.1 R8-5 thermal contract. When the array
+                        # is present and matches the section count,
+                        # pass it cell-wise; else fall back to the
+                        # basin-wide scalar.
+                        cover_arg: object | None
+                        if (
+                            per_section_cover_si is not None
+                            and per_section_cover_si.shape == csi_arr.shape
+                        ):
+                            cover_arg = per_section_cover_si
+                        else:
+                            cover_arg = overlay.cover_si
                         result = apply_overlay_per_cell(
                             csi_arr,
                             area_arr,
-                            cover_si_per_cell=overlay.cover_si,
+                            cover_si_per_cell=cover_arg,
                             thermal_si_per_cell=thermal_arg,
                             method="geom_mean",
                         )
@@ -1683,6 +1725,287 @@ class Case:
             return None
         return np.clip(arr, 0.0, 1.0)
 
+    def _maybe_compute_per_section_cover_si_from_raster(
+        self,
+        cfg: dict,
+        sections: list[Any],
+        warnings: list[str],
+    ) -> np.ndarray | None:
+        """v2.7.0: inline LULC raster → per-section cover SI.
+
+        Symmetric to :meth:`_maybe_compute_per_section_thermal_si_from_raster`
+        (v2.6.0). When ``data.cover_raster.uri`` and
+        ``data.section_locations.uri`` are both present:
+
+        1. Parse section_locations CSV (validated to match
+           ``len(sections)`` and to carry ``station_m``, ``lon``,
+           ``lat`` columns).
+        2. Reproject coordinates from ``section_locations.crs``
+           (defaults to EPSG:4326) to the raster CRS if needed —
+           v2.6.1 R9-1 fix applies symmetrically to LULC rasters.
+        3. ``buffer_m == 0`` (default): sample the single LULC pixel
+           code at each section point and look up
+           :data:`openlimno.habitat.cover.DEFAULT_RIPARIAN_COVER_SI`
+           to get the per-section SI.
+        4. ``buffer_m > 0``: build per-section polygons (cosine-lat
+           in geographic raster CRS; direct metres in projected) and
+           delegate to :func:`openlimno.habitat.cover_si_per_section`,
+           which takes the pixel-weighted mean inside each polygon.
+
+        Returns ``None`` with a warning when any block is missing
+        or inconsistent — caller then falls back to the v2.7.0 CSV
+        path, then to the v1.5.0 basin-wide scalar.
+        """
+        data_block = cfg.get("data", {}) or {}
+        raster = data_block.get("cover_raster")
+        locs = data_block.get("section_locations")
+        if not (isinstance(raster, dict) and isinstance(locs, dict)):
+            return None
+        raster_uri = raster.get("uri")
+        locs_uri = locs.get("uri")
+        if not (raster_uri and locs_uri):
+            return None
+
+        raster_path = (self.case_dir / raster_uri).resolve()
+        locs_path = (self.case_dir / locs_uri).resolve()
+        if not raster_path.is_file() or not locs_path.is_file():
+            warnings.append(
+                "data.cover_raster or data.section_locations file "
+                "missing — falling back from inline cover-raster path."
+            )
+            return None
+
+        try:
+            locs_df = pd.read_csv(locs_path)
+        except Exception as e:  # noqa: BLE001
+            warnings.append(
+                f"section_locations CSV read failed: {e!r}. "
+                f"Falling back from inline cover-raster path."
+            )
+            return None
+        required_cols = {"station_m", "lon", "lat"}
+        if not required_cols.issubset(locs_df.columns):
+            warnings.append(
+                f"section_locations CSV {locs_path.name} missing "
+                f"required columns {sorted(required_cols)}. Falling back."
+            )
+            return None
+        if len(locs_df) != len(sections):
+            warnings.append(
+                f"section_locations length {len(locs_df)} != number "
+                f"of sections {len(sections)}. Falling back from "
+                f"inline cover-raster path."
+            )
+            return None
+
+        raw_buffer_m = locs.get("buffer_m", 0.0)
+        if raw_buffer_m is None:
+            raw_buffer_m = 0.0
+        try:
+            buffer_m = float(raw_buffer_m)
+        except (TypeError, ValueError):
+            warnings.append(
+                f"section_locations.buffer_m must be a number, got "
+                f"{raw_buffer_m!r}. Falling back."
+            )
+            return None
+        if buffer_m < 0.0:
+            warnings.append(
+                f"section_locations.buffer_m must be ≥ 0, got "
+                f"{buffer_m}. Falling back."
+            )
+            return None
+        band = int(raster.get("band", 1) or 1)
+
+        import rasterio
+        locs_crs_str = str(locs.get("crs", "EPSG:4326"))
+        try:
+            with rasterio.open(raster_path) as src:
+                raster_crs = src.crs
+                raster_nodata = src.nodata
+                raster_bounds = src.bounds
+        except Exception as e:  # noqa: BLE001
+            warnings.append(
+                f"rasterio.open({raster_path}) failed: {e!r}. "
+                f"Falling back from inline cover-raster path."
+            )
+            return None
+        if raster_crs is None:
+            warnings.append(
+                f"cover_raster {raster_path.name} has no CRS "
+                f"declared; cannot safely sample. Falling back."
+            )
+            return None
+        try:
+            from rasterio.crs import CRS
+            locs_crs = CRS.from_user_input(locs_crs_str)
+        except Exception as e:  # noqa: BLE001
+            warnings.append(
+                f"section_locations.crs={locs_crs_str!r} parse failed: "
+                f"{e!r}. Falling back."
+            )
+            return None
+
+        raw_xs = locs_df["lon"].astype(float).to_numpy()
+        raw_ys = locs_df["lat"].astype(float).to_numpy()
+        if locs_crs == raster_crs:
+            xs, ys = raw_xs, raw_ys
+        else:
+            try:
+                from rasterio.warp import transform as warp_transform
+                xs_list, ys_list = warp_transform(
+                    locs_crs, raster_crs,
+                    raw_xs.tolist(), raw_ys.tolist(),
+                )
+                xs = np.asarray(xs_list, dtype=float)
+                ys = np.asarray(ys_list, dtype=float)
+            except Exception as e:  # noqa: BLE001
+                warnings.append(
+                    f"CRS reprojection {locs_crs_str} → "
+                    f"{raster_crs.to_string()} failed: {e!r}. "
+                    f"Falling back."
+                )
+                return None
+
+        from openlimno.habitat.cover import (
+            DEFAULT_RIPARIAN_COVER_SI,
+            cover_si_per_section,
+        )
+
+        if buffer_m <= 0.0:
+            # Point-sample path: read the single LULC pixel code at
+            # each section and map via the cover-SI table. LULC
+            # rasters are categorical (uint8), so we round to the
+            # nearest int after sampling.
+            coords = list(zip(xs.tolist(), ys.tolist(), strict=True))
+            try:
+                with rasterio.open(raster_path) as src:
+                    samples = list(src.sample(coords, indexes=band))
+            except Exception as e:  # noqa: BLE001
+                warnings.append(
+                    f"rasterio.sample (cover) failed: {e!r}. "
+                    f"Falling back."
+                )
+                return None
+            codes = np.array(
+                [int(round(float(s[0]))) for s in samples], dtype=int,
+            )
+            min_x, min_y, max_x, max_y = raster_bounds
+            in_bounds = (
+                (xs >= min_x) & (xs <= max_x)
+                & (ys >= min_y) & (ys <= max_y)
+            )
+            valid = in_bounds.copy()
+            if raster_nodata is not None and np.isfinite(raster_nodata):
+                valid &= codes != int(round(float(raster_nodata)))
+            if not np.all(valid):
+                bad = np.where(~valid)[0].tolist()
+                warnings.append(
+                    f"Section indices {bad} sampled outside the "
+                    f"cover raster bounds or hit the nodata "
+                    f"sentinel. Falling back from inline cover-"
+                    f"raster path."
+                )
+                return None
+            si = np.array(
+                [
+                    float(DEFAULT_RIPARIAN_COVER_SI.get(int(code), 0.0))
+                    for code in codes
+                ],
+                dtype=float,
+            )
+            return np.clip(si, 0.0, 1.0)
+
+        # Buffered path: per-section polygon → pixel-weighted mean SI.
+        try:
+            from shapely.geometry import Point
+        except ImportError as e:
+            warnings.append(
+                f"shapely not importable for cover-raster path: "
+                f"{e!r}. Falling back."
+            )
+            return None
+        geoms: list[Any] = []
+        raster_is_geographic = bool(
+            getattr(raster_crs, "is_geographic", False)
+        )
+        for x, y in zip(xs, ys, strict=True):
+            if raster_is_geographic:
+                cos_lat = max(abs(np.cos(np.radians(float(y)))), 1e-6)
+                deg_per_m_lon = 1.0 / (111_320.0 * cos_lat)
+                deg_per_m_lat = 1.0 / 110_540.0
+                buf_radius = buffer_m * min(deg_per_m_lon, deg_per_m_lat)
+            else:
+                buf_radius = buffer_m
+            geoms.append(Point(float(x), float(y)).buffer(buf_radius))
+        try:
+            arr = cover_si_per_section(
+                raster_path, geoms,
+                # v2.7.0: same sub-pixel-buffer rationale as the
+                # v2.6.1 R9-6 inline thermal raster path.
+                all_touched=True,
+            )
+        except Exception as e:  # noqa: BLE001
+            warnings.append(
+                f"cover_si_per_section failed: {e!r}. Falling back "
+                f"from inline cover-raster path."
+            )
+            return None
+        return np.clip(arr.astype(float), 0.0, 1.0)
+
+    def _maybe_load_per_section_cover_si(
+        self,
+        cfg: dict,
+        sections: list[Any],
+        warnings: list[str],
+    ) -> np.ndarray | None:
+        """v2.7.0: load ``data.cover_si_per_section.uri`` (CSV with
+        ``station_m`` + ``cover_si``) into a per-section array.
+        Symmetric to ``_maybe_load_per_section_thermal_si`` (v2.5.1).
+        """
+        data_block = cfg.get("data", {}) or {}
+        block = data_block.get("cover_si_per_section")
+        if not isinstance(block, dict):
+            return None
+        uri = block.get("uri")
+        if not uri:
+            return None
+        path = (self.case_dir / uri).resolve()
+        if not path.is_file():
+            warnings.append(
+                f"data.cover_si_per_section.uri ({uri}) not found at "
+                f"{path} — falling back to scalar cover overlay."
+            )
+            return None
+        try:
+            df = pd.read_csv(path)
+        except Exception as e:  # noqa: BLE001
+            warnings.append(
+                f"data.cover_si_per_section CSV read failed: {e!r}. "
+                f"Falling back to scalar cover overlay."
+            )
+            return None
+        if "cover_si" not in df.columns:
+            warnings.append(
+                f"data.cover_si_per_section CSV {path.name} lacks a "
+                f"'cover_si' column; falling back to scalar."
+            )
+            return None
+        if len(df) != len(sections):
+            warnings.append(
+                f"data.cover_si_per_section length {len(df)} != "
+                f"number of sections {len(sections)}. Falling back."
+            )
+            return None
+        arr = df["cover_si"].astype(float).to_numpy()
+        if (arr < -1e-9).any() or (arr > 1.0 + 1e-9).any():
+            warnings.append(
+                f"data.cover_si_per_section values out of [0, 1] "
+                f"(min={arr.min()}, max={arr.max()}); falling back."
+            )
+            return None
+        return np.clip(arr, 0.0, 1.0)
+
     def _maybe_run_composite_hsi(
         self,
         wua_df: pd.DataFrame,
@@ -1694,6 +2017,7 @@ class Case:
         method: str = "product",
         per_cell_csi: PerCellCsiMap | None = None,
         per_section_thermal_si: np.ndarray | None = None,
+        per_section_cover_si: np.ndarray | None = None,
     ) -> tuple[dict[str, Any] | None, pd.DataFrame | None]:
         """v1.6.0: combine the per-cell depth × velocity WUA with the
         v1.1.1 thermal scalar and v1.5.0 cover scalar overlays into a
@@ -1766,6 +2090,7 @@ class Case:
             composite_df, summary = self._maybe_run_per_cell_composite(
                 wua_df, overlay, per_cell_csi, warnings,
                 per_section_thermal_si=per_section_thermal_si,
+                per_section_cover_si=per_section_cover_si,
             )
             if composite_df is None:
                 return None, None

@@ -40,9 +40,18 @@ per-cell composite results alongside the basin-scalar product and
 geom-mean paths.
 
 The remaining research work is data production, not the composite
-engine: automated case wiring for true per-section cover/thermal arrays
-once spatial fetchers provide them. Until then, Case broadcasts the
-available basin-wide cover and thermal scalars across cells.
+engine. v2.6.0 + v2.6.1 + v2.7.0 closed the YAML-driven inline raster
+paths for both thermal *and* cover SI: case.yaml referencing
+`data.thermal_raster.uri` and/or `data.cover_raster.uri` (paired with
+`data.section_locations.uri`) drives the per-cell composite end-to-end
+with zero offline preprocessing. Pre-computed CSV inputs
+(`data.thermal_si_per_section.uri`, `data.cover_si_per_section.uri`)
+remain available as a full-control fallback.
+
+What stays on the 3.x research route is **per-cell raster *production***
+for non-Open-Meteo backends — native PRISM/NLDAS/ERA5 spatial-T
+fetchers for finer resolution, plus a real LULC-class-table override
+(currently the inline cover path hard-codes `DEFAULT_RIPARIAN_COVER_SI`).
 
 ### Spatial T(x) thermal raster
 

@@ -85,6 +85,7 @@ def cover_si_from_lulc_raster(
     geometry: BaseGeometry,
     *,
     cover_si_table: dict[int, float] | None = None,
+    all_touched: bool = False,
 ) -> tuple[float, dict[int, int]]:
     """Compute pixel-weighted mean cover SI inside a region.
 
@@ -97,6 +98,12 @@ def cover_si_from_lulc_raster(
         cover_si_table: optional override of
             :data:`DEFAULT_RIPARIAN_COVER_SI`. Class codes missing
             from the table contribute SI = 0.
+        all_touched: forwarded to :func:`rasterio.mask.mask`. Default
+            ``False`` matches pre-v2.7.0 "center-inside polygon"
+            semantics. Set ``True`` for sub-pixel buffer geometries
+            (e.g. metres-scale point buffers from the v2.7.0 inline
+            cover-raster path). Symmetric to the v2.6.1 R9-6 flag
+            on :func:`thermal_si_from_temperature_raster`.
 
     Returns:
         ``(mean_si, class_pixels)`` where ``mean_si ∈ [0, 1]`` is
@@ -108,6 +115,7 @@ def cover_si_from_lulc_raster(
     with rasterio.open(lulc_tif) as src:
         out, _ = rasterio.mask.mask(
             src, [mapping(geometry)], crop=True, nodata=0, filled=True,
+            all_touched=all_touched,
         )
         # ``mask.mask`` returns shape (n_bands, h, w); WorldCover is
         # single-band uint8.
@@ -252,6 +260,7 @@ def cover_si_per_section(
     section_geometries: list,
     *,
     cover_si_table: dict[int, float] | None = None,
+    all_touched: bool = False,
 ) -> np.ndarray:
     """Per-section cover SI for the v2.1.0 per-cell composite.
 
@@ -269,6 +278,9 @@ def cover_si_per_section(
         cover_si_table: optional override of
             :data:`DEFAULT_RIPARIAN_COVER_SI`. Forwarded to
             :func:`cover_si_from_lulc_raster`.
+        all_touched: forwarded to :func:`cover_si_from_lulc_raster`
+            (v2.7.0). Default ``False`` for back-compat; set ``True``
+            for sub-pixel buffers from the inline cover-raster path.
 
     Returns:
         1-D ``numpy.ndarray`` of length ``len(section_geometries)``,
@@ -284,6 +296,7 @@ def cover_si_per_section(
     for i, geom in enumerate(section_geometries):
         si, _ = cover_si_from_lulc_raster(
             lulc_tif, geom, cover_si_table=cover_si_table,
+            all_touched=all_touched,
         )
         out[i] = si
     return out
