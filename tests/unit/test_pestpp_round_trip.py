@@ -430,6 +430,69 @@ def test_v2141_r138_apply_handles_yaml_null_hydrodynamics(
     assert cfg["hydrodynamics"]["builtin_1d"]["slope"] == 0.003
 
 
+def test_v330_apply_optimised_params_preserves_comments(
+    tmp_path: Path,
+) -> None:
+    """v3.3.0 R13-3 (gemini): apply_optimised_params_to_case_yaml
+    used to call ``yaml.safe_dump`` directly, which strips comments
+    and reorders keys — destroying researcher-curated case.yaml
+    notes / acknowledge_independence_reason / citation links on
+    every calibration write-back.
+
+    v3.3.0 routes through ``openlimno._yaml_rt.dump_round_trip``
+    which uses ruamel.yaml (when available — a runtime dep as of
+    v3.3.0). Pin: a comment in the source YAML must survive the
+    PEST++ round-trip patch.
+    """
+    pytest.importorskip("ruamel.yaml")
+    from openlimno.workflows import apply_optimised_params_to_case_yaml
+
+    case_dir = tmp_path / "case_dir"
+    case_dir.mkdir()
+    src = case_dir / "case.yaml"
+    src.write_text(
+        "# v3.3.0 R13-3 pin: this header comment must survive.\n"
+        "openlimno: '0.2'\n"
+        "case:\n"
+        "  name: comment_preservation_t\n"
+        "  # Researcher note: see Smith et al. 2023, eq. 7.\n"
+        "  crs: EPSG:4326\n"
+        "mesh:\n"
+        "  uri: ./mesh.nc\n"
+        "hydrodynamics:\n"
+        "  backend: builtin-1d  # canonical builtin solver\n"
+        "habitat:\n"
+        "  species: [oncorhynchus_mykiss]\n"
+        "  stages: [spawning]\n"
+        "  metric: wua-q\n"
+        "  composite: min\n"
+        "output:\n"
+        "  dir: ./out\n"
+        "  formats: [csv]\n",
+        encoding="utf-8",
+    )
+    apply_optimised_params_to_case_yaml(
+        src, {"manning_n": 0.042, "slope": 0.003},
+    )
+    written = src.read_text(encoding="utf-8")
+    # All three styles of comment must survive:
+    #   (a) leading header
+    #   (b) inline note inside the `case` block
+    #   (c) end-of-line comment on hydrodynamics.backend
+    assert "v3.3.0 R13-3 pin: this header comment must survive." in written, (
+        f"R13-3 regression: header comment stripped. Got:\n{written}"
+    )
+    assert "Researcher note: see Smith et al. 2023" in written, (
+        f"R13-3 regression: inline comment stripped. Got:\n{written}"
+    )
+    assert "canonical builtin solver" in written, (
+        "R13-3 regression: end-of-line comment stripped."
+    )
+    # And the patched values landed.
+    assert "manning_n: 0.042" in written
+    assert "slope: 0.003" in written
+
+
 def test_v310_case_run_with_calibrated_yaml_end_to_end(
     tmp_path: Path,
 ) -> None:

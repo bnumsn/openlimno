@@ -952,45 +952,55 @@ class Controller:
         )
 
     def _load_wua_q_plot_layer(
-        self, png_path: Path, *, case_yaml: Path | None = None,
+        self, png_path: Path, *, case_yaml: Path,
     ) -> None:
-        """v2.13.0: load a WUA-Q curve PNG as a QGIS raster layer so
-        it shows up in the layers panel beside the mesh.
+        """v3.3.0 R15-5 (claude): ``case_yaml`` is now REQUIRED, not
+        optional. The v3.1.0 opt-in form silently no-op'd the
+        path-safety check when the kwarg was omitted, which invites
+        a future caller to be added without it (and a v3.2.0 worker-
+        exception path could let attacker-controlled output reach
+        the PNG string). Forcing the kwarg makes the security check
+        unskippable; non-QGIS environments still no-op cleanly via
+        the ImportError fallback below.
 
-        Why raster-layer-of-PNG rather than a dock widget: it
-        matches the existing UX convention (hydraulics.nc shows up
-        in the layers panel; provenance.json / wua_q.csv are
-        accessible via right-click → Open With…). A QgsRasterLayer
-        on a PNG renders as a flat georeference-less image; users
-        can pan/zoom and right-click to open externally. A dock
-        widget would need its own Qt plumbing and would not survive
-        QGIS session-restart out of the box.
-
-        v3.1.0 R13-14: validate the PNG path is under the case
-        directory before handing it to QGIS. The path string comes
-        through a Qt signal payload — if a worker exception path
-        ever lets attacker-controlled output into that string, this
-        keeps the blast radius bounded to the case directory rather
-        than letting QGIS load arbitrary system PNGs as map layers.
-        Skipped (path loaded as-is) if ``case_yaml`` is not provided
-        — back-compat with the v2.13.0 single-arg call shape; the
-        controller's standard call path now passes ``case_yaml``.
+        v3.3.0 R15-2 (codex P2): the validation now permits the PNG
+        to live under EITHER the case directory OR a configured
+        ``allowed_data_roots`` entry — because v3.2.0's
+        ``_resolve_write_safe`` lets ``output.dir`` legitimately
+        live outside the case dir when the user opted in. Pre-
+        v3.3.0 the autoload silently rejected such legitimate
+        external PNGs while the message-bar still claimed the run
+        finished + the layer was loaded.
         """
         try:
             from qgis.core import QgsProject, QgsRasterLayer
         except ImportError:
             # Non-QGIS environment (unit tests) — nothing to load.
             return
-        if case_yaml is not None:
+        try:
+            resolved = png_path.resolve()
+        except (OSError, ValueError):
+            return  # path resolution failed → can't validate, drop.
+        # Build the trust set: case dir + the YAML's configured
+        # allowed_data_roots (if any). Mirrors Case._allowed_data_roots
+        # so legitimate "output.dir under shared cluster mount" cases
+        # autoload their plot too.
+        from openlimno.case import Case
+        try:
+            case = Case.from_yaml(case_yaml)
+            trust_roots = case._allowed_data_roots()
+        except Exception:
+            trust_roots = [case_yaml.parent.resolve()]
+        accepted = False
+        for root in trust_roots:
             try:
-                resolved = png_path.resolve()
-                if not resolved.is_relative_to(
-                    case_yaml.parent.resolve(),
-                ):
-                    return  # silently drop; user-visible status
-                    # already showed the run finished.
-            except (OSError, ValueError):
-                return  # path resolution failed → can't validate
+                if resolved.is_relative_to(root):
+                    accepted = True
+                    break
+            except ValueError:
+                continue
+        if not accepted:
+            return
         layer = QgsRasterLayer(str(png_path), png_path.stem)
         if layer.isValid():
             QgsProject.instance().addMapLayer(layer)

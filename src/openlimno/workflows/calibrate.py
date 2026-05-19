@@ -19,7 +19,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import yaml
 from scipy.optimize import minimize_scalar
 
 from openlimno.hydro.builtin_1d import CrossSection
@@ -498,9 +497,17 @@ def apply_optimised_params_to_case_yaml(
             (so the user is alerted rather than silently writing
             the file unchanged).
     """
+    # v3.3.0 R13-3: use comment-preserving round-trip so the
+    # user's case.yaml notes / acknowledge_independence_reason /
+    # citations are NOT destroyed when calibrated parameters land.
+    # Falls back to safe_dump if ruamel.yaml isn't installed (with
+    # a one-time stderr warning), so a minimal-deps env still
+    # works — just lossy.
+    from openlimno._yaml_rt import dump_round_trip, load_round_trip
+
     src = Path(case_yaml).resolve()
     dst = Path(out_yaml).resolve() if out_yaml else src
-    config = yaml.safe_load(src.read_text(encoding="utf-8"))
+    config = load_round_trip(src)
     # v2.14.1 R13-8: a YAML literal ``hydrodynamics: null`` or
     # ``hydrodynamics:`` (key with empty value) loads as ``None``.
     # ``dict.setdefault("hydrodynamics", {})`` returns the existing
@@ -548,18 +555,11 @@ def apply_optimised_params_to_case_yaml(
             stacklevel=2,
         )
 
-    # v2.14.1 R13-2: atomic write via Case._atomic_write. A non-
-    # atomic write_text would truncate the user's case.yaml on
-    # disk-full / Ctrl-C / segfault mid-write. R13 reviewers
-    # (claude + gemini) independently flagged this — case.yaml is
-    # researcher-curated config; losing it to a process interrupt
-    # is the worst class of data loss this codebase can cause.
-    from openlimno.case import Case
-    rendered = yaml.safe_dump(
-        config, sort_keys=False, default_flow_style=False,
-    )
-    Case._atomic_write(dst, lambda p: p.write_text(rendered, encoding="utf-8"))
-    return dst
+    # v2.14.1 R13-2 + v3.3.0 R13-3 combined: atomic write via
+    # ``Case._atomic_write`` (truncate-safety) AND ruamel.yaml
+    # round-trip dump (comment-preserving). Both contracts live
+    # inside ``openlimno._yaml_rt.dump_round_trip``.
+    return dump_round_trip(config, dst)
 
 
 __all__ = [

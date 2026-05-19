@@ -252,18 +252,25 @@ class Case:
             # Studio stub state we tolerate; bbox + no-boundaries is
             # a user error we surface.
             hydro_block = cfg.get("hydrodynamics", {})
+            # v3.3.0 R15-3 (claude HIGH): the v3.2.0 logic was
+            # inverted. Comment said "bbox-present + no-boundaries
+            # is user error; no-bbox + no-boundaries is Studio
+            # stub" but the CODE warned in the inverse case. Fixed:
+            # warn ONLY when bbox IS present (we're past the
+            # OSM-stub stage and into the BC-fill-in stage) and
+            # boundaries is still missing.
             if (
                 "boundaries" not in hydro_block
-                and "bbox" not in cfg.get("case", {})
+                and "bbox" in cfg.get("case", {})
             ):
                 warnings.append(
-                    "v3.2.0 R11-2: case has no hydrodynamics.boundaries "
-                    "block; the builtin-1d solver will use default "
-                    "fallback BCs. If you intended to declare upstream "
-                    "/ downstream conditions, add a `boundaries:` "
-                    "block. If this is an OSM-bbox stub before BC "
-                    "fill-in, declare `case.bbox: [...]` to silence "
-                    "this warning."
+                    "v3.3.0 R11-2: case has case.bbox declared but "
+                    "no hydrodynamics.boundaries block; the builtin-"
+                    "1d solver will fall back to default BCs. Add "
+                    "an upstream/downstream `boundaries:` block "
+                    "before treating the result as production-grade. "
+                    "If this is an OSM-stub still awaiting wizard "
+                    "fill-in, ignore this warning."
                 )
             solver = Builtin1D(slope=slope)
             solver.prepare(
@@ -820,20 +827,28 @@ class Case:
                 "`allow_outside_case=True` to _resolve_safe — this "
                 "is a Python kwarg, NOT a YAML key."
             )
-        # v3.2.0 R14-10: option to redact the absolute paths in the
-        # error message. Default (env var unset) keeps the verbose
-        # form for researcher debugging; hosted-Studio deployments
-        # can set OPENLIMNO_PATH_SAFETY_REDACT=1 to substitute a
-        # path-count summary so user-visible errors don't leak the
-        # server's directory tree.
+        # v3.2.0 R14-10 + v3.3.0 R15-1: redaction option for hosted
+        # Studio. v3.2.0 redacted resolved+roots; v3.3.0 R15-1
+        # (codex+claude) also redacts the URI itself when it's an
+        # absolute path — pre-v3.3.0 a rejected `output.dir:
+        # /etc/leaked_secret_dir` would still appear verbatim via
+        # ``URI {uri!r}``, defeating the whole redaction contract.
+        # Relative URIs stay visible: they're user-supplied content,
+        # not server tree, and surfacing them aids the user fix.
         if os.environ.get("OPENLIMNO_PATH_SAFETY_REDACT", "0") == "1":
             roots_repr = f"<{len(roots)} configured roots>"
             resolved_repr = "<redacted absolute path>"
+            uri_repr = (
+                "<redacted absolute URI>"
+                if Path(str(uri)).is_absolute()
+                else repr(uri)
+            )
         else:
             roots_repr = str([str(r) for r in roots])
             resolved_repr = str(resolved)
+            uri_repr = repr(uri)
         raise ValueError(
-            f"v3.0.0 path-safety: URI {uri!r} resolved to "
+            f"v3.0.0 path-safety: URI {uri_repr} resolved to "
             f"{resolved_repr} which is outside every entry in "
             f"case.allowed_data_roots. Allowed roots (case dir + "
             f"configured): {roots_repr}. {hint}"
@@ -933,14 +948,21 @@ class Case:
                 "YAML fix: choose a write target inside one of these "
                 "roots, or extend case.allowed_data_roots."
             )
+        # v3.3.0 R15-1: same URI redaction completion as the read path.
         if os.environ.get("OPENLIMNO_PATH_SAFETY_REDACT", "0") == "1":
             roots_repr = f"<{len(roots)} configured roots>"
             resolved_repr = "<redacted absolute path>"
+            uri_repr = (
+                "<redacted absolute URI>"
+                if Path(str(uri)).is_absolute()
+                else repr(uri)
+            )
         else:
             roots_repr = str([str(r) for r in roots])
             resolved_repr = str(resolved)
+            uri_repr = repr(uri)
         raise ValueError(
-            f"v3.2.0 path-safety (write): URI {uri!r} resolved to "
+            f"v3.2.0 path-safety (write): URI {uri_repr} resolved to "
             f"{resolved_repr} which is outside every entry in "
             f"case.allowed_data_roots. Allowed roots: {roots_repr}. "
             f"{hint}"

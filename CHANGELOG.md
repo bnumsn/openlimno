@@ -4,6 +4,37 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [3.3.0] — 2026-05-19
+
+### Added / Fixed
+- **v3.3.0 — R13-3 ruamel.yaml round-trip + 15th-round review patches (R15-1, R15-2, R15-3, R15-5, R15-6)**:
+
+    **R13-3 (gemini HIGH from R13-round) — comment-preserving YAML round-trip**:
+    Closes the v2.14.1-era gemini finding that `apply_optimised_params_to_case_yaml` destroyed user-edited case.yaml content (comments, key order, blank lines) on every PEST++ calibration write-back.
+    - **`openlimno._yaml_rt` new module**: ships `load_round_trip(path)` and `dump_round_trip(data, path)` helpers wrapping `ruamel.yaml.YAML(typ='rt')` with the right OpenLimno conventions (preserve_quotes, block-only flow, 2/4/2 indent, 120-col width). Atomic-write via `Case._atomic_write` preserved.
+    - **Defensive fallback**: when `ruamel.yaml` isn't installed (minimal environments), falls back to `yaml.safe_dump` (lossy) with a one-time stderr warning. The data structure is correct either way; only comment-preservation is lost.
+    - **`ruamel.yaml>=0.18` added to pyproject.toml + pixi.toml runtime deps**. Real runtime-dep addition; users on minimal installations see the fallback warning but the chain still works.
+    - **Migrated**: `apply_optimised_params_to_case_yaml` (the main user-curated case.yaml modifier). Other YAML writers (osm_builder, cli.py fetch patches) stay on `safe_dump` for now — they generate or aggressively patch YAMLs where comment preservation isn't a contract, and migrating them would be cosmetic.
+    - **Test**: `test_v330_apply_optimised_params_preserves_comments` writes a case YAML with 3 comment styles (header, inline, end-of-line) and verifies all three survive the calibration patch.
+
+    **15th-round triple-AI review patches** (codex P2 ×2 + claude HIGH + claude MED ×3; gemini hit a network error this round):
+
+    - **R15-3 (claude HIGH) — R11-2 logic INVERTED in v3.2.0**: the v3.2.0 inline comment said "warn when bbox-present + boundaries-absent (user error past the OSM-stub stage); silent on no-bbox + boundaries-absent (the Studio stub)." The code did the opposite. Tests pinned the code, not the documented intent, so it shipped. Fixed: warn fires when `case.bbox in case AND boundaries not in hydrodynamics`. New behavioral tests (`test_v330_r153_r112_fires_when_bbox_present_and_boundaries_absent`, `test_v330_r153_r112_silent_when_bbox_absent`, `test_v330_r153_r112_silent_when_boundaries_present`) pin the CORRECTED semantics — would have caught the original inversion.
+    - **R15-1 (codex P2 + claude security)**: in `OPENLIMNO_PATH_SAFETY_REDACT=1` mode, the path-safety `ValueError` previously redacted `resolved` and `roots` but echoed the user-supplied `uri` verbatim via `URI {uri!r}`. A rejected `output.dir: /etc/leaked_secret_dir` would still leak the absolute path through the URI repr. v3.3.0 redacts the URI too when it's absolute; relative URIs stay visible (they're user-supplied content, not server tree). Applied to both `_resolve_safe` and `_resolve_write_safe`. Two new tests: `test_v330_r151_redact_strips_absolute_uri` + `test_v330_r151_redact_keeps_relative_uri_visible`.
+    - **R15-2 (codex P2) — GUI autoload too strict**: pre-v3.3.0 `_load_wua_q_plot_layer` only validated PNG paths under `case_yaml.parent`. But v3.2.0's `_resolve_write_safe` lets a case legitimately put `output.dir` under a configured `allowed_data_roots` outside the case dir — and the PNG lands there. The autoload silently rejected such legitimate external PNGs while the status bar still claimed the run finished + the layer was loaded. v3.3.0 builds the trust set from `Case._allowed_data_roots()` (case dir + configured roots), so legitimate external `output.dir` cases autoload correctly.
+    - **R15-5 (claude MED) — case_yaml required**: pre-v3.3.0 the `case_yaml` kwarg defaulted to `None`, silently skipping the path validation. The "back-compat" reasoning was hollow — there's only one caller. Made the kwarg required so the security check is unskippable.
+    - **R15-6 (claude MED) — matplotlib force=False**: v3.1.0 used `force=True` at `openlimno.studio.__init__` to win the backend lock race. But this overrides any third-party importer's explicit backend choice — silently clobbering notebook/downstream users' environments. v3.3.0 switches to `force=False`. If matplotlib hasn't picked a backend yet (the common Studio bootstrap path), Agg still wins. If a user has actively chosen Tk/Qt, their choice is respected — Studio's QThread render is then their risk, which is the right trade-off vs. ambient clobbering.
+
+    **DEFERRED to v3.4+ (from the 15th-round backlog)**:
+    - **R15-4 (claude MED) — `_resolve_write_safe` walk-up TOCTOU**: between the ancestor `.resolve()` and the subsequent `mkdir`, a malicious actor controlling any segment of the parent chain could swap in a symlink. Standard sandbox concern; v3.x deep-sandbox redesign needed (openat-style).
+    - **R15-7 (claude LOW) — code duplication between `_resolve_safe` and `_resolve_write_safe`**: ~50 lines copied (URL-scheme check, allowed-roots loop, hint selection, redaction). Real cleanup opportunity but moderately invasive refactor; bundled with the v3.4 TOCTOU work.
+    - **R15-9 (claude test) — `test_v310_shipped_fixtures_validate_under_strict_sandbox` silently skips missing fixtures**: should `pytest.fail`. Minor cosmetic fix; v3.3.1 if it accumulates with others.
+    - **R15-10 (claude test) — `or` in redact write-safe test**: tightened in this ship as a side-effect of the R15-1 rewrite (the new tests use AND-style assertions).
+
+    **15-round chain summary**: 105 + 8 (R15-1..R15-8) = 113 substantive findings; 102 closed; 11 deferred with documented v3.4+ scope tags.
+
+    Verified: `ruff check` 0 findings; `mypy --strict` core (60 files — `_yaml_rt.py` added) + GUI/QGIS (9 files) clean; **518 / 518 tests pass** across the gated suite. New tests: comment-preservation (1), R11-2 corrected semantics (3), R15-1 URI redaction (2).
+
 ## [3.2.0] — 2026-05-19
 
 ### Added

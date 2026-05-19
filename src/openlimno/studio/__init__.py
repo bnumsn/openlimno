@@ -13,22 +13,22 @@ Architecture: see /home/user/.claude/projects/.../memory/project_studio.md
 deprecated after Studio 1.0).
 """
 
-# v3.1.0 R14-2 (claude): force the matplotlib Agg backend at PACKAGE
-# import time, not per-function. The v3.0.0 attempt in plot_wua_q
-# only worked if NOTHING earlier in the Studio process had already
-# imported matplotlib.pyplot — any plugin / re-export / qgis bootstrap
-# would defeat it. Setting Agg here, before any submodule's import,
-# is the only way to win the race for QThread-rendered plots.
+# v3.1.0 R14-2 (claude): set the matplotlib Agg backend at PACKAGE
+# import time so QThread-rendered Studio plots use a thread-safe
+# backend.
 #
-# Always call use("Agg") — matplotlib only honors it if pyplot
-# hasn't been imported and locked a backend yet. force=True
-# overrides even a previously-set backend so a parent process that
-# accidentally chose Tk/Cocoa can't sabotage Studio's QThread render.
-# This is safe in our use case because Studio + headless are the
-# only consumers of pyplot in this codebase (no notebook contract).
+# v3.3.0 R15-6 (claude): use force=False. The v3.1.0 force=True was
+# a process-wide side effect — any third-party importer (notebook,
+# downstream library) of openlimno.studio would silently lose their
+# interactive backend. force=False respects an explicit choice
+# upstream; if matplotlib hasn't picked a backend yet (the common
+# Studio bootstrap path), Agg wins. If a notebook user has chosen
+# Tk/Qt and then imports openlimno.studio, their choice is kept and
+# the QThread render path is THEIR risk — which is the right
+# trade-off vs. silently clobbering their environment.
 import matplotlib  # noqa: PLC0415  — package-init backend lock
 
-matplotlib.use("Agg", force=True)
+matplotlib.use("Agg", force=False)
 
 from .headless import (
     HeadlessRunResult,

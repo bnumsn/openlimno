@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openlimno"
-version = "3.2.0"
+version = "3.3.0"
 description = "Open-source ecological-flow and fish-habitat decision platform with hydraulic-model interoperability"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
@@ -41,6 +41,7 @@ dependencies = [
     "matplotlib>=3.8",
     "h5py>=3.10",
     "pyyaml>=6",
+    "ruamel.yaml>=0.18",  # v3.3.0 R13-3: comment-preserving YAML round-trip for case.yaml patchers
     "jsonschema>=4.21",
     "click>=8.1",
     "rich>=13",

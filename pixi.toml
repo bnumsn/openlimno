@@ -1,6 +1,6 @@
 [workspace]
 name = "openlimno"
-version = "3.2.0"
+version = "3.3.0"
 description = "Open-source ecological-flow and fish-habitat decision platform"
 authors = ["OpenLimno Contributors <hello@openlimno.org>"]
 channels = ["conda-forge"]
@@ -28,6 +28,7 @@ fiona = ">=1.9"
 matplotlib = ">=3.8"
 h5py = ">=3.10"
 pyyaml = ">=6"
+"ruamel.yaml" = ">=0.18"  # v3.3.0 R13-3: comment-preserving YAML round-trip
 jsonschema = ">=4.21"
 click = ">=8.1"
 rich = ">=13"
