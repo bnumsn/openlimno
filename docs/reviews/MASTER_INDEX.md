@@ -60,7 +60,7 @@ of converting `NEEDS-AUDIT` to `CLOSED` / `CLOSED-API-ONLY` /
 
 ---
 
-## Headline numbers (as of 2026-05-19)
+## Headline numbers (as of 2026-05-20)
 
 | Metric | Value |
 |---|---|
@@ -68,12 +68,20 @@ of converting `NEEDS-AUDIT` to `CLOSED` / `CLOSED-API-ONLY` /
 | Total unique findings | **~146** (124 distinct `Rxx-y` codes + 22 F/N/M codes) |
 | Findings flagged closed (per CHANGELOG) | **~128** |
 | Findings deferred (per CHANGELOG) | **~18** |
-| Findings with confirmed production caller | **TBD** (R-DOC-AUDIT-WIRED pass not yet run) |
-| Findings flagged `INTENTIONALLY-API-ONLY` | **TBD** |
+| Findings with confirmed production caller | **R18-1, R18-2, R18-3, R18-4** (4 — full R5..R17 sweep pending) |
+| Findings flagged `INTENTIONALLY-API-ONLY` | `_yaml_rt.dump_round_trip(case=None)` default (bootstrap/ad-hoc writers) |
 
-**Until the R-DOC-AUDIT-WIRED pass completes, treat "~128 closed" as
-upper-bound. The lower bound is the count of findings with a
-verifiable production call site.**
+**Until the full R-DOC-AUDIT-WIRED pass completes (R17 → R5), treat
+"~128 closed" as upper-bound. The lower bound is the count of
+findings with a verifiable production call site (currently 4).
+2026-05-20 R-DOC-AUDIT-WIRED started with R18-4, the freshest API-
+only case.**
+
+## Audit-pass log
+
+| Date | Pass | Findings flipped | Pinned by |
+|---|---|---|---|
+| 2026-05-20 | First R-DOC-AUDIT-WIRED pass | R18-4: OPEN → CLOSED (three production callers now pass `case=`) | `tests/unit/test_r18_4_audit_wired.py` (4 tests) |
 
 ---
 
@@ -115,7 +123,7 @@ ledger:
 |---|---|---|---|---|
 | **Path-safety sandbox** | R11-4, R12-1..R12-3, R13-1, R13-2, R13-4, R13-5, R14-1, R14-3, R14-11, R15-1, R15-7, R15-9, R16-3, R16-5, R17-1, R17-2 | v2.10.1 (R11-4) | v3.0.0 wrap, v3.5.0 TOCTOU, v3.6.0 R17 hardening, v3.6.1 R18-1 fd | `_resolve_safe` + `_resolve_write_safe` + `_open_safe_fd` + `_open_safe` — wired through ~10 of 11 audit sites per SPEC_v3.md §3; `output.dir` intentionally bypassed |
 | **AEQD high-latitude buffer** | R9-3, R16-1, R16-4, R16-7, R17-4, R17-5, R18-2, R18-3 | v2.6.1 (R9-3) | v3.6.1 (R18-2 antimeridian split + R18-3 magnitude guard) | `_riparian_buffer_geodesic` — called from `cover_si_from_polyline` via `riparian_buffer_from_polyline`; production users: any thermal/cover raster sampling at > ±60° lat |
-| **YAML round-trip** | R13-3 | v2.12.0 deferred | v3.3.0 (apply_optimised_params), v3.4.0 (NWIS auto-wire + WEDM patch), v3.6.0 R16-8 (sandbox routing) | `apply_optimised_params_to_case_yaml` (calibrate.py:562) wired; cli.py:1724 + cli.py:2052 wired; **R16-8 `case=` kwarg NOT yet wired by any production caller — confirmed by R18-4** |
+| **YAML round-trip** | R13-3 | v2.12.0 deferred | v3.3.0 (apply_optimised_params), v3.4.0 (NWIS auto-wire + WEDM patch), v3.6.0 R16-8 (sandbox routing), **2026-05-20 R-DOC-AUDIT-WIRED** (R16-8 sandbox-routing actually-wired) | `apply_optimised_params_to_case_yaml` (calibrate.py) wired; cli.py fetch-chain wired; cli.py NWIS auto-wire wired; **R16-8 `case=` kwarg now passed by all three production callers** (2026-05-20). Pinned by `tests/unit/test_r18_4_audit_wired.py`. |
 | **fd ownership / TOCTOU** | R15-4, R14-11, R17-10, R18-1 | v3.0 deferred | v3.5.0 (`_open_safe_fd` O_NOFOLLOW), v3.6.0 (`_open_safe` cm), v3.6.1 (R18-1 no-double-close) | `_open_safe` + `_open_safe_fd` — **NEEDS-AUDIT**: not yet confirmed which consumers (rasterio, parquet, yaml) actually route through these versus raw `open()` |
 | **Studio QThread GUI** | R13-4 (matplotlib Agg), R16-2 (worker-side trust_roots), R17-3 (fallback diagnostic), R17-7 (resolve on GUI thread; deferred) | v3.0.0 | partly v3.6.0; R17-7 still open | `gui_core/controller.py` `_run_case_for_worker` + `_load_wua_q_plot_layer` — wired |
 
@@ -129,7 +137,7 @@ not kept, they must be wired.
 
 | Item | API surface | Why it might be intentional | Audit verdict |
 |---|---|---|---|
-| **R16-8** `dump_round_trip(case=)` | `_yaml_rt.py:139` | Schema-bootstrap callers explicitly want unsandboxed write. But `calibrate.py:562` / `cli.py:1724` / `cli.py:2052` ALL write into `case.case_dir` and SHOULD pass `case=` for defence-in-depth. | **TBD** — likely wire these three; declare bootstrap path `INTENTIONALLY-API-ONLY` |
+| **R16-8** `dump_round_trip(case=)` | `_yaml_rt.py:139` | Schema-bootstrap callers explicitly want unsandboxed write. But `calibrate.py:562` / `cli.py:1724` / `cli.py:2052` ALL write into `case.case_dir` and SHOULD pass `case=` for defence-in-depth. | **WIRED 2026-05-20**: three call sites pass `case=`. Bootstrap / one-off ad-hoc writers continue to default to `case=None` (`INTENTIONALLY-API-ONLY` — they validate their destination themselves). |
 | **R11-4 `_resolve_safe(allow_outside_case=True)`** | `case.py:_resolve_safe` | Fetchers writing to `/tmp/scratch/` legitimately need this. | Already documented in SPEC_v3.md §3 (10/11 sites sandboxed; `output.dir` intentional bypass) |
 
 ---
@@ -168,7 +176,7 @@ historical CHANGELOG entries.
 | R18-1 | HIGH | codex (gemini missed) | `_open_safe` fd double-close after fdopen ownership | v3.6.1 | **CLOSED** | `Case._open_safe` is the wrapper; consumers TBD audit |
 | R18-2 | MEDIUM | codex | Antimeridian buffer world-spanning lon bounds; AEQD inverse split needed | v3.6.1 | **CLOSED** | `_split_at_antimeridian` called from `_riparian_buffer_geodesic`; production: high-lat thermal/cover |
 | R18-3 | MEDIUM | codex | Circular-mean undefined for antipodal longitudes; magnitude guard | v3.6.1 | **CLOSED** | `_riparian_buffer_geodesic` raises `ValueError` |
-| R18-4 | LOW | codex + gemini | `dump_round_trip(case=)` opt-in, no production caller | **DEFERRED to v3.7+** | **OPEN** | Three call sites identified (`calibrate.py:562`, `cli.py:1724`, `cli.py:2052`); audit/wire pending |
+| R18-4 | LOW | codex + gemini | `dump_round_trip(case=)` opt-in, no production caller | **CLOSED** in 2026-05-20 R-DOC-AUDIT-WIRED pass (no version bump — moratorium-compliant doc/audit work per ADR-0011) | **CLOSED** | All three call sites pass `case=`: `workflows/calibrate.py:apply_optimised_params_to_case_yaml`, `cli.py` fetch-chain WEDM patcher, `cli.py` NWIS auto-wire. Pinned by `tests/unit/test_r18_4_audit_wired.py` (4 tests: 2 source-inspection + 2 behavioural sandbox-block + sandbox-permit) |
 
 ### Round S (strategic, claude + codex; gemini upstream-capacity-exhausted, 2026-05-19)
 

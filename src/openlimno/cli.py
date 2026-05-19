@@ -1715,13 +1715,21 @@ def fetch(
     # order on case.yaml (was a real concern for v2.x when a
     # user ran multiple fetchers in sequence — each safe_dump
     # stripped everything).
+    # 2026-05-20 R-DOC-AUDIT-WIRED (closes R18-4 here): pass
+    # ``case=`` so the round-trip write goes through the v3.0
+    # path-safety sandbox.
     from openlimno._yaml_rt import dump_round_trip, load_round_trip
+    from openlimno.case import Case as _Case
     case_doc = load_round_trip(case_yaml_path)
     case_doc["openlimno"] = "0.2"
     if case_doc.get("data") is None:
         case_doc["data"] = {}
     case_doc["data"].update(_wedm_patches["data"])
-    dump_round_trip(case_doc, case_yaml_path)
+    _case = _Case(
+        config=dict(case_doc),
+        case_yaml_path=Path(case_yaml_path).resolve(),
+    )
+    dump_round_trip(case_doc, case_yaml_path, case=_case)
     console.print(
         f"\n[green]✓[/] ran {n_ran} fetcher(s); case.yaml updated to WEDM 0.2"
     )
@@ -2042,14 +2050,21 @@ def init_from_osm(
         # exports.
         case_yaml_path = Path(paths["case_yaml"])
         # v3.4.0 R13-3: ruamel.yaml round-trip preserves comments.
+        # 2026-05-20 R-DOC-AUDIT-WIRED (closes R18-4 here): route
+        # through the v3.0 sandbox via ``case=``.
         from openlimno._yaml_rt import dump_round_trip, load_round_trip
+        from openlimno.case import Case as _Case
         case_doc = load_round_trip(case_yaml_path)
         if case_doc.get("data") is None:
             case_doc["data"] = {}
         case_doc["data"]["rating_curve"] = f"data/{q_path.name}"
         if "regulatory_export" not in case_doc:
             case_doc["regulatory_export"] = ["US-FERC-4e", "EU-WFD", "CN-SL712"]
-        dump_round_trip(case_doc, case_yaml_path)
+        _case = _Case(
+            config=dict(case_doc),
+            case_yaml_path=case_yaml_path.resolve(),
+        )
+        dump_round_trip(case_doc, case_yaml_path, case=_case)
         console.print(
             "  → wired into case.yaml: data.rating_curve + regulatory_export"
         )

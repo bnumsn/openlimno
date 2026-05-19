@@ -559,7 +559,18 @@ def apply_optimised_params_to_case_yaml(
     # ``Case._atomic_write`` (truncate-safety) AND ruamel.yaml
     # round-trip dump (comment-preserving). Both contracts live
     # inside ``openlimno._yaml_rt.dump_round_trip``.
-    return dump_round_trip(config, dst)
+    #
+    # 2026-05-20 R-DOC-AUDIT-WIRED (closes R18-4 here): pass
+    # ``case=`` so the destination is routed through the v3.0
+    # path-safety sandbox. The Case is built from the already-
+    # loaded ``config`` + the input yaml's resolved path — no
+    # extra disk I/O or schema validation (validation already
+    # happened upstream when the calibrate pipeline accepted this
+    # case.yaml). If ``out_yaml`` escapes the sandbox the dump
+    # raises before any bytes hit disk.
+    from openlimno.case import Case as _Case
+    case = _Case(config=config, case_yaml_path=src)
+    return dump_round_trip(config, dst, case=case)
 
 
 __all__ = [
