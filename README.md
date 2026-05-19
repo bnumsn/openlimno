@@ -5,18 +5,30 @@
 > hydraulic results, MIKE 21/FM/1D projects, passage analysis, species evidence,
 > and regulatory reports.
 
-**Status**: package metadata is **v2.5.0** (Production/Stable). The **v2.0.0**
-cut on 2026-05-18 is the major stable surface freeze, following a 6-round
-codex+gemini review chain that closed 28/29 substantive findings on the
-v1.6.0 → v1.10.1 composite-overlay + atomic-write surface area. The v1.0.0
-production-stable line (338 tests pass, 10/10 fetcher e2e PASS against live
-APIs) remains the documented 1.x baseline.
+**Status**: package metadata is **v3.6.1**. The 1.0 line froze its public
+API surface at v1.0.0 (2026-05-12); v2.0 / v3.0 added per-cell composite
+and a strict-by-default path sandbox respectively; v3.0 → v3.6.1 was
+18 rounds of triple-AI CLI code review that closed ~146 substantive
+findings. **675 tests pass; ruff 0; mypy `--strict` core + Studio clean.**
+
+> ⚠️ **Stable-major-tag MORATORIUM in effect (2026-05-19)** — per
+> [ADR-0011](./docs/decisions/0011-stable-major-tag-moratorium.md), the
+> project will NOT cut new `vN.0.0` stable major-version tags until
+> the [unfreeze gate](./docs/ROADMAP.md#how-to-unfreeze) closes
+> (≥ 3 signed maintainers + ratified CAPABILITY_BOUNDARY + at least
+> one of: real PHABSIM Fortran run, real basin case study, or a
+> regulatory reviewer-of-record signed). Until then, v1.0–v3.6.1
+> should be read as engineering pre-GA snapshots; treat the version
+> chain as informational, not as a stability promise.
+
+**Where to start:**
+- New contributors → [`docs/ROADMAP.md`](./docs/ROADMAP.md) (canonical plan + doc index)
+- Reviewers → [`docs/reviews/MASTER_INDEX.md`](./docs/reviews/MASTER_INDEX.md) (full triple-AI ledger)
+- What 1.0 will + will NOT do → [`docs/governance/CAPABILITY_BOUNDARY_1_0.md`](./docs/governance/CAPABILITY_BOUNDARY_1_0.md)
+
 All 1.0-scope modules implemented end-to-end; case YAML drives the full pipeline:
 hydraulics → HSI/WUA cell+HMU → drift egg → regulatory export (CN-SL712 / US-FERC / EU-WFD) → provenance.
 v0.3 → v0.8 added a subscription-free fetch surface (9 fetchers, global coverage, see below).
-v2.x will not break the user-facing fetch / case-schema / habitat surfaces; see [`docs/RELEASE_v1.0.0.md`](./docs/RELEASE_v1.0.0.md) for the 1.0 stability commitments and [`CHANGELOG.md`](./CHANGELOG.md) for the v2.0.0 charter.
-See [`tools/m0_checklist/M0_CHECKLIST.md`](./tools/m0_checklist/M0_CHECKLIST.md) for the deployment checklist
-(maintainer signing, real SCHISM container build, QGIS LTS testing, real basin study).
 
 ## What it is
 

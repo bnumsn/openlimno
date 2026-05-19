@@ -16,6 +16,8 @@ ADRs document significant architectural / technical decisions. Format: [MADR 4.0
 | [0008](0008-multi-scale-habitat-aggregation.md) | Multi-scale WUA: cell / HMU / reach | Accepted |
 | [0009](0009-regulatory-output-templates.md) | Regulatory output: CN-SL712 / US-FERC / EU-WFD | Accepted (M2 sign-off needed) |
 | [0010](0010-spec-scope-discipline.md) | SPEC §0.3 enforcement via PR template + CI check | Accepted |
+| [0011](0011-stable-major-tag-moratorium.md) | Moratorium on stable major-version tags until D1+D2+(D5∨D6∨D7) close | **Accepted (interim)** |
+| [0012](0012-phabsim-real-fortran-validation.md) | PHABSIM Fortran real-run validation harness (R-PHABSIM-REAL) | Proposed |
 
 ## Template
 

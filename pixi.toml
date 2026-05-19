@@ -144,7 +144,15 @@ lint-fix = "ruff check --fix src/ tests/ benchmarks/_compare"
 format = "ruff format src/ tests/"
 typecheck = "mypy src/openlimno"
 typecheck-strict-core = 'mypy --strict src/openlimno --exclude "src/openlimno/(gui_core|studio|qgis)/"'
-typecheck-strict-gui-qgis = "mypy --strict src/openlimno/gui_core src/openlimno/studio src/openlimno/qgis --ignore-missing-imports --allow-untyped-decorators --allow-untyped-calls"
+# v3.6.1-post: QGIS plugin is maintenance-only (see
+# src/openlimno/qgis/openlimno_qgis_plugin/MAINTENANCE_ONLY.md + ADR-0011).
+# Default ``check`` covers Studio (gui_core + studio); QGIS is opt-in
+# via ``typecheck-strict-qgis`` for PRs that actually touch qgis/.
+typecheck-strict-gui = "mypy --strict src/openlimno/gui_core src/openlimno/studio --ignore-missing-imports --allow-untyped-decorators --allow-untyped-calls"
+typecheck-strict-qgis = "mypy --strict src/openlimno/qgis --ignore-missing-imports --allow-untyped-decorators --allow-untyped-calls"
+# Back-compat alias so existing scripts / CI / hooks that call the old
+# task name don't break. Remove after the next maintainer sync.
+typecheck-strict-gui-qgis = { depends-on = ["typecheck-strict-gui", "typecheck-strict-qgis"] }
 validate-schemas = "python -m openlimno.wedm.validate_schemas"
 docs-serve = { cmd = "mkdocs serve", env = { ENVIRONMENT = "default" } }
 docs-build = "mkdocs build --strict"
@@ -158,4 +166,7 @@ benchmark-all = { depends-on = ["benchmark-mms", "benchmark-toro", "benchmark-ph
 # ``mypy src/openlimno``). The two strict tasks together check every
 # file in src/openlimno under stricter rules, so the non-strict pass
 # was pure CI churn.
-check = { depends-on = ["lint", "typecheck-strict-core", "typecheck-strict-gui-qgis", "test", "validate-schemas"] }
+# v3.6.1-post: QGIS strict-typing moved out of default (maintenance-only
+# per ADR-0011). ``check`` now covers core + Studio. PRs that touch
+# qgis/ should additionally run ``pixi run typecheck-strict-qgis``.
+check = { depends-on = ["lint", "typecheck-strict-core", "typecheck-strict-gui", "test", "validate-schemas"] }

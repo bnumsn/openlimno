@@ -4,10 +4,41 @@
 > separate 1.0 / research route / far-future vision tiers without
 > blending them.
 
+> **2026-05-19 sync notice**: this document scoped the 3.x research
+> route as of v2.10.x. Multiple items below were actually executed
+> inside the v3.0–v3.6.1 patch line (notably R11-4 path sandbox,
+> R9-3 high-latitude buffering, R13-3 ruamel.yaml). The
+> ✅ / ⚠️ / ❌ markers below were back-filled during the 2026-05-19
+> strategic-review consolidation (see [`docs/ROADMAP.md`](ROADMAP.md))
+> to make the doc match the code. The original scope text is
+> preserved below for traceability.
+
 This document scopes the **3.x research route** — work that is
 explicitly out-of-scope for the 1.x and 2.x stable surfaces but is
 charter-committed for future research releases. It serves as the
 contract between the 2.0 stable line and the research-track ships.
+
+## Status legend (2026-05-19 sync)
+
+- ✅ **Closed** — landed in v3.x patch line; production caller wired (or
+  flagged INTENTIONALLY-API-ONLY in `docs/reviews/MASTER_INDEX.md`)
+- ⚠️ **Closed-API-only** — API exists, no production caller yet —
+  blocks unfreeze gate U6 (per [ADR-0011](decisions/0011-stable-major-tag-moratorium.md))
+- ❌ **Still open** — neither API nor wire-up done
+
+| Research-route item | Status | Closed in | Notes |
+|---|---|---|---|
+| **R11-4 path-safety sandbox** | ✅ | v3.0 + v3.2 + v3.5 + v3.6 | Strict-by-default; TOCTOU mitigation via `_open_safe_fd` (O_NOFOLLOW); fd safety via `_open_safe`; widened URI redaction. 10/11 audit sites wired per SPEC_v3.md §3. |
+| **R9-3 high-latitude projected-CRS buffering** | ✅ | v3.4 + v3.5 + v3.6 + v3.6.1 | AEQD projection round-trip; antimeridian split; circular-mean centre with magnitude guard. |
+| **R13-3 ruamel.yaml comment-preserving round-trip** | ✅ | v3.3 + v3.4 | All 3 production writers migrated. |
+| **R11-2 solver-level boundaries-missing warning** | ✅ | v3.2 | Logs warning before solver fabricates defaults. |
+| **R11-23 lateral-inflow / point-source boundary schema** | ❌ | — | Schema work blocked on solver-side groundwork; revisit when SCHISM 2D expansion ships. |
+| **Reference-platform real-run harnesses (PHABSIM/River2D/HABBY/FishXing)** | ❌ | — | PHABSIM real-run track opens via [ADR-0012](decisions/0012-phabsim-real-fortran-validation.md); River2D/HABBY/FishXing still rely on exported-table readers. |
+| **Spatial T(x) thermal raster — native PRISM/NLDAS** | ❌ | — | Open-Meteo backend present in v2.6.1; native PRISM/NLDAS optional. |
+| **PEST++ multi-parameter calibration** | ✅ | v2.14.0 | Container wrapper pending (packaging, not core). |
+| **Strict mypy (core)** | ✅ | v2.5.1 | `typecheck-strict-core` in `pixi run check` (60 files). |
+| **Strict mypy (GUI/QGIS)** | ⚠️ | v2.x | Split in v3.6.1-post: Studio in default `check`; QGIS opt-in via `typecheck-strict-qgis` per `MAINTENANCE_ONLY.md`. |
+| **TIFF fixture generator (R11-18)** | ❌ | — | Defensive-only; not blocking any user. |
 
 ## Triggers for cutting v3.0
 
