@@ -4,6 +4,27 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.14.0] — 2026-05-19
+
+### Added
+- **v2.14.0 — PEST++ GLM ↔ HSI calibration round-trip (E, v2.5.0 charter half-promise closed)**:
+    v2.5.0 shipped the workspace *generator* (`build_pestpp_glm_workspace` emits `.pst` + parameter files + a model runner script) and v2.5.0 also shipped the *runner* (`run_pestpp_glm_workspace` invokes the external `pestpp-glm` binary). What was missing was the round-trip: PEST++ writes optimised parameter estimates to a `.par` file, but the user had to hand-edit those values back into `case.yaml`. v2.14.0 closes that loop.
+    - **`read_optimised_params(workspace, *, par_filename='openlimno_calibration.par')`**: parses PEST++ GLM's `.par` output format
+      ```
+      single point
+      manning_n 0.041234 1.0 0.0
+      slope     0.002567 1.0 0.0
+      ```
+      and returns `{name: value}`. Defensive against the header line; rejects malformed files via `ValueError` (silent-empty would mask user data-loss). Raises `FileNotFoundError` with a diagnostic pointer to `.rec`/`.rmr` when PEST++ didn't actually run.
+    - **`apply_optimised_params_to_case_yaml(case_yaml, params, *, out_yaml=None)`**: writes the optimised values into `case.yaml` under `hydrodynamics.builtin_1d.{manning_n, slope}`. The `builtin_1d` schema is intentionally `additionalProperties: true` (per v2.10.0 SPEC for M2 solver expansion), so the patched YAML still validates against the WEDM schema. Default `out_yaml=None` patches in place; explicit `out_yaml` preserves a pre-calibration copy. Rejects with `ValueError` if no recognised parameter names are present — silently writing the file unchanged would mask the user calibrating a parameter the round-trip doesn't yet wire (HSI knots, per-segment Manning's-n CSV emission — both flagged as future-ship work in the docstring).
+    - **`Case.run` now honors YAML-side calibrated values as defaults**: when `hydrodynamics.builtin_1d.{manning_n, slope}` is set in the YAML AND the caller didn't override the hard-coded kwarg defaults (`slope=0.002`, `manning_n=0.035`), `Case.run` picks up the YAML values and records a warning naming each calibrated value used. Explicit kwargs to `Case.run` still win (sensitivity-sweep ergonomics: "what's the impact of using 0.04 instead of the calibrated 0.0412?"). This is the conservative form that matches PEST's convention — calibrated parameters ship with the model; users explicitly override to test.
+    - **8 new pinned tests** in `tests/unit/test_pestpp_round_trip.py` across three layers:
+        - .par parsing (3 tests: happy-path format, missing file, malformed file with diagnostic error);
+        - YAML patching (3 tests: in-place patch validates against WEDM schema, separate-out-yaml preserves source, empty-recognised-keys rejected);
+        - end-to-end + Case.run integration (2 tests: full .par → case.yaml glue chain, signature-pin that `Case.run`'s hard-coded defaults are preserved so the YAML-override branch only fires when the kwarg matches the default).
+    - **Charter closure**: v2.5.0's PEST++ ship was charter-tagged "research-route, full validation deferred." v2.14.0 makes the round-trip a real production-line workflow: `openlimno calibrate --algo pestpp-glm` → external `pestpp-glm` run → `read_optimised_params` + `apply_optimised_params_to_case_yaml` → `Case.from_yaml(patched).run()` picks up the calibrated values with zero user keystrokes between the optimisation and the next forward run. The remaining 3.x-route enhancements (HSI-knot calibration round-trip, per-segment Manning's-n CSV emission, container-wrapped PEST++ for non-pixi deployments) are still 3.x; that's not scope creep, it's the natural SPEC tier separation.
+    - Verified: `ruff check` 0 findings; `mypy --strict` core (59 files) + GUI/QGIS (9 files) clean; 8 / 8 round-trip tests pass; 22 / 22 sandbox + 36 / 36 schema + 9 / 9 plugin-smoke + 3 / 3 composite + 33 / 33 safe_env + 2 / 2 version-consistency = 113 / 113 across the gated suite.
+
 ## [2.13.0] — 2026-05-19
 
 ### Added

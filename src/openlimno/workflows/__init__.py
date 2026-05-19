@@ -11,8 +11,10 @@ from .calibrate import (
     CalibrationResult,
     PestppRunResult,
     PestppWorkspace,
+    apply_optimised_params_to_case_yaml,
     build_pestpp_glm_workspace,
     calibrate_manning_n,
+    read_optimised_params,
     run_pestpp_glm_workspace,
 )
 
@@ -20,7 +22,9 @@ __all__ = [
     "CalibrationResult",
     "PestppRunResult",
     "PestppWorkspace",
+    "apply_optimised_params_to_case_yaml",
     "build_pestpp_glm_workspace",
     "calibrate_manning_n",
+    "read_optimised_params",
     "run_pestpp_glm_workspace",
 ]

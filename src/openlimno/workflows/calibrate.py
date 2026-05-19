@@ -19,6 +19,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yaml
 from scipy.optimize import minimize_scalar
 
 from openlimno.hydro.builtin_1d import CrossSection
@@ -382,11 +383,144 @@ def run_pestpp_glm_workspace(
     return result
 
 
+# ---------------------------------------------------------------------
+# v2.14.0 — PEST++ GLM ↔ HSI round-trip closure (charter half-promise
+# from v2.5.0). Reads the optimised parameters PEST++ wrote, patches
+# them back into case.yaml under ``hydrodynamics.builtin_1d`` so a
+# subsequent ``Case.run()`` picks them up as defaults.
+# ---------------------------------------------------------------------
+def read_optimised_params(
+    workspace: PestppWorkspace | str | Path,
+    *,
+    par_filename: str = "openlimno_calibration.par",
+) -> dict[str, float]:
+    """Read PEST++ GLM's optimised-parameter output.
+
+    After ``pestpp-glm`` finishes a calibration run, it writes the
+    final parameter estimates to ``<control>.par`` in the workspace
+    directory. The format is:
+
+        single point
+        manning_n 0.041234 1.0 0.0
+        slope     0.002567 1.0 0.0
+
+    where the first line is the parameter-data header (style + scale
+    + offset convention) and each subsequent line carries
+    ``name value scale offset``. This function returns ``{name:
+    value}`` for every parameter in the file.
+
+    Args:
+        workspace: PestppWorkspace dataclass or path to the workspace
+            directory.
+        par_filename: name of the ``.par`` file (default matches what
+            ``build_pestpp_glm_workspace`` writes).
+
+    Returns:
+        dict mapping parameter name → optimised numeric value.
+
+    Raises:
+        FileNotFoundError: when the ``.par`` file is missing
+            (PEST++ didn't finish or never ran).
+        ValueError: when the file format is unparseable.
+    """
+    directory, _ = _workspace_paths(workspace)
+    par_path = directory / par_filename
+    if not par_path.is_file():
+        raise FileNotFoundError(
+            f"PEST++ .par file not found: {par_path}. Did pestpp-glm "
+            f"finish a successful run? Check the workspace for "
+            f"openlimno_calibration.rec / .rmr for diagnostics."
+        )
+    params: dict[str, float] = {}
+    lines = par_path.read_text(encoding="utf-8").splitlines()
+    # Skip the header line ("single point" or similar; PEST++ writes
+    # this verbatim, no commentary chars). Be defensive: scan from the
+    # first line that has 2+ whitespace-separated tokens with the second
+    # token parseable as a float.
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        try:
+            value = float(parts[1])
+        except ValueError:
+            continue
+        params[parts[0]] = value
+    if not params:
+        raise ValueError(
+            f"PEST++ .par file at {par_path} carried no parseable "
+            f"parameter rows. First few lines: {lines[:5]!r}"
+        )
+    return params
+
+
+def apply_optimised_params_to_case_yaml(
+    case_yaml: str | Path,
+    params: dict[str, float],
+    *,
+    out_yaml: str | Path | None = None,
+) -> Path:
+    """Patch a case YAML with PEST++-optimised parameters.
+
+    Writes the supplied parameters into
+    ``hydrodynamics.builtin_1d.{manning_n, slope}`` so a subsequent
+    ``Case.from_yaml(out_yaml).run()`` picks them up as the
+    effective defaults (without any explicit kwarg). Only
+    ``manning_n`` and ``slope`` keys are honored; any other
+    parameter names in ``params`` are warned-on and ignored — a
+    future ship can extend the mapping to per-segment Manning's-n
+    CSV emission, HSI-knot patching, etc.
+
+    Args:
+        case_yaml: path to the input case YAML.
+        params: ``{name: value}`` dict, typically from
+            ``read_optimised_params``.
+        out_yaml: where to write the patched YAML. ``None`` means
+            write back to the input path (in-place patch); pass an
+            explicit path to keep a pre-calibration copy.
+
+    Returns:
+        Path to the written YAML.
+
+    Raises:
+        ValueError: when ``params`` contains no recognised keys
+            (so the user is alerted rather than silently writing
+            the file unchanged).
+    """
+    src = Path(case_yaml).resolve()
+    dst = Path(out_yaml).resolve() if out_yaml else src
+    config = yaml.safe_load(src.read_text(encoding="utf-8"))
+    hydro = config.setdefault("hydrodynamics", {})
+    b1d = hydro.setdefault("builtin_1d", {})
+
+    recognised = {"manning_n", "slope"}
+    patched: list[str] = []
+    for key in recognised & params.keys():
+        b1d[key] = float(params[key])
+        patched.append(key)
+    if not patched:
+        raise ValueError(
+            f"None of the parameter names {list(params)} are "
+            f"currently recognised by the round-trip writer. v2.14.0 "
+            f"supports {sorted(recognised)}; extend the mapping in "
+            f"calibrate.apply_optimised_params_to_case_yaml for HSI "
+            f"knots / per-segment manning."
+        )
+
+    dst.write_text(
+        yaml.safe_dump(config, sort_keys=False, default_flow_style=False),
+        encoding="utf-8",
+    )
+    return dst
+
+
 __all__ = [
     "CalibrationResult",
     "PestppRunResult",
     "PestppWorkspace",
+    "apply_optimised_params_to_case_yaml",
     "build_pestpp_glm_workspace",
     "calibrate_manning_n",
+    "read_optimised_params",
     "run_pestpp_glm_workspace",
 ]

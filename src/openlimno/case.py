@@ -127,6 +127,40 @@ class Case:
         cfg = self.config
         case_dir = self.case_dir
 
+        # v2.14.0 PEST++ round-trip closure: when a calibration run
+        # has patched ``hydrodynamics.builtin_1d.{manning_n, slope}``
+        # into the case YAML (via
+        # ``calibrate.apply_optimised_params_to_case_yaml``), those
+        # values become the EFFECTIVE defaults for this run. Explicit
+        # kwargs to Case.run still win (so caller-supplied values
+        # override the calibrated YAML; useful for sensitivity
+        # sweeps). The detection key is "explicit kwarg == the
+        # hard-coded default" vs. "explicit kwarg differs" — we
+        # can't tell the two apart at the function-call boundary in
+        # Python, so the contract is "YAML wins over hard-coded
+        # default; caller MUST pass an explicit kwarg to override the
+        # YAML." This matches PEST's convention (calibrated parameters
+        # ship with the model; user explicitly overrides to test).
+        b1d = cfg.get("hydrodynamics", {}).get("builtin_1d") or {}
+        if "slope" in b1d and slope == 0.002:
+            slope = float(b1d["slope"])
+            warnings.append(
+                f"Using calibrated slope from YAML: {slope:.6g}"
+            )
+        # builtin_1d_config schema permits manning_n as a number or
+        # as a path to a per-segment CSV; only honor the scalar form
+        # here. The CSV form is a different code path that
+        # load_sections_from_parquet already supports.
+        if (
+            "manning_n" in b1d
+            and manning_n == 0.035
+            and isinstance(b1d["manning_n"], (int, float))
+        ):
+            manning_n = float(b1d["manning_n"])
+            warnings.append(
+                f"Using calibrated manning_n from YAML: {manning_n:.6g}"
+            )
+
         # Discharges
         if discharges_m3s is None:
             discharges_m3s = [float(q) for q in np.logspace(0, 1.5, 8)]
