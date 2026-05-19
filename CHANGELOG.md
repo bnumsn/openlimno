@@ -4,6 +4,17 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.9.0] — 2026-05-19
+
+### Changed
+- **v2.9.0 — Studio GUI run-case worker delegates to the headless API**:
+    Consolidates the last fork of the case-execution chain. v2.3.0 shipped `openlimno.studio.headless.run_case_with_plots` as the single supported Studio entry-point — used directly by `python -m openlimno.studio --headless`, the CLI `openlimno run --plot`, and (per its module docstring) "the GUI controller's `_RunCaseWorker` (which previously inlined this logic)". Reality was that the controller worker had *never* been refactored to actually delegate to it — it inlined its own `Case.from_yaml(...)` + `case.run()` chain, drifting from CLI/headless behavior (no canonical WUA-Q plot, no HSI quality-grade in the status line).
+    - **`src/openlimno/gui_core/controller.py` — `_RunCaseWorker.run`**: replaces the inline `Case.from_yaml` + `case.run()` chain with a single call to `run_case_with_plots(self_._case_yaml, plot=False)`. The status-line summary now includes the HSI quality grade (`Case 'X' (HSI A): N flows; outputs in …`), surfaced from the headless `HeadlessRunResult.wua_quality_grade` field. `plot=False` because the QGIS controller renders its own plot via the existing layer-loading path; passing `plot=True` would cause two PNGs to land in the run output dir for the same WUA-Q table.
+    - **QThread signal contract unchanged**: `status` / `finished_ok(str)` / `failed(str)` keep the same shapes, so the existing smoke test (`tests/integration/studio_workflows_smoke.py::test_run_case`) and the rest of `_on_run_finished` continue to work without changes. The re-entry guard (`if existing.isRunning(): pushMessage(...)`) is untouched.
+    - **New regression-pin test** `test_v290_run_case_worker_delegates_to_headless_api` in `tests/unit/test_qgis_plugin_smoke.py`: inspects `Controller.run_case` source and asserts (a) `run_case_with_plots` appears, (b) the inlined `case.run(` call is gone. This matches the inspector-style pin pattern used by v0.7/v0.8 fetch-toolbar regression tests in the same file, so any future revert to inline-Case is caught at the unit-test layer (no Qt environment needed).
+    - **Closes the v2.3.0 docstring promise**: `headless.py`'s module docstring already claimed the GUI controller "previously inlined this logic" — that statement was forward-looking at v2.3.0 and only becomes true at v2.9.0. The docstring needs no edit; reality finally matches.
+    - Verified: `ruff check` 0 findings; `mypy --strict` core (59 files) + GUI/QGIS (9 files) clean; new pin + existing controller / headless / composite_hsi tests all green. Pre-existing env-gap failures (missing `osgeo` / `qgis` / `h5py` / `pestpp` / `snakemake`) unchanged from v2.8.0.
+
 ## [2.8.0] — 2026-05-19
 
 ### Added

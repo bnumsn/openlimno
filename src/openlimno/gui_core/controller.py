@@ -816,13 +816,24 @@ class Controller:
                 self._case_yaml = case_yaml_
 
             def run(self_) -> None:  # noqa: N805 (Qt API; outer self is closure)
+                # v2.9.0: delegate to the v2.3.0 headless API instead
+                # of inlining Case.from_yaml + the case-level run call.
+                # ``run_case_with_plots`` is the single supported
+                # entry-point that Studio/GUI/CLI all share; inlining
+                # the chain here diverged from CLI/headless behavior
+                # (no canonical WUA-Q plot, no quality-grade in the
+                # status line).
                 try:
                     self_.status.emit(f"Loading {self_._case_yaml.name}…")
-                    from openlimno.case import Case
-                    case = Case.from_yaml(str(self_._case_yaml))
+                    from openlimno.studio.headless import run_case_with_plots
                     self_.status.emit("Solving 1D hydraulics + WUA-Q…")
-                    result = case.run()
-                    self_.finished_ok.emit(result.summary())
+                    result = run_case_with_plots(self_._case_yaml, plot=False)
+                    self_.finished_ok.emit(
+                        f"Case '{result.case_name}' "
+                        f"(HSI {result.wua_quality_grade}): "
+                        f"{result.n_discharges} flows; outputs in "
+                        f"{result.output_dir}"
+                    )
                 except Exception:
                     import traceback
                     self_.failed.emit(traceback.format_exc())

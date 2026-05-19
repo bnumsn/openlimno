@@ -131,3 +131,36 @@ def test_v08_fetch_data_into_case_uses_qprocess_not_qthread():
         "fetch_data_into_case's QProcess will fail with "
         "'No such command' on the next user click."
     )
+
+
+# ---------------------------------------------------------------------
+# v2.9.0 — Studio GUI's run-case worker must delegate to the headless API
+# ---------------------------------------------------------------------
+def test_v290_run_case_worker_delegates_to_headless_api() -> None:
+    """v2.9.0 regression pin: ``Controller.run_case`` must call into
+    ``run_case_with_plots`` from ``openlimno.studio.headless`` rather
+    than inline ``Case.from_yaml`` + ``case.run()``.
+
+    Why this matters: v2.3.0 shipped ``run_case_with_plots`` as the
+    single supported entry-point that the CLI and Studio share. The
+    QGIS-plugin worker was the last caller still inlining the chain
+    — that divergence meant Studio runs skipped the canonical WUA-Q
+    plot and the HSI quality-grade in the status line. v2.9.0
+    consolidates them; reverting would silently re-fork the path.
+    """
+    import inspect
+
+    from openlimno.gui_core.controller import Controller
+    src = inspect.getsource(Controller.run_case)
+    assert "run_case_with_plots" in src, (
+        "REGRESSION: GUI run-case worker no longer delegates to "
+        "openlimno.studio.headless.run_case_with_plots — the v2.3.0 "
+        "unified Studio entry-point has been re-forked."
+    )
+    # And: the inlined ``case.run()`` call from pre-v2.9.0 must be gone
+    # — its presence indicates the duplication is back.
+    assert "case.run()" not in src, (
+        "REGRESSION: GUI run-case worker is calling ``case.run()`` "
+        "inline again; v2.9.0 explicitly removed this in favor of "
+        "``run_case_with_plots``."
+    )
