@@ -445,6 +445,132 @@ def test_v2111_schema_minitems_allows_explicit_empty(
     )
 
 
+# ---------------------------------------------------------------------
+# v2.12.0 — sandbox hardening (N + O bundled)
+# ---------------------------------------------------------------------
+def test_v2120_advance_notice_warns_on_escape_when_unset(
+    tmp_path: Path,
+    recwarn: pytest.WarningsRecorder,
+) -> None:
+    """v2.12.0 O: when allowed_data_roots is UNSET (the back-compat
+    permissive branch) and a URI resolves OUTSIDE the case dir,
+    emit a DeprecationWarning so CI-strict catches it before v3.0
+    makes the strict branch default.
+    """
+    case_yaml = _write_case_yaml(tmp_path / "case_dir")  # no roots
+    case = _make_case(case_yaml)
+
+    # Resolves outside the case dir → must warn (but not raise).
+    out = case._resolve_safe("../../../tmp/outside.csv")
+    assert isinstance(out, Path)
+    msgs = [str(w.message) for w in recwarn.list]
+    assert any(
+        "path-safety" in m and "outside" in m for m in msgs
+    ), (
+        f"v2.12.0 O regression: a URI escaping the case dir should "
+        f"emit a DeprecationWarning when allowed_data_roots is "
+        f"unset. Warnings seen: {msgs}"
+    )
+
+
+def test_v2120_no_warning_for_in_case_dir_path(
+    tmp_path: Path,
+    recwarn: pytest.WarningsRecorder,
+) -> None:
+    """v2.12.0 O: the advance-notice warning fires ONLY on escape.
+    A normal in-case-dir URI must NOT warn (would spam every shipped
+    fixture's run output)."""
+    case_yaml = _write_case_yaml(tmp_path / "case_dir")
+    case = _make_case(case_yaml)
+
+    case._resolve_safe("./data/local_fixture.parquet")
+    safety_warnings = [
+        str(w.message) for w in recwarn.list
+        if "path-safety" in str(w.message)
+    ]
+    assert safety_warnings == [], (
+        f"v2.12.0 O regression: in-case-dir URI triggered a "
+        f"path-safety warning. Got: {safety_warnings}"
+    )
+
+
+def test_v2120_no_warning_when_opted_in(
+    tmp_path: Path,
+    recwarn: pytest.WarningsRecorder,
+) -> None:
+    """v2.12.0 O: when the user has opted into the sandbox (set
+    allowed_data_roots, even to []), the advance-notice warning
+    must NOT fire — they've made their choice, no nag."""
+    shared = tmp_path / "shared_data"
+    shared.mkdir()
+    case_yaml = _write_case_yaml(
+        tmp_path / "case_dir", allowed_data_roots=[str(shared)],
+    )
+    case = _make_case(case_yaml)
+
+    # A URI under the configured shared root → allowed, no warning.
+    case._resolve_safe(str(shared / "fixture.parquet"))
+    safety_warnings = [
+        str(w.message) for w in recwarn.list
+        if "path-safety" in str(w.message)
+    ]
+    assert safety_warnings == [], (
+        f"v2.12.0 O regression: opt-in users got a nag warning. "
+        f"Got: {safety_warnings}"
+    )
+
+
+def test_v2120_n_cross_section_routed_through_sandbox(
+    tmp_path: Path,
+) -> None:
+    """v2.12.0 N: Case.run's data.cross_section resolution now
+    goes through _resolve_safe (was _resolve in v2.11.x). Pin via
+    source-inspection AND by verifying that an out-of-sandbox
+    cross_section path is rejected when allowed_data_roots is
+    explicitly set. (We don't run the full Case.run here — that's
+    integration-test territory; this is the wiring pin.)
+    """
+    import inspect
+
+    from openlimno.case import Case
+    src = inspect.getsource(Case.run)
+    # Source-text pin (cheap regression detector): the two new
+    # call sites must use _resolve_safe, not _resolve, for the
+    # cross_section and hsi_curve URIs.
+    assert "cross_section_path = self._resolve_safe(" in src, (
+        "v2.12.0 N regression: cross_section URI no longer routed "
+        "through _resolve_safe."
+    )
+    assert "hsi_path = self._resolve_safe(" in src, (
+        "v2.12.0 N regression: hsi_curve URI no longer routed "
+        "through _resolve_safe."
+    )
+
+
+def test_v2120_advance_notice_uses_deprecationwarning_category(
+    tmp_path: Path,
+) -> None:
+    """v2.12.0 O: the advance-notice warning must use
+    DeprecationWarning specifically so `-W error::DeprecationWarning`
+    in CI makes the escape fail loudly."""
+    import warnings as _w
+
+    case_yaml = _write_case_yaml(tmp_path / "case_dir")
+    case = _make_case(case_yaml)
+
+    with _w.catch_warnings(record=True) as captured:
+        _w.simplefilter("always")
+        case._resolve_safe("../../../tmp/escapee.csv")
+    safety = [
+        c for c in captured if "path-safety" in str(c.message)
+    ]
+    assert safety, "No path-safety warning captured."
+    assert issubclass(safety[0].category, DeprecationWarning), (
+        f"v2.12.0 O regression: warning category was "
+        f"{safety[0].category.__name__}, expected DeprecationWarning."
+    )
+
+
 def test_v2110_schema_rejects_unknown_case_field(tmp_path: Path) -> None:
     """Pin that adding allowed_data_roots didn't accidentally loosen
     case's additionalProperties:false guard."""

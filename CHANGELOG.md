@@ -4,6 +4,16 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.12.0] — 2026-05-19
+
+### Added
+- **v2.12.0 — path-safety sandbox hardening (N + O bundled)**: continues the R11-4 v3.0-blocker shift-left by widening engine adoption AND giving v3.0's planned strict-by-default behavior an advance-notice channel.
+    - **N — three more engine call sites routed through `_resolve_safe`**: `data.cross_section`, `data.hsi_curve`, and the regulatory-export `data.rating_curve` discharge series. Combined with v2.11.1's `_resolve_mesh_uri` wire-in, four of the high-value user-supplied data URIs now flow through the sandbox. With `case.allowed_data_roots` unset (every shipped fixture) this falls through to the same `_resolve()` behavior — zero behavior change for existing cases. Opt-in users get sandboxing on four critical URIs for free.
+    - **O — advance-notice `DeprecationWarning` when `allowed_data_roots` unset AND URI escapes the case dir**: when the YAML hasn't opted into the sandbox, `_resolve_safe` falls through to permissive — but as of v2.12.0 it ALSO checks whether the resolved path escapes the case dir and, if so, emits a `DeprecationWarning` naming the URI and the recommended opt-in path. CI runs with `-W error::DeprecationWarning` now catch path escapes loudly. In-case-dir paths and opt-in users see no warning (no nag); the warning fires only on actual escapes from non-opted-in cases — exactly the cases v3.0 will reject by default. 3 new pinned tests in `tests/unit/test_path_sandbox.py`: escape triggers warning, in-case-dir doesn't, opt-in doesn't, plus a category-pin verifying `DeprecationWarning` specifically (not `UserWarning`, since CI's `-W error::DeprecationWarning` is the load-bearing signal).
+    - **N source-inspection pin**: `test_v2120_n_cross_section_routed_through_sandbox` asserts via `inspect.getsource(Case.run)` that the `cross_section_path` and `hsi_path` URIs go through `_resolve_safe`. Coarse but cheap regression detector — a future refactor that swaps back to `_resolve` here would silently lose the sandbox coverage; the pin flags it instantly.
+    - **v3.0 path forward**: with v2.11.1 wiring `_resolve_mesh_uri` and v2.12.0 wiring three more sites, 4 / 23+ call sites now route through `_resolve_safe`. The v3.0 ship's audit-pass scope is correspondingly reduced (≈ 19 call sites + the back-compat default flip + the `tests/integration/test_path_sandbox.py` end-to-end matrix). Documented in `docs/SPEC_3x_research_route.md`.
+    - Verified: `ruff check` 0 findings; `mypy --strict` core (59 files) + GUI/QGIS (9 files) clean; 22 / 22 sandbox tests (was 17), 105 / 105 across the gated test set all green.
+
 ## [2.11.1] — 2026-05-19
 
 ### Fixed

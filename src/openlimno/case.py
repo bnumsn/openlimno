@@ -131,14 +131,20 @@ class Case:
         if discharges_m3s is None:
             discharges_m3s = [float(q) for q in np.logspace(0, 1.5, 8)]
 
+        # v2.12.0 N: wire user-supplied data URIs through the
+        # path-safety sandbox. With case.allowed_data_roots unset
+        # (every shipped fixture) this falls through to _resolve()
+        # — back-compat preserved. Cases that opt in now get
+        # sandboxing on the two highest-value user-data inputs.
+
         # 1. Load cross-sections
-        cross_section_path = self._resolve(
+        cross_section_path = self._resolve_safe(
             cfg.get("data", {}).get("cross_section", "../../data/lemhi/cross_section.parquet")
         )
         sections = load_sections_from_parquet(cross_section_path, manning_n=manning_n)
 
         # 2. Load HSI curves
-        hsi_path = self._resolve(
+        hsi_path = self._resolve_safe(
             cfg.get("data", {}).get("hsi_curve", "../../data/lemhi/hsi_curve.parquet")
         )
         hsi_curves = load_hsi_from_parquet(hsi_path)
@@ -658,10 +664,33 @@ class Case:
         raw = self._get_allowed_data_roots_raw()
         if raw is None:
             # Sandbox is opt-in: the YAML didn't declare any roots
-            # → back-compat permissive resolution. v3.0 may change
-            # this default. R12-3: this is the ONLY permissive path
-            # now; an explicit empty list falls through to the
-            # strict branch below (case dir only).
+            # → back-compat permissive resolution. R12-3: this is
+            # the ONLY permissive path now; an explicit empty list
+            # falls through to the strict branch below.
+            #
+            # v2.12.0 advance-notice: when the YAML doesn't opt in
+            # AND the resolved path escapes the case dir, emit a
+            # DeprecationWarning so CI-strict (-W error) catches
+            # this before v3.0 makes the strict branch the default.
+            # The warning is one-time-per-call (not gated by a
+            # session-level dedupe) on purpose: a single case run
+            # touches many URIs, and we want every escape visible.
+            try:
+                resolved.relative_to(self.case_dir.resolve())
+            except ValueError:
+                import warnings as _w
+                _w.warn(
+                    f"openlimno path-safety (v2.12.0 advance-notice): "
+                    f"URI {uri!r} resolved to {resolved}, which is "
+                    f"outside the case directory ({self.case_dir}). "
+                    f"v3.0 will reject this by default. Opt into the "
+                    f"sandbox now by setting case.allowed_data_roots "
+                    f"in the YAML (use an empty list `[]` to lock "
+                    f"strictly to the case dir, or list trusted "
+                    f"shared-data roots).",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
             return resolved
         roots = self._allowed_data_roots()
         for root in roots:
@@ -946,7 +975,9 @@ class Case:
             cfg_data = self.config.get("data", {})
             for k in ("rating_curve",):
                 if k in cfg_data:
-                    discharge_series_path = self._resolve(cfg_data[k])
+                    # v2.12.0 N: third high-value user-data URI on
+                    # the sandbox path.
+                    discharge_series_path = self._resolve_safe(cfg_data[k])
                     break
         if discharge_series_path is None:
             warnings.append(
