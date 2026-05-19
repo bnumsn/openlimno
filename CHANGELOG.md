@@ -4,6 +4,19 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.10.2] — 2026-05-19
+
+### Changed
+- **v2.10.2 — `docs/SPEC_3x_research_route.md` absorbs v2.10.x deferrals (charter-discipline docs ship)**:
+    The 11-round triple-AI review chain (v2.0.0 → v2.10.1) closed 63 / 67 substantive findings; the 4 deferred ones lived only in CHANGELOG prose, with no durable home. Per the user-pinned `feedback_spec_scope_discipline` charter rule ("SPEC must clearly separate 1.0 / research route / 远期愿景 tiers without blending them"), v2.10.2 promotes them into formal v3.x SPEC sections.
+    - **New section "Path-safety / sandbox for user-supplied YAML inputs"** absorbs **R11-4** (claude MED): `data.*.uri` and `boundaries.*.{series,ref}` still accept `../../../etc/passwd` traversal strings. v3.x must ship a central `Case._resolve_safe` wrapper + a `case.allowed_data_roots` config key + a `tests/integration/test_path_sandbox.py` audit pass. **Marked as a v3.0 cut blocker** because Studio opens third-party YAMLs and this is a real exploit vector.
+    - **New section "Boundary-condition coverage expansion"** absorbs **R11-2** (claude HIGH) and **R11-23** (gemini MED). Clarifies that R11-2 (boundaries optional under hydrodynamics) is a solver-level warning concern, not a schema-required concern — making it schema-required would break the Studio "case-from-OSM-bbox" entry-point. R11-23 (lateral inflows / point sources blocked by `additionalProperties: false`) is tracked against the SCHISM 2D expansion ship; the schema should grow named `boundaries.lateral[]` / `boundaries.point_sources[]` keys rather than loosen `additionalProperties` back to `true` (which would re-open the v2.10.0 typo regression).
+    - **New section "TIFF fixture generator"** absorbs **R11-18** (claude LOW): `examples/composite_hsi/data/*.tif` should be regeneratable from a `make_fixtures.py`. Low priority but durable.
+    - **New top-level section "Triggers for cutting v3.0"** enumerates the four concrete events that justify a v2.x → v3.0 cut: (1) path-traversal exploit reported in the wild, (2) SCHISM 2D backend grows lateral/point boundaries, (3) user runs at sub-polar latitude (R9-3 high-lat buffering blocker), (4) reference-platform equivalence becomes a contracted-study blocker. **None of these force a fixed v2.x sunset** — v2.x stays ship-able with additive patches indefinitely. This makes the "when is v3.0?" question answerable without speculation: when one of the four triggers fires.
+    - **Updated "Tier separation" table**: 2.x line now reads `2.0.0 — 2.10.1` (was `2.0.0 — present`), enumerates each v2.x feature surface that landed (per-cell composite library API, 11 review rounds, inline raster paths v2.6.x/v2.7.x, dual-raster example v2.8.0, GUI ↔ headless consolidation v2.9.0, schema strictness sweeps v2.10.x). 3.x line now explicitly carries the v2.10.x deferral tags (R11-4, R11-2, R11-23, R11-18, R9-3) alongside the pre-existing research items, so the reader doesn't have to cross-reference CHANGELOG entries to know what v3.x owes.
+    - **Zero code changes.** No source / test / fixture edits — pure documentation governance. The v2.10.1 gate set (ruff, mypy strict-core + strict-gui-qgis, 83 tests across schema / GUI plugin / composite / safe_env / version-consistency) inherits unchanged.
+    - Charter posture clarification: per `feedback_polyglot`, this docs ship makes no top-level language-choice commitments for v3.x — the new sections describe contracts (path-resolver API surface, solver-warning conditions, boundary subschema additions) without prescribing Python vs Rust vs anything else at the module layer.
+
 ## [2.10.1] — 2026-05-19
 
 ### Fixed

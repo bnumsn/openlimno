@@ -9,6 +9,30 @@ explicitly out-of-scope for the 1.x and 2.x stable surfaces but is
 charter-committed for future research releases. It serves as the
 contract between the 2.0 stable line and the research-track ships.
 
+## Triggers for cutting v3.0
+
+A v2.x → v3.0 jump is justified when at least one of the following
+becomes load-bearing for a real user workflow:
+
+1. **A path-traversal exploit is reported in the wild** — R11-4
+   sandbox must land before any third-party-YAML-opening Studio
+   release.
+2. **The SCHISM 2D backend grows lateral-inflow or point-source
+   boundaries** — R11-23 schema expansion + the underlying solver
+   integration cross the v2.x additive-only line.
+3. **A user runs OpenLimno at sub-polar latitude (> ±60°)** — R9-3
+   projected-CRS buffering needs to land for thermal/cover raster
+   sampling to remain physically accurate there.
+4. **Reference-platform equivalence becomes a blocker for a
+   contracted study** — the River2D / HABBY / FishXing harnesses
+   ship as default CI gates instead of `benchmark`-marker tests.
+
+None of these are forced by a fixed v2.x sunset; v2.x stays
+ship-able indefinitely with additive patches as long as none of the
+above is blocking. The 11-round review chain (10 ships, 67 findings,
+63 closed) confirms the v2.x line is healthy enough to keep getting
+patches.
+
 ## What goes on the 3.x research route
 
 ### Multi-model equivalence benchmarks
@@ -85,6 +109,76 @@ pre-compute per-section thermal SI offline via
 `thermal_si_per_section` with explicitly projected geometries and
 plug it in via `data.thermal_si_per_section.uri`.
 
+### Path-safety / sandbox for user-supplied YAML inputs
+
+(Deferred from v2.10.1 R11-4.) Every `data.*.uri` and
+`boundaries.*.{series,ref}` accepts a free-form `uri-reference`
+string. After v2.10.1 wires `format_checker`, the schema rejects
+spaces and other syntactically broken URIs — but it still accepts
+`../../../etc/passwd`-style traversal strings and absolute paths
+to anywhere on disk. The Studio GUI opens user-supplied YAMLs, so
+this is a real concrete-risk surface, not theoretical.
+
+What v3.x should ship: a project-wide `_resolve` sandboxing pass
+that rejects URIs escaping the case directory (or an
+explicitly-listed set of trusted data roots — `~/.openlimno-data/`,
+the case dir, the system fixture set). The fix needs:
+
+1. A central `Case._resolve_safe(uri, *, allow_outside_case=False)`
+   wrapper that all 23+ `_resolve` call sites flow through.
+2. A `case.allowed_data_roots` config key for the override path
+   (researchers who legitimately point at network-mount shared
+   data shouldn't have to copy it into the case dir).
+3. An audit pass against every `Case` method that takes a path
+   argument from YAML — confirmed list in
+   `tests/integration/test_path_sandbox.py` (to be added).
+
+Estimated: medium-effort (≈ 300 LoC + ≈ 8 integration tests).
+Must land before any v3.0 stable release because it's a real
+exploit vector for Studio users opening third-party study YAMLs.
+
+### Boundary-condition coverage expansion
+
+(Deferred from v2.10.1 R11-2 + R11-23.) Two related schema
+strictness items the v2.10.x sweep explicitly left for v3.x:
+
+* **R11-2 — `boundaries` is optional under `hydrodynamics`**.
+  Making it required at the schema level would break the Studio
+  "case-from-OSM-bbox" entry point (lemhi-tiny fixture ships
+  boundaries-less; the Studio fills them in interactively in a
+  later wizard step). The right fix is solver-level, not
+  schema-level: when `backend=builtin-1d` AND `boundaries` is
+  missing AND the case isn't an OSM-stub (signalled by the
+  presence of `case.osm_bbox` or similar), emit a fail-loud
+  warning before the solver fabricates defaults. Lives with the
+  v3.x solver-level warnings sweep.
+
+* **R11-23 — `additionalProperties: false` on `boundaries` blocks
+  lateral inflows / point sources / groundwater exchanges**.
+  Not relevant for the current 1D builtin (it only knows
+  upstream + downstream), but the SCHISM 2D backend and any
+  future expansion of `builtin-1d` to handle lateral inputs will
+  need a `boundaries.lateral[]` array and possibly
+  `boundaries.point_sources[]`. The schema should grow these
+  named sibling keys as first-class entries (NOT loosen
+  `additionalProperties` back to `true` — that would re-open the
+  v2.10.0 typo regression). Track against the SCHISM 2D
+  expansion ship.
+
+Both items belong in the v3.x solver-expansion track; neither is a
+patch-release item.
+
+### TIFF fixture generator
+
+(Deferred from v2.10.1 R11-18.) The `examples/composite_hsi/data/`
+directory ships binary GeoTIFFs (12×12 thermal_C.tif + 12×12
+cover_lulc.tif). If GDAL changes float32/uint8 nodata defaults or
+a Windows EOL filter corrupts them on checkout, there's no way to
+regenerate from source. v3.x should ship a `make_fixtures.py`
+beside the data directory and a CI step that regenerates + diffs
+to detect drift. Low priority — purely defensive against tooling
+regressions, no user impact today.
+
 ### Multi-parameter calibration (PEST++)
 
 `cli.py calibrate --algo pestpp-glm` now generates a PEST++ GLM
@@ -135,6 +229,6 @@ those runtime APIs still do not ship stable type information.
 | Tier | What ships here | Stability promise |
 |------|-----------------|-------------------|
 | **1.x** (production stable; 1.0.0 — 1.10.1) | Composite-overlay scalar surface, atomic-write, HSI quality grading, regulatory exports, fetch package, builtin-1D + SCHISM | Frozen at the v1.0.0 surface freeze. Patch ships only. |
-| **2.x** (stable major; 2.0.0 — present) | Per-cell composite library API, 6-round-review polish, charter-restated public API | Public API frozen. Additive features only; breaking changes require 3.x. |
-| **3.x research route** | Reference-platform result readers, spatial-T fetcher/provenance, PEST++ runner validation, optional GUI/QGIS strict typing | Unstable; signature changes allowed. External benchmark gates stay outside the default PR path. |
+| **2.x** (stable major; 2.0.0 — 2.10.1) | Per-cell composite library API; 11 rounds of triple-AI CLI review polish; inline thermal + cover raster paths (v2.6.x / v2.7.x); YAML-driven dual-raster composite example (v2.8.0); Studio GUI ↔ headless API consolidation (v2.9.0); WEDM schema strictness sweeps (v2.10.0/v2.10.1: `additionalProperties: false` on `hydrodynamics`, `oneOf` discriminator on boundary `type`, `format_checker` wired) | Public API frozen at the v2.0.0 charter restatement. Additive features only; breaking changes require 3.x. |
+| **3.x research route** | Reference-platform result readers (PHABSIM/River2D/HABBY/FishXing), spatial-T fetcher/provenance, PEST++ runner validation, optional GUI/QGIS strict typing, **path-safety sandbox (R11-4)**, **solver-level boundary-conditions warning (R11-2)**, **lateral-inflow / point-source boundary schema (R11-23)**, **TIFF fixture generator (R11-18)**, **high-latitude projected-CRS buffering (R9-3)** | Unstable; signature changes allowed. External benchmark gates stay outside the default PR path. |
 | **Studio path A** | Independent PyQt6 + PyQGIS GUI | Separate version track (`openlimno-studio`). |
