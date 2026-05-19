@@ -68,7 +68,7 @@ of converting `NEEDS-AUDIT` to `CLOSED` / `CLOSED-API-ONLY` /
 | Total unique findings | **~146** (124 distinct `Rxx-y` codes + 22 F/N/M codes) |
 | Findings flagged closed (per CHANGELOG) | **~128** |
 | Findings deferred (per CHANGELOG) | **~18** |
-| Findings with confirmed production caller | **R11-4 cluster** (4 inline-raster loaders swept) + **R18-1, R18-2, R18-3, R18-4** = 8 (full R5..R17 sweep ongoing) |
+| Findings with confirmed production caller | **R11-4 cluster** (4 inline-raster loaders swept) + **R15-1..R15-7, R15-9, R15-10** + **R16-1, R16-2, R16-3, R16-5, R16-8, R16-9** + **R17-1, R17-3, R17-4, R17-5, R17-10** + **R18-1..R18-4** = **26 findings audit-confirmed** (R5..R14 sweep pending; 7 explicit deferrals to v3.7+) |
 | Findings flagged `INTENTIONALLY-API-ONLY` | `_yaml_rt.dump_round_trip(case=None)` default (bootstrap/ad-hoc writers) |
 
 **Until the full R-DOC-AUDIT-WIRED pass completes (R17 → R5), treat
@@ -83,6 +83,7 @@ only case.**
 |---|---|---|---|
 | 2026-05-20 | First R-DOC-AUDIT-WIRED pass | R18-4: OPEN → CLOSED (three production callers now pass `case=`) | `tests/unit/test_r18_4_audit_wired.py` (4 tests) |
 | 2026-05-20 | Second R-DOC-AUDIT-WIRED pass | R11-4 inline-raster cluster: 4 loaders flipped from BYPASSED → CLOSED (all route through `_resolve_safe`) | `tests/unit/test_r11_4_audit_wired.py` (8 tests) |
+| 2026-05-20 | Third R-DOC-AUDIT-WIRED pass | R15-R17 sweep: 18 substantive closures audit-confirmed (11 WIRED + 7 INTRINSIC), 3 cosmetic, 7 explicitly deferred to v3.7+ | `docs/reviews/R15_R17_audit.md` (audit doc) + `tests/unit/test_r15_r17_audit_pins.py` (7 cluster smoke pins) |
 
 ---
 
@@ -187,7 +188,7 @@ historical CHANGELOG entries.
 | S2 | HIGH | codex (claude concurs) | Review chain became the product | feedback_review_cadence (memory rule) |
 | S3 | HIGH | codex (claude concurs) | SPEC hierarchy fragmented / docs stale | This file + ROADMAP.md |
 | S4 | HIGH | codex (claude concurs) | QGIS plugin still treated as growth surface | `src/openlimno/qgis/.../MAINTENANCE_ONLY.md` |
-| S5 | HIGH | codex (claude concurs) | "API exists ≠ capability exists" — R11-4, R18-4 patterns | R-DOC-AUDIT-WIRED track |
+| S5 | HIGH | codex (claude concurs) | "API exists ≠ capability exists" — R11-4, R18-4 patterns | R-DOC-AUDIT-WIRED track — 3 passes complete (R18-4, R11-4 inline-raster, R15-R17 sweep); R5..R14 remainder pending |
 | S6 | CHARTER-BLOCKING | codex (claude concurs) | Competitive positioning ≫ evidence; PHABSIM real run missing | ADR-0012 |
 | S7 | CHARTER-BLOCKING | codex (claude concurs) | Governance on paper, not in release process | Triggers unfreeze gate U1+U2 |
 | S8 | MEDIUM | claude (third-party补位) | Memory `feedback_review_cli_only` was literal-followed but no frequency rule | feedback_review_cadence (memory rule, now added) |
