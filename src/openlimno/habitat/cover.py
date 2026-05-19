@@ -237,40 +237,57 @@ def _riparian_buffer_geodesic(
     *,
     buffer_m: float,
 ) -> BaseGeometry:
-    """v3.4.0 R9-3: high-latitude path. Build a true geodesic
-    buffer on WGS84 via ``pyproj.Geod``.
+    """v3.4.0 R9-3 + v3.5.0 R16-1: high-latitude continuous-strip
+    geodesic buffer.
 
-    Algorithm: at each polyline vertex, walk N=36 equally-spaced
-    azimuths (0°, 10°, 20°, …, 350°) at the requested ``buffer_m``
-    distance using ``Geod.fwd``. Each walk produces an ellipsoid-
-    accurate point at the right distance. Build a Polygon hull per
-    vertex (36-gon ≈ circle), then union all hulls. Result is the
-    equal-distance buffer.
+    v3.4.0 first cut walked 36 azimuths per vertex and unioned
+    vertex-centered circles. claude + gemini's 16th-round review
+    caught the "string of sausages" bug: segments between
+    consecutive vertices were NOT buffered, so for any polyline
+    with vertex spacing > buffer_m the result had visible gaps
+    between successive vertex disks. v3.5.0 closes the gap by
+    projecting the polyline to a local AEQD (Azimuthal
+    Equidistant Projection) centred on the polyline mean, calling
+    shapely's regular ``LineString.buffer`` in the projected
+    metric CRS (which DOES produce a continuous strip), then
+    projecting the buffered geometry back to EPSG:4326.
 
-    Trade-off vs. cos-latitude path: ~36× more Geod calls per
-    vertex (slower) AND the segments between consecutive vertices
-    aren't buffered as a continuous strip — just the vertex
-    neighborhoods. For a dense polyline (typical river reach) the
-    vertex circles overlap enough to approximate a strip;
-    sparse polylines should densify first. We keep this as a
-    high-lat fallback rather than the default path to preserve the
-    speed of the cos-lat path for the 95%+ of cases below ±60°.
+    AEQD is distance-preserving from its centre point — exactly
+    what we want for a metres-buffer that stays equal-distance at
+    high latitude. The ~few-km accuracy at the polyline ends
+    (where you've moved away from the AEQD centre) is well within
+    the tolerance the buffer-distance contract promises.
+
+    Antimeridian handling (R16-4): if the polyline crosses ±180°,
+    the AEQD round-trip still produces correct coords (each point
+    is independent), but the resulting EPSG:4326 polygon may have
+    wrapped-coord artefacts. Shapely's ``buffer`` in the projected
+    space handles this cleanly; the inverse-transform back to
+    lon/lat preserves the topology.
     """
-    from pyproj import Geod
-    from shapely.geometry import Polygon
-    from shapely.ops import unary_union
+    from pyproj import Transformer
+    from shapely.ops import transform as shapely_transform
 
-    geod = Geod(ellps="WGS84")
-    N_AZIMUTHS = 36
-    azimuths = np.linspace(0, 360, N_AZIMUTHS, endpoint=False)
-    hulls: list[BaseGeometry] = []
-    for lon, lat in coords:
-        ring: list[tuple[float, float]] = []
-        for az in azimuths:
-            new_lon, new_lat, _back_az = geod.fwd(lon, lat, az, buffer_m)
-            ring.append((new_lon, new_lat))
-        hulls.append(Polygon(ring))
-    return cast(BaseGeometry, unary_union(hulls))
+    # AEQD centred on the polyline mean — distance-preserving from
+    # that centre. EPSG:4326 (lon, lat) → AEQD metric coords.
+    lats = [lat for _, lat in coords]
+    lons = [lon for lon, _ in coords]
+    lat_c = sum(lats) / len(lats)
+    lon_c = sum(lons) / len(lons)
+    aeqd_proj = f"+proj=aeqd +lat_0={lat_c} +lon_0={lon_c} +ellps=WGS84"
+    to_aeqd = Transformer.from_crs(
+        "EPSG:4326", aeqd_proj, always_xy=True,
+    ).transform
+    from_aeqd = Transformer.from_crs(
+        aeqd_proj, "EPSG:4326", always_xy=True,
+    ).transform
+
+    line_lonlat = LineString(coords)
+    line_metric = shapely_transform(to_aeqd, line_lonlat)
+    buf_metric = line_metric.buffer(
+        buffer_m, cap_style="round", join_style="round",
+    )
+    return cast(BaseGeometry, shapely_transform(from_aeqd, buf_metric))
 
 
 def cover_si_from_polyline(

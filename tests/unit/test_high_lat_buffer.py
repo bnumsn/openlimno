@@ -96,6 +96,48 @@ def test_v340_r93_threshold_continuity() -> None:
     )
 
 
+def test_v350_r161_sparse_polyline_no_sausage_gaps() -> None:
+    """v3.5.0 R16-1 (claude + gemini HIGH): the v3.4.0 geodesic
+    path unioned vertex-centered 36-gons and had visible gaps
+    between consecutive vertices when spacing > buffer_m
+    ("string of sausages"). v3.5.0 uses AEQD projection + true
+    line buffer, producing a continuous strip.
+
+    Verify with a sparse 2-vertex polyline at 70° N with 1 km
+    spacing and 200 m buffer (gap-prone). The buffer must
+    CONTAIN the polyline midpoint with the requested 200 m of
+    cross-track room — i.e., a point at the midpoint between
+    the two vertices, displaced perpendicular by 100 m, must be
+    INSIDE the buffer.
+    """
+    from pyproj import Geod
+    from shapely.geometry import Point
+
+    from openlimno.habitat.cover import riparian_buffer_from_polyline
+
+    # Two vertices 1 km apart, 70° N. Buffer width 200 m.
+    p1_lon, p1_lat = 0.0, 70.0
+    geod = Geod(ellps="WGS84")
+    # Walk 1000 m due east from p1 to get p2.
+    p2_lon, p2_lat, _ = geod.fwd(p1_lon, p1_lat, 90.0, 1000.0)
+    coords = [(p1_lon, p1_lat), (p2_lon, p2_lat)]
+    geom = riparian_buffer_from_polyline(coords, buffer_m=200.0)
+    assert geom.is_valid
+
+    # Midpoint of the polyline, displaced 100 m due north (perpendicular).
+    mid_lon = (p1_lon + p2_lon) / 2
+    mid_lat = (p1_lat + p2_lat) / 2
+    perp_lon, perp_lat, _ = geod.fwd(mid_lon, mid_lat, 0.0, 100.0)
+    perp_pt = Point(perp_lon, perp_lat)
+    assert geom.contains(perp_pt), (
+        f"R16-1 regression: v3.4.0 sausage-gap. Midpoint+100m-north "
+        f"point ({perp_lon:.5f}, {perp_lat:.5f}) is NOT inside the "
+        f"geodesic buffer of a 1-km segment with 200-m buffer at "
+        f"70° N. The buffer is missing strip coverage between "
+        f"vertices."
+    )
+
+
 def test_v340_r93_high_lat_does_not_explode_near_pole() -> None:
     """v3.4.0 R9-3: very high latitudes (e.g. 85° N) must still
     produce a valid geometry. The cos-lat path would have raised

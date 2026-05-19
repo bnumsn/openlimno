@@ -174,7 +174,20 @@ def test_v290_run_case_worker_delegates_to_headless_api() -> None:
     with patch.object(
         ctl_mod, "run_case_with_plots", return_value=fake_result,
     ) as mock_fn:
-        summary, png_path = ctl_mod._run_case_for_worker(case_yaml)
+        # v3.5.0 R16-2: tuple widened to 3 (summary, png_path,
+        # trust_roots) so the GUI plot autoload can skip the
+        # redundant Case.from_yaml call.
+        result = ctl_mod._run_case_for_worker(case_yaml)
+        assert len(result) == 3, (
+            f"v3.5.0 R16-2: _run_case_for_worker must return a "
+            f"3-tuple (summary, png_path, trust_roots); got "
+            f"{len(result)}-tuple."
+        )
+        summary, png_path, trust_roots = result
+        assert isinstance(trust_roots, list), (
+            f"v3.5.0 R16-2: trust_roots must be a list of Paths; "
+            f"got {type(trust_roots).__name__}"
+        )
 
     mock_fn.assert_called_once()
     args, kwargs = mock_fn.call_args

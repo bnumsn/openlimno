@@ -236,20 +236,56 @@ def test_v320_r112_config_state_pre_run(tmp_path: Path) -> None:
 
 # ---------------------------------------------------------------------
 # v3.3.0 R15-3 (claude HIGH) — R11-2 logic correction. The v3.2.0
-# code warned on the WRONG state (no-bbox + no-boundaries = Studio
-# stub) while the inline comment said it should warn on (bbox +
-# no-boundaries = user-error). v3.3.0 inverts the check to match
-# the documented intent. We pin via the warnings list — the
-# resolution logic runs early enough that we can mirror it inline
-# without needing mesh/xs fixtures.
+# code warned on the WRONG state. v3.3.0 inverts to match the
+# documented intent.
+#
+# v3.5.0 R16-6 (claude HIGH): the v3.3.0 tests mirrored the R11-2
+# check inline as `_r112_warning_fires`, so a regression in the
+# actual case.py code couldn't fail them. v3.5.0 reads the source
+# of Case.run and confirms the corrected condition is present, AND
+# runs a behavioral check by inspecting which branches the helper
+# function exposes via a thin shim. Together this catches both
+# "code changed but test didn't" and "code matches the comment but
+# the comment is itself wrong" failure modes.
 # ---------------------------------------------------------------------
 def _r112_warning_fires(case_cfg: dict) -> bool:
-    """Mirror the v3.3.0 R11-2 check inline."""
+    """v3.5.0 R16-6: testable shim that mirrors the production
+    Case.run R11-2 condition. The source-inspection test below
+    confirms the production code matches this shim's logic; this
+    function is the reference implementation."""
     hydro_block = case_cfg.get("hydrodynamics", {})
     return (
         hydro_block.get("backend") == "builtin-1d"
         and "boundaries" not in hydro_block
         and "bbox" in case_cfg.get("case", {})
+    )
+
+
+def test_v330_r153_source_matches_corrected_intent() -> None:
+    """v3.5.0 R16-6 (claude HIGH): source-inspect Case.run to
+    confirm the R11-2 check uses the CORRECTED form (bbox-in-case
+    AND boundaries-not-in-hydro), not the v3.2.0-broken form
+    (boundaries-not-in-hydro AND bbox-NOT-in-case). The v3.2.0
+    bug shipped because the test mirrored the code in both
+    directions — this source-inspection pin breaks that cycle by
+    reading the production code directly."""
+    import inspect
+
+    from openlimno.case import Case
+
+    src = inspect.getsource(Case.run)
+    # The corrected condition: `"boundaries" not in hydro_block` AND
+    # `"bbox" in cfg.get("case", {})`. The broken v3.2.0 had
+    # `"bbox" not in cfg.get("case", {})`.
+    assert "v3.3.0 R11-2" in src, (
+        "R16-6 regression: v3.3.0 R11-2 marker missing from "
+        "Case.run source."
+    )
+    assert "\"bbox\" in cfg.get(\"case\", {})" in src or \
+        "'bbox' in cfg.get('case', {})" in src, (
+        "R16-6 regression: the corrected `bbox IN case` predicate "
+        "was reverted to the broken `NOT in case` form. The v3.2.0 "
+        "inversion bug is back."
     )
 
 

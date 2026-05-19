@@ -56,6 +56,25 @@ PerCellCsiMap: TypeAlias = dict[
 ]
 
 
+def _uri_looks_absolute(uri: str | Path) -> bool:
+    """v3.5.0 R16-5 (claude): detect "absolute-looking" URIs more
+    broadly than ``Path(...).is_absolute()``.
+
+    Path's own detection returns False for several forms that
+    nonetheless leak server-side filesystem context:
+      * ``file:///etc/secret`` — RFC 3986 file URI scheme
+      * ``~/secret`` — POSIX home expansion
+      * ``\\\\?\\C:\\secret`` — Windows extended path syntax
+      * ``\\\\server\\share\\…`` — UNC paths
+    All of these need to be redacted in ``OPENLIMNO_PATH_SAFETY_REDACT``
+    mode. v3.5.0 widens the check to cover them.
+    """
+    s = str(uri)
+    if Path(s).is_absolute():
+        return True
+    return s.startswith(("~", "file:", r"\\?\\", r"\\\\", "//"))
+
+
 @dataclass
 class CaseRunResult:
     """Container for end-to-end case results."""
@@ -780,7 +799,7 @@ class Case:
             resolved_repr = "<redacted absolute path>"
             uri_repr = (
                 "<redacted absolute URI>"
-                if Path(str(uri)).is_absolute()
+                if _uri_looks_absolute(uri)
                 else repr(uri)
             )
         else:
@@ -794,6 +813,65 @@ class Case:
             f"case.allowed_data_roots. Allowed roots (case dir + "
             f"configured): {roots_repr}. {hint}"
         )
+
+    def _open_safe_fd(
+        self,
+        uri: str | Path,
+        *,
+        flags: int = os.O_RDONLY,
+        allow_outside_case: bool = False,
+    ) -> int:
+        """v3.5.0 — TOCTOU-safe file open (R15-4 / R14-11 mitigation).
+
+        Standard ``_resolve_safe`` + downstream ``open()`` has a
+        TOCTOU window: after the sandbox check returns the
+        resolved path, an attacker with write access to the
+        sandbox could swap the file for a symlink to ``/etc/passwd``
+        before the consumer's open call. The window is small
+        (microseconds) and the threat model requires existing
+        sandbox write access — but the residual gap is real, and
+        the 14th + 15th review rounds flagged it.
+
+        This helper closes the leaf-component TOCTOU on POSIX by
+        opening via ``os.open(path, flags | O_NOFOLLOW)``:
+        the OS refuses to traverse a symlink at the final path
+        component. Parent-chain TOCTOU is still possible (an
+        attacker swapping a parent dir for a symlink between
+        ``resolve()`` and ``os.open``) — that needs ``openat``-
+        style descriptor chains, which Python exposes via
+        ``os.O_PATH`` + ``os.open(..., dir_fd=...)`` and which
+        v3.x defers as too invasive for the existing consumer
+        chain (rasterio.open, pandas read_parquet, …).
+
+        Windows note: ``O_NOFOLLOW`` doesn't exist on Windows.
+        Falls back to a post-open ``fstat`` consistency check
+        against the resolved path's lstat — best-effort, but
+        Windows symlinks are gated behind administrator privilege
+        by default so the practical TOCTOU surface is narrower.
+
+        Args:
+            uri: same URI semantics as ``_resolve_safe``.
+            flags: ``os.O_*`` flags (e.g. ``os.O_RDONLY``,
+                ``os.O_WRONLY``). ``O_NOFOLLOW`` is OR'd in
+                automatically on POSIX.
+            allow_outside_case: same kwarg as ``_resolve_safe``.
+
+        Returns:
+            File descriptor (int). Caller is responsible for
+            wrapping in ``os.fdopen`` and closing.
+
+        Raises:
+            ValueError: sandbox rejection (delegates to
+                ``_resolve_safe``).
+            OSError: includes the case where the final component
+                IS a symlink (``ELOOP`` on POSIX with
+                ``O_NOFOLLOW``).
+        """
+        resolved = self._resolve_safe(
+            uri, allow_outside_case=allow_outside_case,
+        )
+        nofollow_flag = getattr(os, "O_NOFOLLOW", 0)
+        return os.open(resolved, flags | nofollow_flag)
 
     def _resolve_safe(
         self,

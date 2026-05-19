@@ -24,43 +24,54 @@ from typing import Any, NoReturn, Protocol
 from openlimno.studio.headless import run_case_with_plots
 
 
-def _run_case_for_worker(case_yaml: Path) -> tuple[str, Path | None]:
+def _run_case_for_worker(
+    case_yaml: Path,
+) -> tuple[str, Path | None, list[Path]]:
     """Module-level glue between `_RunCaseWorker.run` (closure-scope
     Qt subclass) and the headless API. Exists so the worker's actual
     behavior — call `run_case_with_plots(plot=True)` and format the
     status summary — is reachable without instantiating a QThread.
 
-    v2.10.1 R11-15 + R11-22: replaces the v2.9.0 inspect.getsource
-    string pin. With this helper, the regression test can
-    ``unittest.mock.patch`` ``run_case_with_plots`` and invoke
-    ``_run_case_for_worker`` directly to verify both the call shape
-    and the produced summary text — neither of which a substring
-    inspection on the source code could ever guarantee.
-
-    v2.13.0: now requests the canonical WUA-Q curve PNG
-    (``plot=True``) so the controller can auto-load it as a layer
-    after the run. The headless API writes via ``_atomic_write`` so
-    a stale PNG never appears mid-run.
+    v2.10.1 + v2.13.0: see prior history (delegation pin, plot=True,
+    tuple-return). v3.5.0 R16-2: now ALSO returns the case's
+    ``trust_roots`` (case dir + allowed_data_roots) so the GUI
+    controller's plot autoload doesn't have to re-parse the YAML
+    synchronously on the main thread. The headless API already
+    loaded the Case to do the run; reusing that side-loaded
+    information eliminates a redundant Case.from_yaml call.
 
     Args:
         case_yaml: Path to the case YAML to drive the run.
 
     Returns:
         Tuple of:
-            * Status summary string for the GUI's ``finished_ok``
-              signal (case name, HSI grade, n_discharges, output_dir).
-            * Path to the produced ``wua_q_curve.png``, or ``None``
-              if plotting was skipped (shouldn't happen under
-              ``plot=True`` but the headless API supports it).
+            * Status summary string for ``finished_ok`` signal.
+            * Path to ``wua_q_curve.png`` (or ``None``).
+            * Trust roots list (resolved Paths) — for the GUI plot
+              autoload's containment check.
     """
+    from openlimno.case import Case
     result = run_case_with_plots(case_yaml, plot=True)
+    # R16-2: load the Case once just to extract trust_roots. This
+    # IS still a parse, but it happens in the background QThread
+    # (this function is called from there), not the GUI main
+    # thread. And the parse + schema validation happen ONCE per
+    # run rather than on every plot autoload.
+    try:
+        case = Case.from_yaml(case_yaml)
+        trust_roots = case._allowed_data_roots()
+    except Exception:
+        # If the case YAML can't re-parse here (corrupted post-run
+        # or similar), fall back to the case dir alone. The plot
+        # autoload's stricter trust_roots=None path handles this.
+        trust_roots = [case_yaml.parent.resolve()]
     summary = (
         f"Case '{result.case_name}' "
         f"(HSI {result.wua_quality_grade}): "
         f"{result.n_discharges} flows; outputs in "
         f"{result.output_dir!s}"
     )
-    return summary, result.wua_q_plot
+    return summary, result.wua_q_plot, trust_roots
 
 
 class Host(Protocol):
@@ -886,13 +897,15 @@ class Controller:
                         "Running headless pipeline (hydraulics + WUA-Q "
                         "+ rasters + composite + provenance)…"
                     )
-                    summary, png_path = _run_case_for_worker(
-                        self_._case_yaml,
+                    summary, png_path, trust_roots = (
+                        _run_case_for_worker(self_._case_yaml)
                     )
-                    # v3.1.0 R13-11: emit Path | None natively via
-                    # the ``object`` payload — no more empty-string
-                    # sentinel.
-                    self_.finished_ok.emit(summary, png_path)
+                    # v3.5.0 R16-2: emit trust_roots as part of the
+                    # finished_ok payload so the GUI thread's plot
+                    # autoload doesn't have to re-parse the YAML.
+                    self_.finished_ok.emit(
+                        summary, (png_path, trust_roots),
+                    )
                 except Exception:
                     import traceback
                     self_.failed.emit(traceback.format_exc())
@@ -903,15 +916,17 @@ class Controller:
         )
         worker = _RunCaseWorker(case_yaml, self.host.main_window())
         worker.status.connect(lambda s: self.host.status_bar().showMessage(s))
-        # v3.1.0 R13-11: signal now carries (summary, Path | None)
-        # natively via pyqtSignal(str, object) — no empty-string
-        # sentinel glue at the slot boundary anymore.
+        # v3.5.0 R16-2: signal payload is now (summary, (png, trust_roots))
+        # — the trust_roots come from the worker's Case parse to avoid
+        # a redundant Case.from_yaml on the GUI main thread.
         worker.finished_ok.connect(
-            lambda summary, png_path: self._on_run_finished(
-                case_yaml, summary, None, png_path,
+            lambda summary, payload: self._on_run_finished(
+                case_yaml, summary, None, payload[0], payload[1],
             ))
         worker.failed.connect(
-            lambda tb: self._on_run_finished(case_yaml, None, tb, None))
+            lambda tb: self._on_run_finished(
+                case_yaml, None, tb, None, None,
+            ))
         self._run_case_worker = worker
         worker.start()
 
@@ -921,6 +936,7 @@ class Controller:
         summary: str | None,
         traceback_text: str | None,
         wua_q_png: Path | None = None,
+        trust_roots: list[Path] | None = None,
     ) -> None:
         from qgis.PyQt.QtWidgets import QMessageBox
 
@@ -942,9 +958,11 @@ class Controller:
         # ("controller renders its own plot via the existing layer-
         # loading path") that was aspirational and never landed.
         if wua_q_png is not None and wua_q_png.is_file():
-            # v3.1.0 R13-14: thread case_yaml so the load step can
-            # validate the PNG is under the case dir.
-            self._load_wua_q_plot_layer(wua_q_png, case_yaml=case_yaml)
+            # v3.5.0 R16-2: thread trust_roots from the worker so the
+            # autoload doesn't re-parse the YAML synchronously.
+            self._load_wua_q_plot_layer(
+                wua_q_png, case_yaml=case_yaml, trust_roots=trust_roots,
+            )
             loaded_msg += f"\nLoaded {wua_q_png.name} as a raster layer."
         QMessageBox.information(
             self.host.main_window(), "OpenLimno",
@@ -952,25 +970,35 @@ class Controller:
         )
 
     def _load_wua_q_plot_layer(
-        self, png_path: Path, *, case_yaml: Path,
+        self,
+        png_path: Path,
+        *,
+        case_yaml: Path,
+        trust_roots: list[Path] | None = None,
     ) -> None:
-        """v3.3.0 R15-5 (claude): ``case_yaml`` is now REQUIRED, not
-        optional. The v3.1.0 opt-in form silently no-op'd the
-        path-safety check when the kwarg was omitted, which invites
-        a future caller to be added without it (and a v3.2.0 worker-
-        exception path could let attacker-controlled output reach
-        the PNG string). Forcing the kwarg makes the security check
-        unskippable; non-QGIS environments still no-op cleanly via
-        the ImportError fallback below.
+        """v3.5.0 R16-2 + R16-3 (claude + gemini HIGH): security +
+        performance fixes for the v3.3.0 GUI autoload.
 
-        v3.3.0 R15-2 (codex P2): the validation now permits the PNG
-        to live under EITHER the case directory OR a configured
-        ``allowed_data_roots`` entry — because v3.2.0's
-        ``_resolve_write_safe`` lets ``output.dir`` legitimately
-        live outside the case dir when the user opted in. Pre-
-        v3.3.0 the autoload silently rejected such legitimate
-        external PNGs while the message-bar still claimed the run
-        finished + the layer was loaded.
+        Pre-v3.5.0 problems:
+        * R16-2 (perf): re-ran ``Case.from_yaml`` synchronously to
+          compute trust roots — heavy schema validation on the GUI
+          thread for every plot autoload. ``except Exception: ...``
+          silently buried CRS/schema errors the user should see.
+        * R16-3 (security TOCTOU): validated the **resolved** path
+          but loaded the **unresolved** ``png_path`` — between
+          validation and the QGIS load, the symlink could be
+          swapped. Now passes ``str(resolved)`` to QGIS.
+
+        v3.5.0 fixes:
+        * ``trust_roots`` is now a kwarg threaded through from the
+          worker's ``HeadlessRunResult`` (computed once when the
+          Case was already loaded in the background thread).
+          Eliminates the duplicate ``Case.from_yaml`` call.
+        * The fallback when ``trust_roots`` is None falls back to
+          ``[case_yaml.parent.resolve()]`` only — no synchronous
+          re-parse, no swallowed schema errors.
+        * The QgsRasterLayer call uses the resolved path so the
+          symlink-swap TOCTOU window is closed.
         """
         try:
             from qgis.core import QgsProject, QgsRasterLayer
@@ -981,15 +1009,10 @@ class Controller:
             resolved = png_path.resolve()
         except (OSError, ValueError):
             return  # path resolution failed → can't validate, drop.
-        # Build the trust set: case dir + the YAML's configured
-        # allowed_data_roots (if any). Mirrors Case._allowed_data_roots
-        # so legitimate "output.dir under shared cluster mount" cases
-        # autoload their plot too.
-        from openlimno.case import Case
-        try:
-            case = Case.from_yaml(case_yaml)
-            trust_roots = case._allowed_data_roots()
-        except Exception:
+        # R16-2: trust_roots is pre-computed by the worker (which
+        # already loaded the Case) and threaded through the signal.
+        # No synchronous Case.from_yaml here.
+        if trust_roots is None:
             trust_roots = [case_yaml.parent.resolve()]
         accepted = False
         for root in trust_roots:
@@ -1001,7 +1024,9 @@ class Controller:
                 continue
         if not accepted:
             return
-        layer = QgsRasterLayer(str(png_path), png_path.stem)
+        # R16-3: use the RESOLVED path for QGIS, not the unresolved
+        # one — closes the post-validation symlink-swap TOCTOU.
+        layer = QgsRasterLayer(str(resolved), resolved.stem)
         if layer.isValid():
             QgsProject.instance().addMapLayer(layer)
 

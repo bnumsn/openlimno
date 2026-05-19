@@ -4,6 +4,38 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [3.5.0] — 2026-05-19
+
+### Fixed / Added
+- **v3.5.0 — TOCTOU mitigation + Python 3.13 bump + 16th-round review patches**:
+    Three planned items plus 6 review findings (claude + gemini convergence on 2 HIGH bugs in v3.4.0).
+
+    **Planned**:
+    - **R15-4 / R14-11 TOCTOU mitigation** via new `Case._open_safe_fd(uri, *, flags, allow_outside_case)`. Low-level helper that opens via `os.open` with `O_NOFOLLOW` on POSIX, refusing to traverse a symlink at the final component AFTER `_resolve_safe` has canonicalised. Closes the leaf-component swap window between sandbox check and consumer open. Parent-chain TOCTOU still v4-scope (needs `openat` descriptor chains, too invasive for existing rasterio/parquet consumers). 6 pinned tests including the post-resolve-swap simulation via monkeypatch.
+    - **R14-13 Python upper bump**: `requires-python = ">=3.11,<3.14"` (was `<3.13`). Python 3.13 has been stable since late 2024; the conservative cap was blocking rolling-release-distro users.
+
+    **16th-round review patches** (claude + gemini against v3.3.0..v3.4.0):
+
+    **HIGH multi-reviewer**:
+    - **R16-1 (claude + gemini): v3.4.0 geodesic "string of sausages"**. The high-lat geodesic buffer unioned only vertex-centered 36-gons. For polylines where vertex spacing > buffer_m (typical real reaches), the strip between consecutive vertices was unbuffered. v3.5.0 replaces with AEQD (Azimuthal Equidistant Projection) round-trip: project polyline to local AEQD metric CRS, `LineString.buffer` in metres (produces continuous strip), project back. New sparse-polyline test (`test_v350_r161_sparse_polyline_no_sausage_gaps`) plants a point 100 m perpendicular to the midpoint of a 1 km segment at 70° N and asserts containment — would have failed under v3.4.0.
+    - **R16-2 (claude + gemini): GUI autoload's synchronous `Case.from_yaml`**. v3.3.0's `_load_wua_q_plot_layer` re-parsed the whole case YAML + schema-validated it on the GUI main thread, every time a plot autoloaded. Heavy for large cases AND `except Exception: ...` silently buried schema/CRS errors. v3.5.0 threads `trust_roots` through the Qt signal payload (computed once by the worker in the background QThread when it already loaded the Case for the run). `_run_case_for_worker` return widened to a 3-tuple; `finished_ok` payload is now `(summary, (png_path, trust_roots))`.
+
+    **HIGH single-reviewer**:
+    - **R16-3 (claude): QGIS load passes UNRESOLVED `png_path` while validating the RESOLVED form**. TOCTOU bypass: between validation and QGIS load, the symlink could be swapped. Now passes `str(resolved)` to `QgsRasterLayer`.
+    - **R16-5 (claude): redaction missed `file://`, `~/...`, `\\?\...`, UNC paths**. `Path(...).is_absolute()` returns False for these forms even though they all expose server-side filesystem context. New `_uri_looks_absolute()` helper widens the check to cover them.
+    - **R16-6 (claude): R11-2 tests were circular**. The v3.3.0 tests called a `_r112_warning_fires(case_cfg)` helper that re-implemented the case.py check inline — a regression in the production code couldn't fail them. v3.5.0 adds a source-inspection pin (`test_v330_r153_source_matches_corrected_intent`) that reads `Case.run`'s source and asserts the corrected `"bbox" in cfg["case"]` predicate is present (not the broken v3.2.0 `"bbox" not in` form).
+
+    **DEFERRED to v3.6+ (from the 16th-round backlog)**:
+    - **R16-4 (claude): antimeridian / near-pole break in the geodesic buffer**. AEQD round-trip handles most cases cleanly, but a polyline crossing ±180° still needs dateline-split logic. Limited real-world impact (no user reports of polylines crossing the dateline); v3.6+ if/when.
+    - **R16-7 (claude): R9-3 test wrong reference point**. Measures from polyline midpoint instead of vertex. The new R16-1 sparse-polyline test exercises the right invariant (containment of a specific known point); the older R9-3 width test stays as a complementary check.
+    - **R16-8 (claude): `_yaml_rt.dump_round_trip` bypasses `_resolve_write_safe`**. Documentary concern; v3.6+ ergonomics.
+    - **R16-9 (claude): `_WARNED_MISSING_RUAMEL` not thread-safe**. Cosmetic; double-print at worst.
+    - **R16-10, R16-11**: CHANGELOG over-count + versioned-error-prefix drift — release-note hygiene; cosmetic.
+
+    **16-round chain summary**: 113 + 12 (R16-1..R16-12) = 125 substantive findings; 111 closed; 14 deferred with documented v3.6+ scope tags.
+
+    Verified: `ruff check` 0 findings; `mypy --strict` core (60 files) + GUI/QGIS (9 files) clean; **530 / 530 tests pass** across the gated suite (+6 R15-4/R14-11 TOCTOU + 1 R16-1 sausage-gap + 1 R16-6 source-inspection).
+
 ## [3.4.0] — 2026-05-19
 
 ### Changed / Added
