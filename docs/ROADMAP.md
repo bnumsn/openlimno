@@ -125,7 +125,7 @@ they advance the unfreeze gate or document existing state honestly.
 | Track | First deliverable | Closes |
 |---|---|---|
 | **R-PHABSIM-REAL** | PHABSIM Fortran-in-OCI container harness; replicate Bovee 1997 cookbook 5.1 (Trapezoidal Channel) Δ ≤ 1e-3 | U3 |
-| **R-BASIN-1** | Lemhi (existing fixture) re-cast as publication-grade end-to-end study with provenance + watermark + regulatory export | U4 (partial) |
+| **R-BASIN-1** | Lemhi end-to-end **OPERATIONAL (2026-05-20)**: pipeline runs against `data/lemhi/` fixtures, produces all 13 core artifacts + 2 plots; pinned by `tests/integration/test_r5_r14_lemhi_end_to_end_audit.py`. Publication-grade closure (real cross-sections, field-data comparison, U5 sign-off) still pending. See [`docs/r_basin_1_lemhi_status.md`](r_basin_1_lemhi_status.md). | U4 (partial — engineering done, science pending) |
 | **R-CN-BASIN** | Yangtze-tributary or Yellow-River case (memory `project_openlimno` charter) | U4 (preferred) |
 | **R-REGREVIEW-SL712** | CN SL/Z 712-2014 reviewer-of-record outreach + sample signed export | U5 |
 | **R-DOC-AUDIT-WIRED** | Production-caller audit on all R5-x..R18-x closures; flag every API-only "closed" item | U6 + closes the S5 strategic finding |
