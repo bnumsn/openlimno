@@ -719,8 +719,20 @@ class Case:
         The distinction between ``None`` (key absent) and ``[]``
         (key explicitly empty) matters for R12-3: an empty list now
         means "lock to case dir only," not "use permissive mode."
+
+        2026-05-20 R-DOC-AUDIT-WIRED: defensively handle a Case
+        instance constructed without ``self.config`` (the test-time
+        ``object.__new__(Case)`` pattern that bypasses the dataclass
+        __init__). Production callers always reach this through
+        ``Case.from_yaml`` / ``Case(config=..., ...)`` which set
+        ``config``, so this fallback is invisible in normal use.
+        A Case missing config has nothing to enforce against; return
+        None which routes to the implicit case-dir-only sandbox.
         """
-        case_section = self.config.get("case", {})
+        config = getattr(self, "config", None)
+        if not isinstance(config, dict):
+            return None
+        case_section = config.get("case", {})
         if "allowed_data_roots" not in case_section:
             return None
         return case_section["allowed_data_roots"]
@@ -2019,8 +2031,22 @@ class Case:
         if not (raster_uri and locs_uri):
             return None
 
-        raster_path = (self.case_dir / raster_uri).resolve()
-        locs_path = (self.case_dir / locs_uri).resolve()
+        # 2026-05-20 R-DOC-AUDIT-WIRED (closes a R11-4 audit miss):
+        # these user-supplied data.*.uri reads previously joined the
+        # case_dir directly, bypassing the v3.0 path-safety sandbox.
+        # A malicious case.yaml pointing ``data.thermal_raster.uri:
+        # /etc/shadow`` would have been read without rejection. Route
+        # through ``_resolve_safe`` so the sandbox check fires.
+        try:
+            raster_path = self._resolve_safe(raster_uri)
+            locs_path = self._resolve_safe(locs_uri)
+        except ValueError as e:
+            warnings.append(
+                f"data.thermal_raster or data.section_locations URI "
+                f"rejected by sandbox: {e}. Falling back from inline "
+                f"raster path."
+            )
+            return None
         if not raster_path.is_file() or not locs_path.is_file():
             warnings.append(
                 "data.thermal_raster or data.section_locations file "
@@ -2270,7 +2296,16 @@ class Case:
         uri = block.get("uri")
         if not uri:
             return None
-        path = (self.case_dir / uri).resolve()
+        # 2026-05-20 R-DOC-AUDIT-WIRED (R11-4 audit miss): wire through
+        # the sandbox.
+        try:
+            path = self._resolve_safe(uri)
+        except ValueError as e:
+            warnings.append(
+                f"data.thermal_si_per_section.uri ({uri}) rejected by "
+                f"sandbox: {e}. Falling back to scalar thermal overlay."
+            )
+            return None
         if not path.is_file():
             warnings.append(
                 f"data.thermal_si_per_section.uri ({uri}) not found at "
@@ -2349,8 +2384,18 @@ class Case:
         if not (raster_uri and locs_uri):
             return None
 
-        raster_path = (self.case_dir / raster_uri).resolve()
-        locs_path = (self.case_dir / locs_uri).resolve()
+        # 2026-05-20 R-DOC-AUDIT-WIRED (R11-4 audit miss; symmetric
+        # to the thermal_raster loader above).
+        try:
+            raster_path = self._resolve_safe(raster_uri)
+            locs_path = self._resolve_safe(locs_uri)
+        except ValueError as e:
+            warnings.append(
+                f"data.cover_raster or data.section_locations URI "
+                f"rejected by sandbox: {e}. Falling back from inline "
+                f"cover-raster path."
+            )
+            return None
         if not raster_path.is_file() or not locs_path.is_file():
             warnings.append(
                 "data.cover_raster or data.section_locations file "
@@ -2589,7 +2634,16 @@ class Case:
         uri = block.get("uri")
         if not uri:
             return None
-        path = (self.case_dir / uri).resolve()
+        # 2026-05-20 R-DOC-AUDIT-WIRED (R11-4 audit miss; symmetric
+        # to the thermal_si_per_section loader above).
+        try:
+            path = self._resolve_safe(uri)
+        except ValueError as e:
+            warnings.append(
+                f"data.cover_si_per_section.uri ({uri}) rejected by "
+                f"sandbox: {e}. Falling back to scalar cover overlay."
+            )
+            return None
         if not path.is_file():
             warnings.append(
                 f"data.cover_si_per_section.uri ({uri}) not found at "

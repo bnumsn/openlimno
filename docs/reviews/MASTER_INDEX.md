@@ -68,7 +68,7 @@ of converting `NEEDS-AUDIT` to `CLOSED` / `CLOSED-API-ONLY` /
 | Total unique findings | **~146** (124 distinct `Rxx-y` codes + 22 F/N/M codes) |
 | Findings flagged closed (per CHANGELOG) | **~128** |
 | Findings deferred (per CHANGELOG) | **~18** |
-| Findings with confirmed production caller | **R18-1, R18-2, R18-3, R18-4** (4 — full R5..R17 sweep pending) |
+| Findings with confirmed production caller | **R11-4 cluster** (4 inline-raster loaders swept) + **R18-1, R18-2, R18-3, R18-4** = 8 (full R5..R17 sweep ongoing) |
 | Findings flagged `INTENTIONALLY-API-ONLY` | `_yaml_rt.dump_round_trip(case=None)` default (bootstrap/ad-hoc writers) |
 
 **Until the full R-DOC-AUDIT-WIRED pass completes (R17 → R5), treat
@@ -82,6 +82,7 @@ only case.**
 | Date | Pass | Findings flipped | Pinned by |
 |---|---|---|---|
 | 2026-05-20 | First R-DOC-AUDIT-WIRED pass | R18-4: OPEN → CLOSED (three production callers now pass `case=`) | `tests/unit/test_r18_4_audit_wired.py` (4 tests) |
+| 2026-05-20 | Second R-DOC-AUDIT-WIRED pass | R11-4 inline-raster cluster: 4 loaders flipped from BYPASSED → CLOSED (all route through `_resolve_safe`) | `tests/unit/test_r11_4_audit_wired.py` (8 tests) |
 
 ---
 
@@ -121,7 +122,7 @@ ledger:
 
 | Root-cause cluster | Items | First mention | Final closure | Production caller (audit) |
 |---|---|---|---|---|
-| **Path-safety sandbox** | R11-4, R12-1..R12-3, R13-1, R13-2, R13-4, R13-5, R14-1, R14-3, R14-11, R15-1, R15-7, R15-9, R16-3, R16-5, R17-1, R17-2 | v2.10.1 (R11-4) | v3.0.0 wrap, v3.5.0 TOCTOU, v3.6.0 R17 hardening, v3.6.1 R18-1 fd | `_resolve_safe` + `_resolve_write_safe` + `_open_safe_fd` + `_open_safe` — wired through ~10 of 11 audit sites per SPEC_v3.md §3; `output.dir` intentionally bypassed |
+| **Path-safety sandbox** | R11-4, R12-1..R12-3, R13-1, R13-2, R13-4, R13-5, R14-1, R14-3, R14-11, R15-1, R15-7, R15-9, R16-3, R16-5, R17-1, R17-2 | v2.10.1 (R11-4) | v3.0.0 wrap, v3.5.0 TOCTOU, v3.6.0 R17 hardening, v3.6.1 R18-1 fd, **2026-05-20 R-DOC-AUDIT-WIRED inline-raster sweep** | `_resolve_safe` + `_resolve_write_safe` + `_open_safe_fd` + `_open_safe` — wired through ~10 of 11 audit sites per SPEC_v3.md §3 + 4 v2.6/v2.7 inline-raster loaders (`_maybe_compute_per_section_thermal_si_from_raster`, `_maybe_load_per_section_thermal_si`, `_maybe_compute_per_section_cover_si_from_raster`, `_maybe_load_per_section_cover_si`) **swept 2026-05-20** — previously bypassed sandbox via raw `self.case_dir / uri` joins; now route through `_resolve_safe` with fallback warning on rejection. Pinned by `tests/unit/test_r11_4_audit_wired.py` (8 tests: 4 source-inspection + 4 behavioural sandbox-block). `output.dir` intentionally bypassed (write-target → uses `_resolve_write_safe`). |
 | **AEQD high-latitude buffer** | R9-3, R16-1, R16-4, R16-7, R17-4, R17-5, R18-2, R18-3 | v2.6.1 (R9-3) | v3.6.1 (R18-2 antimeridian split + R18-3 magnitude guard) | `_riparian_buffer_geodesic` — called from `cover_si_from_polyline` via `riparian_buffer_from_polyline`; production users: any thermal/cover raster sampling at > ±60° lat |
 | **YAML round-trip** | R13-3 | v2.12.0 deferred | v3.3.0 (apply_optimised_params), v3.4.0 (NWIS auto-wire + WEDM patch), v3.6.0 R16-8 (sandbox routing), **2026-05-20 R-DOC-AUDIT-WIRED** (R16-8 sandbox-routing actually-wired) | `apply_optimised_params_to_case_yaml` (calibrate.py) wired; cli.py fetch-chain wired; cli.py NWIS auto-wire wired; **R16-8 `case=` kwarg now passed by all three production callers** (2026-05-20). Pinned by `tests/unit/test_r18_4_audit_wired.py`. |
 | **fd ownership / TOCTOU** | R15-4, R14-11, R17-10, R18-1 | v3.0 deferred | v3.5.0 (`_open_safe_fd` O_NOFOLLOW), v3.6.0 (`_open_safe` cm), v3.6.1 (R18-1 no-double-close) | `_open_safe` + `_open_safe_fd` — **NEEDS-AUDIT**: not yet confirmed which consumers (rasterio, parquet, yaml) actually route through these versus raw `open()` |
