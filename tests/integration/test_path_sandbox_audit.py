@@ -40,9 +40,19 @@ def test_v310_shipped_fixtures_validate_under_strict_sandbox() -> None:
         REPO_ROOT / "tests" / "integration" / "fixtures"
             / "lemhi-tiny" / "case.yaml",
     ]
+    # v3.4.0 R15-9 (claude test-coverage): a deleted fixture used
+    # to pass this test silently (the loop just `continue`'d). Now
+    # fail loudly so an accidental rename / deletion shows up
+    # immediately. Each fixture is a charter-shipped example; their
+    # absence is a real regression.
+    missing = [fxt for fxt in fixtures if not fxt.exists()]
+    if missing:
+        pytest.fail(
+            f"v3.4.0 R15-9: shipped fixtures missing — {missing}. "
+            f"If a fixture was intentionally removed, drop it from "
+            f"the audit list explicitly."
+        )
     for fxt in fixtures:
-        if not fxt.exists():
-            continue
         errors = validate_case(fxt)
         assert errors == [], (
             f"v3.1.0 audit-pass regression: shipped fixture {fxt} "

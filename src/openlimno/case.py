@@ -704,6 +704,97 @@ class Case:
             )
         return roots
 
+    def _apply_sandbox_check(
+        self, uri: str | Path, resolved: Path, kind: str,
+    ) -> Path:
+        """v3.4.0 R15-7: shared sandbox containment check used by
+        both ``_resolve_safe`` (read) and ``_resolve_write_safe``
+        (write). Pre-v3.4.0 the URL-scheme guard, allowed-roots
+        loop, hint selection, and redaction logic were duplicated
+        ~50 lines between the two methods; v3.4.0 unifies.
+
+        Args:
+            uri: the original URI (for the error message + URL-
+                scheme check).
+            resolved: the already-resolved (Path.resolve()'d)
+                candidate. Caller chooses ``strict=True`` for read
+                (must exist) or the walk-up technique for write
+                (allows non-existent leaf).
+            kind: ``"read"`` or ``"write"`` — drives the error-
+                message marker and the hint wording.
+
+        Returns:
+            ``resolved`` unchanged if the candidate is under any
+            allowed root.
+
+        Raises:
+            ValueError: same conditions in both kinds —
+                URL-scheme rejection or escape from
+                allowed_data_roots.
+        """
+        raw = self._get_allowed_data_roots_raw()
+        roots = self._allowed_data_roots()
+        for root in roots:
+            try:
+                if resolved.is_relative_to(root):
+                    return resolved
+            except ValueError:
+                continue
+        if raw is None:
+            if kind == "write":
+                hint = (
+                    "Pre-v3.0 this would have been permitted; v3.2.0 "
+                    "applies the strict sandbox to WRITE targets too. "
+                    "YAML fix: set the write target to a path inside "
+                    "the case directory, or add the target directory "
+                    "to case.allowed_data_roots."
+                )
+            else:
+                hint = (
+                    "Pre-v3.0 this would have been permitted (with a "
+                    "DeprecationWarning); v3.0 made the sandbox strict "
+                    "by default. YAML fix: add "
+                    "`case.allowed_data_roots: [<paths>]` listing the "
+                    "directory you want to allow. Library callers can "
+                    "additionally pass `allow_outside_case=True` to "
+                    "the resolver — this is a Python kwarg, NOT a "
+                    "YAML key."
+                )
+        else:
+            if kind == "write":
+                hint = (
+                    "YAML fix: choose a write target inside one of "
+                    "these roots, or extend case.allowed_data_roots."
+                )
+            else:
+                hint = (
+                    "YAML fix: move the data inside one of these "
+                    "roots, or add the directory to "
+                    "case.allowed_data_roots. Library callers can "
+                    "also pass `allow_outside_case=True` to the "
+                    "resolver — this is a Python kwarg, NOT a YAML "
+                    "key."
+                )
+        if os.environ.get("OPENLIMNO_PATH_SAFETY_REDACT", "0") == "1":
+            roots_repr = f"<{len(roots)} configured roots>"
+            resolved_repr = "<redacted absolute path>"
+            uri_repr = (
+                "<redacted absolute URI>"
+                if Path(str(uri)).is_absolute()
+                else repr(uri)
+            )
+        else:
+            roots_repr = str([str(r) for r in roots])
+            resolved_repr = str(resolved)
+            uri_repr = repr(uri)
+        marker = "v3.2.0 path-safety (write)" if kind == "write" else "v3.0.0 path-safety"
+        raise ValueError(
+            f"{marker}: URI {uri_repr} resolved to "
+            f"{resolved_repr} which is outside every entry in "
+            f"case.allowed_data_roots. Allowed roots (case dir + "
+            f"configured): {roots_repr}. {hint}"
+        )
+
     def _resolve_safe(
         self,
         uri: str | Path,
@@ -772,87 +863,11 @@ class Case:
         resolved = Path(self._resolve(uri)).resolve()
         if allow_outside_case:
             return resolved
-
-        # v3.0.0: STRICT-BY-DEFAULT. Missing-key === empty list:
-        # both mean "lock to case dir only." Pre-v3.0 the missing
-        # key was permissive (DeprecationWarning advance-notice
-        # on escape) — v2.12.0 ship cycle gave CI users one
-        # release of advance notice; v3.0 cuts the chain. Migration
-        # for YAMLs legitimately using shared-data roots outside the
-        # case dir: add `case.allowed_data_roots: [...]`.
-        # v3.1.0 R14-5: read the raw config ONCE per call and reuse
-        # for both the strict-check (via _allowed_data_roots) and
-        # the hint-selection at the failure path below.
-        raw = self._get_allowed_data_roots_raw()
-        roots = self._allowed_data_roots()
-        for root in roots:
-            # v2.14.1 R13 defensive: pathlib.is_relative_to raises
-            # ValueError on cross-drive Windows paths in Python 3.11
-            # (was changed to non-raising in 3.12). Treat the raise
-            # as "not relative" so the loop continues to the next
-            # root rather than crashing with an opaque traceback in
-            # the middle of a sandbox check.
-            try:
-                relative = resolved.is_relative_to(root)
-            except ValueError:
-                continue
-            if relative:
-                return resolved
-        # v3.1.0 R14-5: ``raw`` already loaded above; pick the
-        # right hint without re-traversing the config.
-        # v3.1.0 R14-6: the ``allow_outside_case=True`` escape hatch
-        # is a Python-call-site flag, NOT a YAML key. Pre-v3.1.0 the
-        # error message worded it ambiguously — users tried
-        # ``allow_outside_case: true`` in YAML and got the same
-        # rejection back. Reword so YAML users see the YAML-side
-        # path (allowed_data_roots) and only library callers see the
-        # per-call kwarg.
-        if raw is None:
-            hint = (
-                "Pre-v3.0 this would have been permitted (with a "
-                "DeprecationWarning); v3.0 made the sandbox strict "
-                "by default. YAML fix: add "
-                "`case.allowed_data_roots: [<paths>]` listing the "
-                "directory you want to allow. Library callers can "
-                "additionally pass `allow_outside_case=True` to "
-                "_resolve_safe for legitimate extra-case URIs (e.g. "
-                "system temp dir / write target) — this is a Python "
-                "kwarg, NOT a YAML key."
-            )
-        else:
-            hint = (
-                "YAML fix: move the data inside one of these roots, "
-                "or add the directory to case.allowed_data_roots. "
-                "Library callers can also pass "
-                "`allow_outside_case=True` to _resolve_safe — this "
-                "is a Python kwarg, NOT a YAML key."
-            )
-        # v3.2.0 R14-10 + v3.3.0 R15-1: redaction option for hosted
-        # Studio. v3.2.0 redacted resolved+roots; v3.3.0 R15-1
-        # (codex+claude) also redacts the URI itself when it's an
-        # absolute path — pre-v3.3.0 a rejected `output.dir:
-        # /etc/leaked_secret_dir` would still appear verbatim via
-        # ``URI {uri!r}``, defeating the whole redaction contract.
-        # Relative URIs stay visible: they're user-supplied content,
-        # not server tree, and surfacing them aids the user fix.
-        if os.environ.get("OPENLIMNO_PATH_SAFETY_REDACT", "0") == "1":
-            roots_repr = f"<{len(roots)} configured roots>"
-            resolved_repr = "<redacted absolute path>"
-            uri_repr = (
-                "<redacted absolute URI>"
-                if Path(str(uri)).is_absolute()
-                else repr(uri)
-            )
-        else:
-            roots_repr = str([str(r) for r in roots])
-            resolved_repr = str(resolved)
-            uri_repr = repr(uri)
-        raise ValueError(
-            f"v3.0.0 path-safety: URI {uri_repr} resolved to "
-            f"{resolved_repr} which is outside every entry in "
-            f"case.allowed_data_roots. Allowed roots (case dir + "
-            f"configured): {roots_repr}. {hint}"
-        )
+        # v3.4.0 R15-7: shared sandbox-check helper. See
+        # ``_apply_sandbox_check`` above for the rejection-message
+        # and redaction logic — collapsed from ~50 lines of
+        # duplicated code with ``_resolve_write_safe``.
+        return self._apply_sandbox_check(uri, resolved, kind="read")
 
     def _resolve_write_safe(
         self,
@@ -927,46 +942,10 @@ class Case:
 
         if allow_outside_case:
             return resolved
-        raw = self._get_allowed_data_roots_raw()
-        roots = self._allowed_data_roots()
-        for root in roots:
-            try:
-                if resolved.is_relative_to(root):
-                    return resolved
-            except ValueError:
-                continue
-        if raw is None:
-            hint = (
-                "Pre-v3.0 this would have been permitted; v3.2.0 "
-                "applies the strict sandbox to WRITE targets too. "
-                "YAML fix: set output.dir to a path inside the case "
-                "directory, or add the target directory to "
-                "case.allowed_data_roots."
-            )
-        else:
-            hint = (
-                "YAML fix: choose a write target inside one of these "
-                "roots, or extend case.allowed_data_roots."
-            )
-        # v3.3.0 R15-1: same URI redaction completion as the read path.
-        if os.environ.get("OPENLIMNO_PATH_SAFETY_REDACT", "0") == "1":
-            roots_repr = f"<{len(roots)} configured roots>"
-            resolved_repr = "<redacted absolute path>"
-            uri_repr = (
-                "<redacted absolute URI>"
-                if Path(str(uri)).is_absolute()
-                else repr(uri)
-            )
-        else:
-            roots_repr = str([str(r) for r in roots])
-            resolved_repr = str(resolved)
-            uri_repr = repr(uri)
-        raise ValueError(
-            f"v3.2.0 path-safety (write): URI {uri_repr} resolved to "
-            f"{resolved_repr} which is outside every entry in "
-            f"case.allowed_data_roots. Allowed roots: {roots_repr}. "
-            f"{hint}"
-        )
+        # v3.4.0 R15-7: shared sandbox-check helper. Identical
+        # containment + error-message logic with ``_resolve_safe``;
+        # ``kind='write'`` drives the marker + hint wording.
+        return self._apply_sandbox_check(uri, resolved, kind="write")
 
     def _resolve_mesh_uri(self, cfg: dict[str, Any], warnings: list[str]) -> Path | None:
         """Resolve and validate ``cfg["mesh"]["uri"]`` (UGRID-2D NetCDF).

@@ -159,9 +159,26 @@ def riparian_buffer_from_polyline(
 ) -> BaseGeometry:
     """Build a riparian-buffer polygon around an EPSG:4326 polyline.
 
-    The buffer is computed in metres but applied in degree-space
-    via a local cosine-latitude rescaling — adequate for the 25 deg²
-    case sizes WorldCover supports without reprojecting the geometry.
+    For temperate / sub-tropical reaches (mean latitude ≤ ±60°) the
+    buffer is computed in degree-space via a local cosine-latitude
+    rescaling — adequate for the 25 deg² case sizes WorldCover
+    supports without reprojecting the geometry.
+
+    v3.4.0 R9-3 (gemini, deferred from v2.6.1): above ±60° the
+    cosine-latitude approximation distorts the buffer's E-W extent
+    (a 200 m buffer becomes a 200 N–S × ~100 E–W ellipse at 60°,
+    worse closer to the pole). For high-latitude reaches we now
+    switch to a proper geodesic buffer via ``pyproj.Geod`` on the
+    WGS84 ellipsoid: each vertex gets a 360° / 36-step great-circle
+    walk-around at the requested radius, the points are unioned via
+    Shapely, and the result is a true equal-distance polygon. This
+    is slower (Geod calls instead of arithmetic) but the only way
+    to keep the buffer physically right near the poles.
+
+    Threshold: 60° absolute latitude. Below → cos-lat path
+    (compatible with all pre-v3.4 fixtures, no API change). Above
+    → geodesic path. The switch is transparent — same return type
+    + same coords convention.
 
     Args:
         coords: ``[(lon, lat), ...]`` (matches GeoJSON LineString
@@ -178,21 +195,20 @@ def riparian_buffer_from_polyline(
         )
     if buffer_m <= 0:
         raise ValueError(f"buffer_m={buffer_m} must be positive")
-    # Mean latitude → cos correction so the lon-extent of the buffer
-    # is physically right (deg ↔ metres is ~111 km/° in lat, scaled
-    # by cos(lat) in lon).
     lats = [lat for _, lat in coords]
     lat_mean = sum(lats) / len(lats)
+
+    # v3.4.0 R9-3: high-latitude path.
+    if abs(lat_mean) > 60.0:
+        return _riparian_buffer_geodesic(coords, buffer_m=buffer_m)
+
+    # Original cos-latitude path for temperate / sub-tropical reaches.
     cos_lat = np.cos(np.radians(lat_mean))
     if cos_lat <= 1e-6:
         raise ValueError(
             f"polyline crosses too close to the pole "
             f"(mean_lat={lat_mean}); buffer correction unreliable."
         )
-    # Convert metres to degrees-of-latitude: 1 deg ≈ 111 320 m.
-    # Rescale the polyline to a "metric" coord system where 1 unit =
-    # 1 metre at the mean latitude, buffer in the same unit, then
-    # unscale.
     METRES_PER_DEG_LAT = 111_320.0
     def to_metric(lon: float, lat: float) -> tuple[float, float]:
         return lon * METRES_PER_DEG_LAT * cos_lat, lat * METRES_PER_DEG_LAT
@@ -214,6 +230,47 @@ def riparian_buffer_from_polyline(
         return lon, lat
 
     return cast(BaseGeometry, transform(unscale, buf_m))
+
+
+def _riparian_buffer_geodesic(
+    coords: list[tuple[float, float]],
+    *,
+    buffer_m: float,
+) -> BaseGeometry:
+    """v3.4.0 R9-3: high-latitude path. Build a true geodesic
+    buffer on WGS84 via ``pyproj.Geod``.
+
+    Algorithm: at each polyline vertex, walk N=36 equally-spaced
+    azimuths (0°, 10°, 20°, …, 350°) at the requested ``buffer_m``
+    distance using ``Geod.fwd``. Each walk produces an ellipsoid-
+    accurate point at the right distance. Build a Polygon hull per
+    vertex (36-gon ≈ circle), then union all hulls. Result is the
+    equal-distance buffer.
+
+    Trade-off vs. cos-latitude path: ~36× more Geod calls per
+    vertex (slower) AND the segments between consecutive vertices
+    aren't buffered as a continuous strip — just the vertex
+    neighborhoods. For a dense polyline (typical river reach) the
+    vertex circles overlap enough to approximate a strip;
+    sparse polylines should densify first. We keep this as a
+    high-lat fallback rather than the default path to preserve the
+    speed of the cos-lat path for the 95%+ of cases below ±60°.
+    """
+    from pyproj import Geod
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    geod = Geod(ellps="WGS84")
+    N_AZIMUTHS = 36
+    azimuths = np.linspace(0, 360, N_AZIMUTHS, endpoint=False)
+    hulls: list[BaseGeometry] = []
+    for lon, lat in coords:
+        ring: list[tuple[float, float]] = []
+        for az in azimuths:
+            new_lon, new_lat, _back_az = geod.fwd(lon, lat, az, buffer_m)
+            ring.append((new_lon, new_lat))
+        hulls.append(Polygon(ring))
+    return cast(BaseGeometry, unary_union(hulls))
 
 
 def cover_si_from_polyline(

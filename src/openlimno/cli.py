@@ -1710,11 +1710,18 @@ def fetch(
         )
 
     # Patch case.yaml WEDM v0.2 data.* blocks.
+    # v3.4.0 R13-3: use ruamel.yaml round-trip so the fetcher
+    # patch doesn't destroy researcher-curated comments / key
+    # order on case.yaml (was a real concern for v2.x when a
+    # user ran multiple fetchers in sequence — each safe_dump
+    # stripped everything).
+    from openlimno._yaml_rt import dump_round_trip, load_round_trip
+    case_doc = load_round_trip(case_yaml_path)
     case_doc["openlimno"] = "0.2"
-    case_doc.setdefault("data", {}).update(_wedm_patches["data"])
-    case_yaml_path.write_text(
-        _yaml.safe_dump(case_doc, sort_keys=False, allow_unicode=True)
-    )
+    if case_doc.get("data") is None:
+        case_doc["data"] = {}
+    case_doc["data"].update(_wedm_patches["data"])
+    dump_round_trip(case_doc, case_yaml_path)
     console.print(
         f"\n[green]✓[/] ran {n_ran} fetcher(s); case.yaml updated to WEDM 0.2"
     )
@@ -1961,8 +1968,6 @@ def init_from_osm(
     if fetch_discharge:
         import re
 
-        import yaml as _yaml
-
         from openlimno.preprocess.fetch import (
             fetch_nwis_daily_discharge,
             record_fetch,
@@ -2036,13 +2041,15 @@ def init_from_osm(
         # dead-cold in data/ and `openlimno run` produces no eco-flow
         # exports.
         case_yaml_path = Path(paths["case_yaml"])
-        case_doc = _yaml.safe_load(case_yaml_path.read_text())
-        case_doc.setdefault("data", {})["rating_curve"] = (
-            f"data/{q_path.name}"
-        )
+        # v3.4.0 R13-3: ruamel.yaml round-trip preserves comments.
+        from openlimno._yaml_rt import dump_round_trip, load_round_trip
+        case_doc = load_round_trip(case_yaml_path)
+        if case_doc.get("data") is None:
+            case_doc["data"] = {}
+        case_doc["data"]["rating_curve"] = f"data/{q_path.name}"
         if "regulatory_export" not in case_doc:
             case_doc["regulatory_export"] = ["US-FERC-4e", "EU-WFD", "CN-SL712"]
-        case_yaml_path.write_text(_yaml.safe_dump(case_doc, sort_keys=False))
+        dump_round_trip(case_doc, case_yaml_path)
         console.print(
             "  → wired into case.yaml: data.rating_curve + regulatory_export"
         )

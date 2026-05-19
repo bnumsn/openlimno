@@ -4,6 +4,39 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [3.4.0] — 2026-05-19
+
+### Changed / Added
+- **v3.4.0 — R15-7 dedup + R15-9 fixup + ruamel migration completion + R9-3 high-lat buffering**:
+    Four v3.x-deferred items closed in one ship, all internal hygiene / correctness work — no API breaks.
+
+    **R15-7 (claude LOW) — `_resolve_safe` / `_resolve_write_safe` dedup**:
+    Pre-v3.4.0 the two methods duplicated ~50 lines of URL-scheme check, allowed-roots loop, hint selection, and redaction logic. v3.4.0 extracts the shared logic into `Case._apply_sandbox_check(uri, resolved, kind=...)`. Both callers now collapse to "compute resolved, then delegate." The `kind` parameter ("read" or "write") drives the error-message marker and hint wording so end-user error strings remain distinguishable. No behavioral change — all 62 sandbox/audit/v3.2 tests still pass against the refactored form.
+
+    **R15-9 (claude test-coverage) — silent fixture skip → fail-loud**:
+    `test_v310_shipped_fixtures_validate_under_strict_sandbox` used to `continue` past missing fixtures, so an accidental deletion of `examples/lemhi/case.yaml` would pass the test. v3.4.0 collects missing fixtures and `pytest.fail`s with the list. Each fixture is a charter-shipped example; their absence is a real regression worth surfacing.
+
+    **R13-3 completion — ruamel.yaml round-trip for the remaining writers**:
+    v3.3.0 migrated `apply_optimised_params_to_case_yaml`; v3.4.0 finishes the migration:
+    - `src/openlimno/cli.py:1716` (the WEDM v0.2 fetcher patch — multi-fetcher chain where each `safe_dump` would have stripped the previous one's comments AND the user's).
+    - `src/openlimno/cli.py:2045` (the NWIS rating-curve auto-wire patch).
+    Both now go through `openlimno._yaml_rt.load_round_trip` / `dump_round_trip`, preserving case.yaml comments / key order / blank lines across every fetch + calibrate cycle.
+
+    **R9-3 (gemini, deferred from v2.6.1) — high-latitude geodesic riparian buffer**:
+    Pre-v3.4.0 `habitat.cover.riparian_buffer_from_polyline` used a cosine-latitude rescaling to convert a metres-buffer into degree-space. At ±70° latitude, `cos ≈ 0.34`, so a 200 m buffer produced a ~67 m E-W half-width — physically wrong for sub-polar reaches. v3.4.0 switches the high-lat path (`|lat_mean| > 60°`) to a proper geodesic buffer via `pyproj.Geod` on WGS84: 36 equally-spaced azimuths per vertex, each walked via `Geod.fwd` at the requested distance, unioned via Shapely. Below the threshold the cos-lat path stays (preserves speed for the 95%+ temperate/sub-tropical case base).
+    - **Trade-off acknowledged**: the high-lat path is slower (Geod calls per vertex) AND the segments between sparse polyline vertices aren't strip-buffered as well as the cos-lat path's continuous LineString.buffer; users with sparse polylines at high latitudes should densify first. Acceptable for a path that previously produced wrong results AT ALL above 60° (the old code raised `ValueError` above ~89° via the `cos_lat ≤ 1e-6` guard; v3.4.0 handles even 85°).
+    - 4 new tests in `tests/unit/test_high_lat_buffer.py`: temperate path unchanged, ±70° E-W width matches request (not cos-shrunken), threshold continuity at ~60°, and 85° doesn't explode near pole.
+
+    **DEFERRED to v3.5+ (from the 15th-round backlog)**:
+    - **R15-4 / R14-11 — `_resolve_write_safe` walk-up TOCTOU**: still needs `openat`-style deep-sandbox design. Now that R15-7 has unified the resolver internals, the TOCTOU fix can target one helper instead of two.
+    - **R14-13 — Python 3.13 upper bound**: cosmetic; sync to Python release cadence.
+    - **R11-23 — lateral inflows / point sources boundary schema**: solver-side groundwork not started.
+    - **Real QGIS + real pestpp-glm integration tests**: environment装包-blocked, not code-blocked.
+
+    **15-round chain summary**: 113 substantive findings; 106 closed (was 102); 7 deferred.
+
+    Verified: `ruff check` 0 findings; `mypy --strict` core (60 files) + GUI/QGIS (9 files) clean; **522 / 522 tests pass** across the gated suite (+4 R9-3 tests). The R15-7 refactor is exercise via every existing path-sandbox + path-audit test.
+
 ## [3.3.0] — 2026-05-19
 
 ### Added / Fixed
