@@ -431,25 +431,32 @@ def read_optimised_params(
             f"finish a successful run? Check the workspace for "
             f"openlimno_calibration.rec / .rmr for diagnostics."
         )
+    # v2.14.1 R13-5: PEST++ .par rows are 4 whitespace-separated
+    # tokens: `name value scale offset`. Pre-v2.14.1 the parser
+    # accepted any 2-token row where token[1] parses as a float —
+    # which would misinterpret PEST++ status / iteration / commentary
+    # lines as parameters. Require ≥4 tokens AND verify the trailing
+    # scale + offset tokens are also numeric (claude R13-5 lower-bound
+    # test: a stray comment with 2 stringy tokens would have slipped
+    # through).
     params: dict[str, float] = {}
     lines = par_path.read_text(encoding="utf-8").splitlines()
-    # Skip the header line ("single point" or similar; PEST++ writes
-    # this verbatim, no commentary chars). Be defensive: scan from the
-    # first line that has 2+ whitespace-separated tokens with the second
-    # token parseable as a float.
     for line in lines:
         parts = line.split()
-        if len(parts) < 2:
+        if len(parts) < 4:
             continue
         try:
             value = float(parts[1])
+            float(parts[2])  # validate scale is numeric
+            float(parts[3])  # validate offset is numeric
         except ValueError:
             continue
         params[parts[0]] = value
     if not params:
         raise ValueError(
             f"PEST++ .par file at {par_path} carried no parseable "
-            f"parameter rows. First few lines: {lines[:5]!r}"
+            f"parameter rows (expected `name value scale offset` "
+            f"4-token format). First few lines: {lines[:5]!r}"
         )
     return params
 
@@ -490,14 +497,28 @@ def apply_optimised_params_to_case_yaml(
     src = Path(case_yaml).resolve()
     dst = Path(out_yaml).resolve() if out_yaml else src
     config = yaml.safe_load(src.read_text(encoding="utf-8"))
-    hydro = config.setdefault("hydrodynamics", {})
-    b1d = hydro.setdefault("builtin_1d", {})
+    # v2.14.1 R13-8: a YAML literal ``hydrodynamics: null`` or
+    # ``hydrodynamics:`` (key with empty value) loads as ``None``.
+    # ``dict.setdefault("hydrodynamics", {})`` returns the existing
+    # None in that case, and the next ``.setdefault("builtin_1d", {})``
+    # would raise AttributeError on None. Defensively coalesce.
+    if config.get("hydrodynamics") is None:
+        config["hydrodynamics"] = {}
+    hydro = config["hydrodynamics"]
+    if hydro.get("builtin_1d") is None:
+        hydro["builtin_1d"] = {}
+    b1d = hydro["builtin_1d"]
 
     recognised = {"manning_n", "slope"}
     patched: list[str] = []
-    for key in recognised & params.keys():
-        b1d[key] = float(params[key])
-        patched.append(key)
+    ignored: list[str] = []
+    for name in params:
+        if name in recognised:
+            b1d[name] = float(params[name])
+            patched.append(name)
+        else:
+            ignored.append(name)
+
     if not patched:
         raise ValueError(
             f"None of the parameter names {list(params)} are "
@@ -506,11 +527,34 @@ def apply_optimised_params_to_case_yaml(
             f"calibrate.apply_optimised_params_to_case_yaml for HSI "
             f"knots / per-segment manning."
         )
+    # v2.14.1 R13-7: surface dropped parameters via the standard
+    # warnings channel so a user calibrating an unsupported param
+    # (e.g. an HSI knot in a future PEST++ workspace) is alerted
+    # rather than silently losing the result. Default action
+    # category UserWarning, not DeprecationWarning — this is a "your
+    # data was dropped" notice, not a future-behavior heads-up.
+    if ignored:
+        import warnings as _w
+        _w.warn(
+            f"apply_optimised_params_to_case_yaml: dropped "
+            f"unrecognised parameter(s) {sorted(ignored)}; only "
+            f"{sorted(recognised)} are currently round-tripped. "
+            f"These values are NOT written to {dst}.",
+            UserWarning,
+            stacklevel=2,
+        )
 
-    dst.write_text(
-        yaml.safe_dump(config, sort_keys=False, default_flow_style=False),
-        encoding="utf-8",
+    # v2.14.1 R13-2: atomic write via Case._atomic_write. A non-
+    # atomic write_text would truncate the user's case.yaml on
+    # disk-full / Ctrl-C / segfault mid-write. R13 reviewers
+    # (claude + gemini) independently flagged this — case.yaml is
+    # researcher-curated config; losing it to a process interrupt
+    # is the worst class of data loss this codebase can cause.
+    from openlimno.case import Case
+    rendered = yaml.safe_dump(
+        config, sort_keys=False, default_flow_style=False,
     )
+    Case._atomic_write(dst, lambda p: p.write_text(rendered, encoding="utf-8"))
     return dst
 
 

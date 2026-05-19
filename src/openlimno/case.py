@@ -18,6 +18,7 @@ import re
 import socket
 import subprocess
 import sys
+import warnings as _stdlib_warnings  # v2.14.1 R13-13: hoist from per-call
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -107,8 +108,8 @@ class Case:
     def run(
         self,
         discharges_m3s: list[float] | None = None,
-        slope: float = 0.002,
-        manning_n: float = 0.035,
+        slope: float | None = None,
+        manning_n: float | None = None,
         studyplan_path: str | Path | None = None,
         discharge_series_path: str | Path | None = None,
     ) -> CaseRunResult:
@@ -122,44 +123,67 @@ class Case:
             5. Drift egg evaluation (if metric=drifting-egg or species opts in)
             6. Regulatory exports (if `regulatory_export` in case YAML)
             7. Provenance + outputs (NetCDF/CSV/Parquet)
+
+        Args:
+            slope: Bed slope. ``None`` (default) → look in YAML
+                ``hydrodynamics.builtin_1d.slope`` first (calibrated
+                value from v2.14.0 round-trip), fall back to 0.002
+                if neither YAML nor caller supplies a value.
+                Explicit numeric value always wins over YAML.
+            manning_n: Manning's n. Same sentinel-None convention as
+                ``slope`` (v2.14.1 R13-1: sentinel replaces the
+                broken "equals hard-coded default" detection).
         """
         warnings: list[str] = []
         cfg = self.config
         case_dir = self.case_dir
 
-        # v2.14.0 PEST++ round-trip closure: when a calibration run
-        # has patched ``hydrodynamics.builtin_1d.{manning_n, slope}``
-        # into the case YAML (via
-        # ``calibrate.apply_optimised_params_to_case_yaml``), those
-        # values become the EFFECTIVE defaults for this run. Explicit
-        # kwargs to Case.run still win (so caller-supplied values
-        # override the calibrated YAML; useful for sensitivity
-        # sweeps). The detection key is "explicit kwarg == the
-        # hard-coded default" vs. "explicit kwarg differs" — we
-        # can't tell the two apart at the function-call boundary in
-        # Python, so the contract is "YAML wins over hard-coded
-        # default; caller MUST pass an explicit kwarg to override the
-        # YAML." This matches PEST's convention (calibrated parameters
-        # ship with the model; user explicitly overrides to test).
+        # v2.14.0 PEST++ round-trip closure (v2.14.1 R13-1 sentinel-
+        # default form): when a calibration run has patched
+        # ``hydrodynamics.builtin_1d.{manning_n, slope}`` into the
+        # case YAML, those values become the EFFECTIVE defaults for
+        # this run. Explicit kwargs to Case.run still win (caller-
+        # supplied values override the calibrated YAML — useful for
+        # sensitivity sweeps).
+        #
+        # Pre-v2.14.1 used "equals hard-coded default" as the kwarg-
+        # was-omitted signal. R13 reviewers (claude + gemini)
+        # independently caught the bug: a user explicitly passing
+        # ``slope=0.002`` to force the standard default got their
+        # explicit value silently overwritten by the calibrated YAML.
+        # Sentinel ``None`` defaults distinguish "caller omitted" from
+        # "caller chose this value" unambiguously.
         b1d = cfg.get("hydrodynamics", {}).get("builtin_1d") or {}
-        if "slope" in b1d and slope == 0.002:
-            slope = float(b1d["slope"])
-            warnings.append(
-                f"Using calibrated slope from YAML: {slope:.6g}"
-            )
-        # builtin_1d_config schema permits manning_n as a number or
-        # as a path to a per-segment CSV; only honor the scalar form
-        # here. The CSV form is a different code path that
-        # load_sections_from_parquet already supports.
-        if (
-            "manning_n" in b1d
-            and manning_n == 0.035
-            and isinstance(b1d["manning_n"], (int, float))
-        ):
-            manning_n = float(b1d["manning_n"])
-            warnings.append(
-                f"Using calibrated manning_n from YAML: {manning_n:.6g}"
-            )
+
+        if slope is None:
+            yaml_slope = b1d.get("slope")
+            # R13-6: reject bool — isinstance(True, (int, float))
+            # is True, which would silently coerce a YAML
+            # ``slope: true`` into ``1.0``.
+            if isinstance(yaml_slope, (int, float)) and not isinstance(
+                yaml_slope, bool,
+            ):
+                slope = float(yaml_slope)
+                warnings.append(
+                    f"Using calibrated slope from YAML: {slope:.6g}"
+                )
+            else:
+                slope = 0.002
+        if manning_n is None:
+            # builtin_1d_config schema permits manning_n as a number
+            # or as a path to a per-segment CSV; only honor the
+            # scalar form here. The CSV form is a different code
+            # path that load_sections_from_parquet already supports.
+            yaml_n = b1d.get("manning_n")
+            if isinstance(yaml_n, (int, float)) and not isinstance(
+                yaml_n, bool,
+            ):
+                manning_n = float(yaml_n)
+                warnings.append(
+                    f"Using calibrated manning_n from YAML: {manning_n:.6g}"
+                )
+            else:
+                manning_n = 0.035
 
         # Discharges
         if discharges_m3s is None:
@@ -712,8 +736,7 @@ class Case:
             try:
                 resolved.relative_to(self.case_dir.resolve())
             except ValueError:
-                import warnings as _w
-                _w.warn(
+                _stdlib_warnings.warn(
                     f"openlimno path-safety (v2.12.0 advance-notice): "
                     f"URI {uri!r} resolved to {resolved}, which is "
                     f"outside the case directory ({self.case_dir}). "
@@ -728,7 +751,17 @@ class Case:
             return resolved
         roots = self._allowed_data_roots()
         for root in roots:
-            if resolved.is_relative_to(root):
+            # v2.14.1 R13 defensive: pathlib.is_relative_to raises
+            # ValueError on cross-drive Windows paths in Python 3.11
+            # (was changed to non-raising in 3.12). Treat the raise
+            # as "not relative" so the loop continues to the next
+            # root rather than crashing with an opaque traceback in
+            # the middle of a sandbox check.
+            try:
+                relative = resolved.is_relative_to(root)
+            except ValueError:
+                continue
+            if relative:
                 return resolved
         raise ValueError(
             f"v2.11.0 path-safety: URI {uri!r} resolved to "
@@ -842,7 +875,11 @@ class Case:
         try:
             from openlimno.studyplan import StudyPlan
 
-            sp = StudyPlan.from_yaml(self._resolve(studyplan_path))
+            # v2.14.1 N: studyplan URI on the sandbox path. Studio
+            # would load a user-supplied study plan from a YAML the
+            # user could control; a path-traversal here is the same
+            # exploit class as data.* URIs.
+            sp = StudyPlan.from_yaml(self._resolve_safe(studyplan_path))
             warnings.append(f"StudyPlan loaded with {len(sp.tuf_overrides())} TUF overrides")
             return sp
         except Exception as e:
@@ -880,7 +917,8 @@ class Case:
         )
 
         species = de_cfg["species"]
-        params_path = self._resolve(de_cfg["params"])
+        # v2.14.1 N: drifting-egg params URI on the sandbox path.
+        params_path = self._resolve_safe(de_cfg["params"])
         spawning_station_m = float(de_cfg["spawning_station_m"])
         max_drift_km = float(de_cfg.get("max_drift_km", 200.0))
         dt_s = float(de_cfg.get("dt_s", 600.0))
@@ -957,7 +995,9 @@ class Case:
             T = float(forcing.get("value_C", 20.0))
             return {float(s): T for s in stations}
         if kind == "csv":
-            csv_path = self._resolve(forcing["csv"])
+            # v2.14.1 N: drifting-egg thermal-forcing CSV on the
+            # sandbox path.
+            csv_path = self._resolve_safe(forcing["csv"])
             try:
                 df = pd.read_csv(csv_path)
             except Exception as e:

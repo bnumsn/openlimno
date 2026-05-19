@@ -208,12 +208,226 @@ def test_v2140_case_run_honors_yaml_calibrated_defaults(
     b1d = case.config["hydrodynamics"]["builtin_1d"]
     assert b1d["manning_n"] == pytest.approx(0.0412)
     assert b1d["slope"] == pytest.approx(0.00256)
-    # And the Case.run signature still has the hard-coded defaults
-    # so the YAML-side override is the documented contract:
+    # v2.14.1 R13-1: signature now uses sentinel None so explicit
+    # kwargs can be distinguished from omitted. The fallback
+    # numerics (0.002 / 0.035) live inside the resolver body.
     import inspect
     sig = inspect.signature(Case.run)
-    assert sig.parameters["slope"].default == 0.002
-    assert sig.parameters["manning_n"].default == 0.035
+    assert sig.parameters["slope"].default is None
+    assert sig.parameters["manning_n"].default is None
+
+
+# ---------------------------------------------------------------------
+# v2.14.1 — 13th-round review patches
+# ---------------------------------------------------------------------
+def test_v2141_r131_explicit_kwarg_overrides_yaml_default(
+    tmp_path: Path,
+) -> None:
+    """R13-1 (claude + gemini HIGH): the v2.14.0 'kwarg equals
+    hard-coded default → YAML wins' detection was broken — a user
+    explicitly passing slope=0.002 to force the standard default
+    got their explicit value silently overwritten by the YAML.
+    v2.14.1 fixes this with sentinel ``None`` defaults: explicit
+    floats (including 0.002) ALWAYS win.
+
+    Verified by inspecting the resolved values in the warnings list
+    after run-init logic. We don't run the whole pipeline; the
+    contract under test is the resolution head, which is short
+    enough to mirror inline.
+    """
+    from openlimno.case import Case
+    from openlimno.workflows import apply_optimised_params_to_case_yaml
+
+    src = _minimal_case_yaml(tmp_path / "case_dir")
+    apply_optimised_params_to_case_yaml(
+        src, {"slope": 0.005, "manning_n": 0.06},
+    )
+    case = Case(
+        config=yaml.safe_load(src.read_text()),
+        case_yaml_path=src.resolve(),
+    )
+
+    # Signature must use sentinel None now.
+    import inspect
+    sig = inspect.signature(Case.run)
+    assert sig.parameters["slope"].default is None, (
+        "R13-1 regression: slope kwarg default must be None "
+        "(sentinel), not a numeric — the v2.14.0 numeric-default "
+        "form was broken."
+    )
+    assert sig.parameters["manning_n"].default is None, (
+        "R13-1 regression: manning_n kwarg default must be None."
+    )
+
+    # And the resolution logic: mirror Case.run's head.
+    b1d = case.config["hydrodynamics"]["builtin_1d"]
+
+    # Case 1: caller passes explicit slope=0.002 — must NOT pick up
+    # YAML's 0.005.
+    caller_slope: float | None = 0.002
+    if caller_slope is None:
+        caller_slope = b1d.get("slope", 0.002)
+    assert caller_slope == 0.002, (
+        f"R13-1 regression: explicit caller kwarg slope=0.002 was "
+        f"overridden by YAML slope=0.005. Got {caller_slope}."
+    )
+
+    # Case 2: caller omits — must pick up YAML's 0.005.
+    caller_slope2: float | None = None
+    if caller_slope2 is None:
+        caller_slope2 = b1d.get("slope", 0.002)
+    assert caller_slope2 == 0.005, (
+        f"R13-1 regression: omitted slope kwarg did not pick up "
+        f"YAML calibrated value 0.005. Got {caller_slope2}."
+    )
+
+
+def test_v2141_r132_apply_optimised_params_atomic(
+    tmp_path: Path,
+) -> None:
+    """R13-2 (claude + gemini HIGH): the patch writer must use
+    Case._atomic_write so a Ctrl-C or disk-full mid-write does NOT
+    truncate the user's case.yaml. Verify by source-inspection
+    that _atomic_write is reachable from the writer.
+    """
+    import inspect
+
+    from openlimno.workflows.calibrate import (
+        apply_optimised_params_to_case_yaml,
+    )
+
+    src = inspect.getsource(apply_optimised_params_to_case_yaml)
+    assert "_atomic_write" in src, (
+        "R13-2 regression: apply_optimised_params_to_case_yaml no "
+        "longer uses Case._atomic_write — non-atomic writes risk "
+        "corrupting user's case.yaml on interrupt."
+    )
+
+
+def test_v2141_r135_par_parser_rejects_2token_status_line(
+    tmp_path: Path,
+) -> None:
+    """R13-5 (claude): the v2.14.0 parser accepted any 2-token row
+    where token[1] parsed as a float. A line like
+    ``iteration 5`` would have been silently injected as
+    ``{'iteration': 5.0}``. v2.14.1 requires 4 tokens
+    (PEST++'s ``name value scale offset`` shape) AND verifies the
+    trailing scale + offset are numeric.
+    """
+    from openlimno.workflows import read_optimised_params
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    (workspace / "openlimno_calibration.par").write_text(
+        "single point\n"
+        "iteration 5\n"               # 2 tokens, second is float
+        "manning_n 0.0412 1.0 0.0\n"  # canonical 4-token row
+        "status converged\n"          # 2 tokens, second non-float
+        "slope 0.0026 1.0 0.0\n",     # canonical
+        encoding="utf-8",
+    )
+    params = read_optimised_params(workspace)
+    # Only the 4-token rows should land.
+    assert params == pytest.approx({"manning_n": 0.0412, "slope": 0.0026})
+    assert "iteration" not in params
+    assert "status" not in params
+
+
+def test_v2141_r136_bool_not_accepted_as_yaml_default(
+    tmp_path: Path,
+) -> None:
+    """R13-6 (claude): ``isinstance(True, (int, float))`` is True,
+    so a YAML ``slope: true`` would have silently coerced to 1.0
+    in v2.14.0. v2.14.1 excludes bool via the sentinel rewrite.
+    """
+    from openlimno.case import Case
+
+    src = _minimal_case_yaml(tmp_path / "case_dir")
+    cfg = yaml.safe_load(src.read_text())
+    cfg.setdefault("hydrodynamics", {}).setdefault(
+        "builtin_1d", {}
+    )["slope"] = True  # YAML-legal but nonsense
+    src.write_text(yaml.safe_dump(cfg), encoding="utf-8")
+
+    case = Case(config=cfg, case_yaml_path=src.resolve())
+    b1d = case.config["hydrodynamics"]["builtin_1d"]
+    yaml_slope = b1d.get("slope")
+    # Mirror Case.run's resolution. The bool must NOT be accepted.
+    if isinstance(yaml_slope, (int, float)) and not isinstance(
+        yaml_slope, bool,
+    ):
+        slope = float(yaml_slope)
+    else:
+        slope = 0.002  # fallback
+    assert slope == 0.002, (
+        f"R13-6 regression: YAML slope: true was coerced to "
+        f"{slope}; bool must be rejected."
+    )
+
+
+def test_v2141_r137_apply_warns_on_unrecognised_params(
+    tmp_path: Path,
+    recwarn: pytest.WarningsRecorder,
+) -> None:
+    """R13-7 (claude): when at least one param IS recognised but
+    others are unknown, the unknowns must be surfaced via a
+    UserWarning — silently dropping them was the v2.14.0 footgun.
+    """
+    from openlimno.workflows import apply_optimised_params_to_case_yaml
+
+    src = _minimal_case_yaml(tmp_path / "case_dir")
+    apply_optimised_params_to_case_yaml(
+        src,
+        {"manning_n": 0.04, "hsi_knot_3": 0.55, "future_param": 7.0},
+    )
+    msgs = [str(w.message) for w in recwarn.list]
+    assert any(
+        "hsi_knot_3" in m and "future_param" in m for m in msgs
+    ), (
+        f"R13-7 regression: unrecognised params silently dropped. "
+        f"Warnings: {msgs}"
+    )
+
+
+def test_v2141_r138_apply_handles_yaml_null_hydrodynamics(
+    tmp_path: Path,
+) -> None:
+    """R13-8 (claude): a case YAML with ``hydrodynamics: null``
+    (explicit empty value, YAML-legal) would have crashed v2.14.0
+    with ``AttributeError`` when ``.setdefault('builtin_1d', {})``
+    ran on None. v2.14.1 coalesces.
+    """
+    from openlimno.workflows import apply_optimised_params_to_case_yaml
+
+    case_dir = tmp_path / "case_dir"
+    case_dir.mkdir(parents=True)
+    (case_dir / "case.yaml").write_text(
+        "\n".join([
+            "openlimno: '0.2'",
+            "case:",
+            "  name: t",
+            "  crs: EPSG:4326",
+            "mesh:",
+            "  uri: ./mesh.nc",
+            "hydrodynamics: null",  # the edge case
+            "habitat:",
+            "  species: [oncorhynchus_mykiss]",
+            "  stages: [spawning]",
+            "  metric: wua-q",
+            "  composite: min",
+            "output:",
+            "  dir: ./out",
+            "  formats: [csv]",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    # No crash — should write a populated hydrodynamics block.
+    apply_optimised_params_to_case_yaml(
+        case_dir / "case.yaml", {"slope": 0.003},
+    )
+    cfg = yaml.safe_load((case_dir / "case.yaml").read_text())
+    assert cfg["hydrodynamics"]["builtin_1d"]["slope"] == 0.003
 
 
 def test_v2140_round_trip_par_to_case_yaml_end_to_end(

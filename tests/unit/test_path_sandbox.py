@@ -571,6 +571,48 @@ def test_v2120_advance_notice_uses_deprecationwarning_category(
     )
 
 
+# ---------------------------------------------------------------------
+# v2.14.1 — followups
+# ---------------------------------------------------------------------
+def test_v2141_is_relative_to_cross_drive_handled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """v2.14.1 R13-defensive: pathlib's ``is_relative_to`` raises
+    ``ValueError`` on cross-drive Windows paths in Python 3.11 (it
+    was changed to non-raising in 3.12). The sandbox loop must
+    swallow that as "not relative," not crash mid-check with an
+    opaque traceback.
+
+    Hard to actually simulate cross-drive on POSIX, so we
+    monkeypatch ``is_relative_to`` on the resolved Path object to
+    raise — proving the loop catches and continues.
+    """
+    case_dir = tmp_path / "case_dir"
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    case_yaml = _write_case_yaml(
+        case_dir, allowed_data_roots=[str(shared)],
+    )
+    case = _make_case(case_yaml)
+
+    # Patch Path.is_relative_to to always raise ValueError so the
+    # defensive except path is exercised.
+    real_method = Path.is_relative_to
+
+    def raising(self: Path, other: Path) -> bool:
+        raise ValueError("simulated cross-drive comparison")
+
+    monkeypatch.setattr(Path, "is_relative_to", raising)
+    try:
+        # Both roots will "raise"; the loop must NOT propagate the
+        # ValueError as a crash; instead the URI is rejected with the
+        # normal sandbox message.
+        with pytest.raises(ValueError, match="path-safety"):
+            case._resolve_safe(str(shared / "file.csv"))
+    finally:
+        monkeypatch.setattr(Path, "is_relative_to", real_method)
+
+
 def test_v2110_schema_rejects_unknown_case_field(tmp_path: Path) -> None:
     """Pin that adding allowed_data_roots didn't accidentally loosen
     case's additionalProperties:false guard."""
