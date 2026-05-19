@@ -4,6 +4,57 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [3.0.0] — 2026-05-19
+
+### Changed (BREAKING)
+- **v3.0.0 — strict-by-default path sandbox + audit-pass (R11-4 收尾)**:
+    First major version since v2.0.0. v3.0 is a focused cut: not redesign, not new features — instead it consumes the v2.x-accumulated "v3.x deferral" items in one ship and ends the v2.x maintenance line. After v3.0, additive-only resumes on the v3.x track.
+
+    **Two behavior breaks (per `docs/SPEC_v3.md` §1, §2)**:
+
+    1. **`Case._resolve_safe` is strict-by-default**. The pre-v3.0 semantics were:
+       - `case.allowed_data_roots` unset → permissive (with `DeprecationWarning` advance-notice on escape, since v2.12.0)
+       - `case.allowed_data_roots: []` → strict, case-dir-only
+       - `case.allowed_data_roots: [paths]` → allow listed dirs
+
+       v3.0 unifies unset and explicit-empty: **both are now strict**. Studio + third-party-YAML consumers had a one-ship cycle (v2.12.0 → v2.14.1) of `DeprecationWarning` advance notice; CI running with `-W error::DeprecationWarning` already caught the affected paths in that window.
+
+       Migration:
+       - YAMLs whose data URIs all stay inside the case dir (`./data/...`): **no change needed**.
+       - YAMLs that reach outside (`../../data/...` or absolute paths): **add `case.allowed_data_roots: [<paths>]`** listing the trusted directories. The `ValueError` message now explicitly mentions `allowed_data_roots` and `allow_outside_case=True` so users following pre-v3.0 docs see the migration path in the error.
+
+       Repo-internal migrations done in this ship:
+       - `examples/lemhi/case.yaml` → `allowed_data_roots: [../../data]`
+       - `examples/composite_hsi/case.yaml` → `allowed_data_roots: [../../data, ./data]`
+       - `examples/phabsim_replication/case.yaml` and `tests/integration/fixtures/lemhi-tiny/case.yaml` already use `./data/...` (in-case-dir) — no change needed.
+
+    2. **`matplotlib.use("Agg", force=False)`** in `studio/headless.plot_wua_q` before the first `pyplot` import. This isn't strictly a user-visible API break, but Studio runs in a `QThread` that historically risked deadlocks under the default GUI backends (Tk/Cocoa); v3.0 forces the non-interactive `Agg` backend so the canonical WUA-Q PNG renders deterministically on every platform. `force=False` and a `sys.modules` guard mean Jupyter / notebook callers that chose a different backend earlier in their process keep that choice.
+
+    **Audit-pass — 10 of 11 user-data `_resolve` call sites now sandbox-routed** (per `docs/SPEC_v3.md` §3):
+    - `src/openlimno/cli.py:508` (`openlimno calibrate` cross_section) → `_resolve_safe`
+    - `src/openlimno/cli.py:565` (generic data path via `provenance.json`) → `_resolve_safe`
+    - `src/openlimno/workflows/calibrate.py:215` (PEST++ workspace cross_section) → `_resolve_safe`
+
+    Combined with v2.11.1 + v2.12.0 + v2.14.1, the only remaining call site that bypasses `_resolve_safe` is `output.dir` (write target — different semantics; deferred to v3.1 as `_resolve_write_target`). 10 / 11 = 90.9% coverage.
+
+    **Deferred to v3.1+ with explicit rationale** (per `docs/SPEC_v3.md` §4):
+    - **R13-3 ruamel.yaml** swap of `yaml.safe_load`/`safe_dump`: adds a runtime dependency, touches 5+ writers. v3.1.
+    - **R11-23** lateral inflows / point sources schema: depends on solver-side groundwork. v3.1 with solver work.
+    - **R9-3** projected-CRS buffering at high latitudes: no user reported. v3.1 if/when.
+    - **R11-2** solver-level boundaries-missing warning: depends on solver warnings channel. v3.1.
+    - **R11-18** TIFF fixture generator: cosmetic. v3.x.
+    - **R13-9/11/12/14/16/17**: warning dedupe, `pyqtSignal(str, object)`, invalid-PNG branch test, `_load_wua_q_plot_layer` path validation, future HSI-knot allow-list, `case_dir.resolve()` caching. v3.x audit pass.
+
+    **Test updates**:
+    - `test_v2110_no_sandbox_falls_back_to_resolve`, `test_v2120_advance_notice_warns_on_escape_when_unset`, `test_v2120_advance_notice_uses_deprecationwarning_category`, `test_v2120_no_warning_for_in_case_dir_path`, `test_v2120_no_warning_when_opted_in` — all rewritten OR removed. The v2.11/v2.12 permissive + advance-notice semantics are gone in v3.0; the new strict contract is pinned by `test_v300_strict_default_in_case_dir_path_ok`, `test_v300_strict_default_escape_rejected`, `test_v300_strict_default_matches_explicit_empty`.
+    - All other tests inherit unchanged. 118 / 118 across the gated set.
+
+    **v3.0 → v3.x stability promise** (per `docs/SPEC_v3.md` §5): v3.x returns to additive-only. The next breaking ship would be v4.0; no v4.0 triggers active.
+
+    **13-round triple-AI review chain**: 92 substantive findings; 84 closed; 8 deferred (all to v3.1+).
+
+    Verified: `ruff check` 0 findings; `mypy --strict` core (59 files) + GUI/QGIS (9 files) clean; **118 / 118** tests across sandbox (24, replacing v2.x-permissive tests with v3.0 strict ones) + PEST++ round-trip (15) + plugin-smoke (9) + schema (36) + composite_hsi (3) + safe_env (33) + version-consistency (2) + cli (varies). The composite_hsi end-to-end run validates the example YAML migration directly.
+
 ## [2.14.1] — 2026-05-19
 
 ### Fixed

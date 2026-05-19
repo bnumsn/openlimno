@@ -72,12 +72,15 @@ def _make_case(case_yaml: Path) -> Case:
 
 
 # ---------------------------------------------------------------------
-# Back-compat: when allowed_data_roots is unset, _resolve_safe is
-# exactly equivalent to _resolve.
+# v3.0.0 cut: strict-by-default. Pre-v3.0 missing allowed_data_roots
+# was permissive (v2.11.0 introduced the API; v2.12.0 added the
+# DeprecationWarning advance-notice on escape); v3.0 unifies missing
+# and empty-list semantics: BOTH mean "lock to case dir only."
 # ---------------------------------------------------------------------
-def test_v2110_no_sandbox_falls_back_to_resolve(tmp_path: Path) -> None:
-    """Default v2.11.0 behavior: no allowed_data_roots → permissive
-    (existing cases keep working with no schema change)."""
+def test_v300_strict_default_in_case_dir_path_ok(tmp_path: Path) -> None:
+    """v3.0.0: with allowed_data_roots unset, a path INSIDE the case
+    dir is still resolved cleanly (no false-rejection of legitimate
+    relative URIs)."""
     case_yaml = _write_case_yaml(tmp_path / "case_dir")
     case = _make_case(case_yaml)
 
@@ -85,10 +88,41 @@ def test_v2110_no_sandbox_falls_back_to_resolve(tmp_path: Path) -> None:
     p = case._resolve_safe("./data/file.csv")
     assert p == case._resolve("./data/file.csv")
 
-    # Even traversal escapes are permitted in back-compat mode —
-    # v2.11.0 is opt-in; this is the existing v2.10.x behavior.
-    escape = case._resolve_safe("../../../etc/passwd")
-    assert escape == case._resolve("../../../etc/passwd")
+
+def test_v300_strict_default_escape_rejected(tmp_path: Path) -> None:
+    """v3.0.0: with allowed_data_roots unset, a path that ESCAPES
+    the case dir is rejected (was permitted-with-warning in v2.12.x).
+    The error message must mention the pre-v3.0 permissive form so
+    users following old docs find the migration path quickly."""
+    case_yaml = _write_case_yaml(tmp_path / "case_dir")
+    case = _make_case(case_yaml)
+
+    with pytest.raises(ValueError, match="v3.0.0 path-safety") as exc:
+        case._resolve_safe("../../../etc/passwd")
+    msg = str(exc.value)
+    # Migration breadcrumb: error must point at allowed_data_roots
+    # AND the per-call allow_outside_case escape hatch.
+    assert "allowed_data_roots" in msg
+    assert "allow_outside_case=True" in msg
+
+
+def test_v300_strict_default_matches_explicit_empty(
+    tmp_path: Path,
+) -> None:
+    """v3.0.0: missing allowed_data_roots and `allowed_data_roots: []`
+    must produce identical behavior. The schema accepts both; the
+    runtime treats both as 'case-dir-only.'"""
+    # Case 1: unset.
+    case_a_yaml = _write_case_yaml(tmp_path / "case_a")
+    case_a = _make_case(case_a_yaml)
+    # Case 2: explicit empty.
+    case_b_yaml = _write_case_yaml(tmp_path / "case_b", allowed_data_roots=[])
+    case_b = _make_case(case_b_yaml)
+
+    # Both reject the same escape:
+    for case in (case_a, case_b):
+        with pytest.raises(ValueError, match="path-safety"):
+            case._resolve_safe("../../escapee.csv")
 
 
 # ---------------------------------------------------------------------
@@ -446,80 +480,12 @@ def test_v2111_schema_minitems_allows_explicit_empty(
 
 
 # ---------------------------------------------------------------------
-# v2.12.0 — sandbox hardening (N + O bundled)
+# v2.12.0 N — multiple call sites routed through _resolve_safe.
+# The v2.12.0 advance-notice DeprecationWarning tests were removed in
+# v3.0.0: the warning code path was deleted when missing-key became
+# strict-by-default. The strict behavior is now pinned by
+# test_v300_strict_default_escape_rejected (above).
 # ---------------------------------------------------------------------
-def test_v2120_advance_notice_warns_on_escape_when_unset(
-    tmp_path: Path,
-    recwarn: pytest.WarningsRecorder,
-) -> None:
-    """v2.12.0 O: when allowed_data_roots is UNSET (the back-compat
-    permissive branch) and a URI resolves OUTSIDE the case dir,
-    emit a DeprecationWarning so CI-strict catches it before v3.0
-    makes the strict branch default.
-    """
-    case_yaml = _write_case_yaml(tmp_path / "case_dir")  # no roots
-    case = _make_case(case_yaml)
-
-    # Resolves outside the case dir → must warn (but not raise).
-    out = case._resolve_safe("../../../tmp/outside.csv")
-    assert isinstance(out, Path)
-    msgs = [str(w.message) for w in recwarn.list]
-    assert any(
-        "path-safety" in m and "outside" in m for m in msgs
-    ), (
-        f"v2.12.0 O regression: a URI escaping the case dir should "
-        f"emit a DeprecationWarning when allowed_data_roots is "
-        f"unset. Warnings seen: {msgs}"
-    )
-
-
-def test_v2120_no_warning_for_in_case_dir_path(
-    tmp_path: Path,
-    recwarn: pytest.WarningsRecorder,
-) -> None:
-    """v2.12.0 O: the advance-notice warning fires ONLY on escape.
-    A normal in-case-dir URI must NOT warn (would spam every shipped
-    fixture's run output)."""
-    case_yaml = _write_case_yaml(tmp_path / "case_dir")
-    case = _make_case(case_yaml)
-
-    case._resolve_safe("./data/local_fixture.parquet")
-    safety_warnings = [
-        str(w.message) for w in recwarn.list
-        if "path-safety" in str(w.message)
-    ]
-    assert safety_warnings == [], (
-        f"v2.12.0 O regression: in-case-dir URI triggered a "
-        f"path-safety warning. Got: {safety_warnings}"
-    )
-
-
-def test_v2120_no_warning_when_opted_in(
-    tmp_path: Path,
-    recwarn: pytest.WarningsRecorder,
-) -> None:
-    """v2.12.0 O: when the user has opted into the sandbox (set
-    allowed_data_roots, even to []), the advance-notice warning
-    must NOT fire — they've made their choice, no nag."""
-    shared = tmp_path / "shared_data"
-    shared.mkdir()
-    case_yaml = _write_case_yaml(
-        tmp_path / "case_dir", allowed_data_roots=[str(shared)],
-    )
-    case = _make_case(case_yaml)
-
-    # A URI under the configured shared root → allowed, no warning.
-    case._resolve_safe(str(shared / "fixture.parquet"))
-    safety_warnings = [
-        str(w.message) for w in recwarn.list
-        if "path-safety" in str(w.message)
-    ]
-    assert safety_warnings == [], (
-        f"v2.12.0 O regression: opt-in users got a nag warning. "
-        f"Got: {safety_warnings}"
-    )
-
-
 def test_v2120_n_cross_section_routed_through_sandbox(
     tmp_path: Path,
 ) -> None:
@@ -547,28 +513,10 @@ def test_v2120_n_cross_section_routed_through_sandbox(
     )
 
 
-def test_v2120_advance_notice_uses_deprecationwarning_category(
-    tmp_path: Path,
-) -> None:
-    """v2.12.0 O: the advance-notice warning must use
-    DeprecationWarning specifically so `-W error::DeprecationWarning`
-    in CI makes the escape fail loudly."""
-    import warnings as _w
-
-    case_yaml = _write_case_yaml(tmp_path / "case_dir")
-    case = _make_case(case_yaml)
-
-    with _w.catch_warnings(record=True) as captured:
-        _w.simplefilter("always")
-        case._resolve_safe("../../../tmp/escapee.csv")
-    safety = [
-        c for c in captured if "path-safety" in str(c.message)
-    ]
-    assert safety, "No path-safety warning captured."
-    assert issubclass(safety[0].category, DeprecationWarning), (
-        f"v2.12.0 O regression: warning category was "
-        f"{safety[0].category.__name__}, expected DeprecationWarning."
-    )
+# v2.12.0 advance-notice DeprecationWarning test removed in v3.0.0:
+# the warning code path was deleted when missing-key became strict-
+# by-default. The new strict behavior is pinned by
+# test_v300_strict_default_escape_rejected.
 
 
 # ---------------------------------------------------------------------

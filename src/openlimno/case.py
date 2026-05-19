@@ -18,7 +18,10 @@ import re
 import socket
 import subprocess
 import sys
-import warnings as _stdlib_warnings  # v2.14.1 R13-13: hoist from per-call
+
+# v2.14.1 R13-13 hoisted ``import warnings``; v3.0.0 deleted the
+# DeprecationWarning advance-notice consumer along with strict-by-
+# default cutover, so the module no longer uses warnings directly.
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -719,36 +722,20 @@ class Case:
         resolved = Path(self._resolve(uri)).resolve()
         if allow_outside_case:
             return resolved
-        raw = self._get_allowed_data_roots_raw()
-        if raw is None:
-            # Sandbox is opt-in: the YAML didn't declare any roots
-            # → back-compat permissive resolution. R12-3: this is
-            # the ONLY permissive path now; an explicit empty list
-            # falls through to the strict branch below.
-            #
-            # v2.12.0 advance-notice: when the YAML doesn't opt in
-            # AND the resolved path escapes the case dir, emit a
-            # DeprecationWarning so CI-strict (-W error) catches
-            # this before v3.0 makes the strict branch the default.
-            # The warning is one-time-per-call (not gated by a
-            # session-level dedupe) on purpose: a single case run
-            # touches many URIs, and we want every escape visible.
-            try:
-                resolved.relative_to(self.case_dir.resolve())
-            except ValueError:
-                _stdlib_warnings.warn(
-                    f"openlimno path-safety (v2.12.0 advance-notice): "
-                    f"URI {uri!r} resolved to {resolved}, which is "
-                    f"outside the case directory ({self.case_dir}). "
-                    f"v3.0 will reject this by default. Opt into the "
-                    f"sandbox now by setting case.allowed_data_roots "
-                    f"in the YAML (use an empty list `[]` to lock "
-                    f"strictly to the case dir, or list trusted "
-                    f"shared-data roots).",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-            return resolved
+
+        # v3.0.0: STRICT-BY-DEFAULT. Pre-v3.0 the missing-key branch
+        # was permissive (DeprecationWarning advance-notice on
+        # escape, allow); v3.0 cuts the chain: missing-key now means
+        # the user implicitly opted into "lock to case dir only,"
+        # exactly the same semantics as the explicit empty list.
+        # Reasoning: Studio + third-party-YAML consumers had one ship
+        # cycle (v2.12.0 → v2.14.1) of DeprecationWarning advance
+        # notice; CI runs with `-W error::DeprecationWarning` already
+        # caught any escapes in that window. Making missing the strict
+        # default closes the v3.0 cut blocker R11-4 (path-traversal
+        # surface in user-supplied YAMLs) at the cost of a one-line
+        # migration for YAMLs that legitimately use shared-data roots
+        # outside their case dir: add `case.allowed_data_roots: [...]`.
         roots = self._allowed_data_roots()
         for root in roots:
             # v2.14.1 R13 defensive: pathlib.is_relative_to raises
@@ -763,16 +750,30 @@ class Case:
                 continue
             if relative:
                 return resolved
+        configured = self._get_allowed_data_roots_raw()
+        if configured is None:
+            hint = (
+                "Pre-v3.0 this would have been permitted (with a "
+                "DeprecationWarning); v3.0 made the sandbox strict "
+                "by default. To restore the v2.x permissive behavior "
+                "for THIS case only, add `case.allowed_data_roots: "
+                "[<paths>]` listing the directory you want to allow, "
+                "or — if the URI is for a system temp / write target "
+                "— pass `allow_outside_case=True` at the call site."
+            )
+        else:
+            hint = (
+                "Either move the data inside one of these roots, "
+                "add the directory to case.allowed_data_roots, or "
+                "pass allow_outside_case=True at the call site if "
+                "this URI is intentionally extra-case (e.g. a "
+                "system temp dir or write target)."
+            )
         raise ValueError(
-            f"v2.11.0 path-safety: URI {uri!r} resolved to "
+            f"v3.0.0 path-safety: URI {uri!r} resolved to "
             f"{resolved} which is outside every entry in "
             f"case.allowed_data_roots. Allowed roots (case dir + "
-            f"configured): {[str(r) for r in roots]}. Either move "
-            f"the data inside one of these roots, add the directory "
-            f"to case.allowed_data_roots, or pass "
-            f"allow_outside_case=True at the call site if this URI "
-            f"is intentionally extra-case (e.g. a system temp dir "
-            f"or write target)."
+            f"configured): {[str(r) for r in roots]}. {hint}"
         )
 
     def _resolve_mesh_uri(self, cfg: dict[str, Any], warnings: list[str]) -> Path | None:

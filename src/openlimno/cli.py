@@ -505,7 +505,8 @@ def calibrate(
         return
 
     case = Case.from_yaml(case_yaml)
-    cross_section_path = case._resolve(case.config["data"]["cross_section"])
+    # v3.0.0 audit-pass: sandbox-route the CLI's cross_section path.
+    cross_section_path = case._resolve_safe(case.config["data"]["cross_section"])
     sections = load_sections_from_parquet(cross_section_path, manning_n=initial_n)
     if not sections:
         console.print("[red]✗[/] no cross-sections found in case data")
@@ -562,7 +563,8 @@ def reproduce(provenance_json: str, check_only: bool) -> None:
         from openlimno.case import Case
 
         case = Case.from_yaml(case_yaml)
-        data_path = case._resolve(case.config.get("data", {}).get(label, ""))
+        # v3.0.0 audit-pass: sandbox-route the generic data-block path.
+        data_path = case._resolve_safe(case.config.get("data", {}).get(label, ""))
         if not data_path.exists():
             console.print(f"[yellow]?[/] {label}: data file missing {data_path}")
             continue

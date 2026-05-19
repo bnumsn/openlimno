@@ -91,6 +91,18 @@ def plot_wua_q(
             ``"A"`` adds nothing.
         dpi: matplotlib DPI passed to ``fig.savefig``.
     """
+    # v3.0.0 R13-4: force the non-interactive Agg backend before
+    # the first pyplot import in this process. pyplot is global
+    # state, NOT thread-safe; the Studio worker calls this from a
+    # QThread and macOS/Wayland users would otherwise hit GUI
+    # freezes or segfaults under the default Tk/Cocoa backend. Agg
+    # is pure-software, thread-safe, and produces the same PNG.
+    # Defensive: only sets if not already set by an earlier import,
+    # so a notebook caller who already chose a backend isn't
+    # clobbered.
+    import matplotlib
+    if "matplotlib.pyplot" not in __import__("sys").modules:
+        matplotlib.use("Agg", force=False)
     import matplotlib.pyplot as plt
 
     from openlimno.case import Case

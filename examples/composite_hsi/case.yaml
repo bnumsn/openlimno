@@ -34,6 +34,12 @@ case:
     and cover rasters illustrate the inline per-section sampling
     path closed by v2.6.0 + v2.7.0.
   crs: EPSG:4326
+  # v3.0.0: case references ../../data/lemhi/* for hydraulics +
+  # ./data/*.tif for rasters. Both lineages need to be in the trust
+  # list because allowed_data_roots is strict-by-default in v3.0.
+  allowed_data_roots:
+    - ../../data
+    - ./data
 
 mesh:
   uri: ../../data/lemhi/mesh.ugrid.nc

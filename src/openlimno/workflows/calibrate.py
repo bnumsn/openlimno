@@ -212,7 +212,11 @@ def build_pestpp_glm_workspace(
     from openlimno.case import Case
 
     case = Case.from_yaml(case_yaml)
-    cross_section_path = case._resolve(case.config["data"]["cross_section"])
+    # v3.0.0 audit-pass: sandbox-route the PEST++ workspace's
+    # cross_section path. With case.allowed_data_roots unset → strict;
+    # examples ship with explicit roots so calibration cases keep
+    # working under v3.0.
+    cross_section_path = case._resolve_safe(case.config["data"]["cross_section"])
     if not cross_section_path.is_file():
         raise FileNotFoundError(f"cross_section parquet missing: {cross_section_path}")
     obs = _validate_observed_rating(observed_rating)

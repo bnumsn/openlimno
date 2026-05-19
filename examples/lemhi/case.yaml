@@ -8,6 +8,12 @@ case:
   name: lemhi_phabsim_replication
   description: Replicates the canonical PHABSIM Bovee 1997 standard case using Lemhi data
   crs: EPSG:32612
+  # v3.0.0: trust the repo-level ../../data/ tree; case YAML lives at
+  # examples/lemhi/, fixtures at data/lemhi/. Required as of v3.0
+  # because allowed_data_roots is strict-by-default; pre-v3.0 this
+  # was implicit.
+  allowed_data_roots:
+    - ../../data
 
 mesh:
   uri: ../../data/lemhi/mesh.ugrid.nc
