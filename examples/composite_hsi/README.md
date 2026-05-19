@@ -17,8 +17,8 @@ A single `case.yaml` that:
    v2.6.0 inline path. `data.thermal_raster.uri` references a 12×12
    °C raster; `data.section_locations.uri` provides one (lon, lat)
    per cross-section; `data.fishbase_traits` supplies the
-   `ThermalRange` (FishBase ECOL_009 for *Schizothorax prenanti*,
-   2.5..18.5 °C).
+   `ThermalRange` (FishBase ECOL_009 for *Oncorhynchus mykiss*,
+   0..25 °C — aligned to `habitat.species` in v2.10.1 R11-1).
 3. Pulls **per-section cover SI** the same way — the v2.7.0 inline
    path. `data.cover_raster.uri` references an LULC GeoTIFF; each
    section's pixel code is mapped via `DEFAULT_RIPARIAN_COVER_SI`.

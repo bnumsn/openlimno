@@ -6,6 +6,56 @@
   "type": "object",
   "required": ["openlimno", "case", "mesh", "hydrodynamics", "habitat", "output"],
   "additionalProperties": false,
+  "$defs": {
+    "boundary_spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "description": "v2.10.1 R11-3 + R11-16: single source of truth for a 1D BC spec, referenced from both boundaries.upstream and boundaries.downstream so they cannot drift. The oneOf below pins the payload to the type: discharge/stage must carry exactly one of {series, value}; rating-curve must carry ref.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["discharge", "stage", "rating-curve"]
+        },
+        "series": {
+          "type": "string",
+          "format": "uri-reference",
+          "description": "URI to time-series CSV/parquet (for type=discharge or type=stage)."
+        },
+        "value": {
+          "type": "number",
+          "description": "Constant boundary value (m³/s for discharge; m for stage)."
+        },
+        "ref": {
+          "type": "string",
+          "format": "uri-reference",
+          "description": "URI to rating-curve table (for type=rating-curve only)."
+        }
+      },
+      "oneOf": [
+        {
+          "properties": { "type": { "const": "discharge" } },
+          "required": ["type"],
+          "anyOf": [
+            { "required": ["series"] },
+            { "required": ["value"] }
+          ]
+        },
+        {
+          "properties": { "type": { "const": "stage" } },
+          "required": ["type"],
+          "anyOf": [
+            { "required": ["series"] },
+            { "required": ["value"] }
+          ]
+        },
+        {
+          "properties": { "type": { "const": "rating-curve" } },
+          "required": ["type", "ref"]
+        }
+      ]
+    }
+  },
   "properties": {
     "openlimno": {
       "type": "string",
@@ -265,47 +315,10 @@
         "boundaries": {
           "type": "object",
           "additionalProperties": false,
-          "description": "v2.10.0: structured 1D boundary conditions. Pre-v2.10.0 this was a free-form object — typos like 'boudnaries:' or 'upstrem:' were silently accepted. v2.10.0 strictness sweep closes that gap.",
+          "description": "v2.10.0: structured 1D boundary conditions. Pre-v2.10.0 this was a free-form object — typos like 'boudnaries:' or 'upstrem:' were silently accepted. v2.10.1 R11-3 + R11-16: shared boundary_spec via $defs with oneOf discriminator on `type` — discharge/stage requires series-or-value, rating-curve requires ref. The boundaries node itself stays optional because Studio's case-from-OSM-bbox workflow ships a YAML before the user fills in BCs (see lemhi-tiny fixture); a missing boundaries block falls back to solver defaults.",
           "properties": {
-            "upstream": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["type"],
-              "properties": {
-                "type": {
-                  "type": "string",
-                  "enum": ["discharge", "stage", "rating-curve"]
-                },
-                "series": {
-                  "type": "string",
-                  "format": "uri-reference",
-                  "description": "URI to time-series CSV/parquet (for type=discharge or type=stage)."
-                },
-                "value": {
-                  "type": "number",
-                  "description": "Constant boundary value (m³/s for discharge; m for stage)."
-                },
-                "ref": {
-                  "type": "string",
-                  "format": "uri-reference",
-                  "description": "URI to rating-curve table (type=rating-curve only)."
-                }
-              }
-            },
-            "downstream": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["type"],
-              "properties": {
-                "type": {
-                  "type": "string",
-                  "enum": ["discharge", "stage", "rating-curve"]
-                },
-                "series": { "type": "string", "format": "uri-reference" },
-                "value": { "type": "number" },
-                "ref": { "type": "string", "format": "uri-reference" }
-              }
-            }
+            "upstream": { "$ref": "#/$defs/boundary_spec" },
+            "downstream": { "$ref": "#/$defs/boundary_spec" }
           }
         },
         "schism": { "$ref": "./schism_config.schema.json" },

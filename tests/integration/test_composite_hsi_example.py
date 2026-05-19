@@ -10,6 +10,7 @@ fixtures. This test exercises that chain so a future regression in
 """
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import numpy as np
@@ -65,6 +66,51 @@ def test_v280_composite_hsi_example_runs_end_to_end():
         assert row["wua_m2_composite_max"] > 0, (
             f"empty composite WUA for {suffix} — per-cell path likely "
             f"failed silently."
+        )
+        # v2.10.1 R11-19: numeric-stability pin. The composite is a
+        # 4-way per-cell geometric mean
+        #     (CSI_dv_i · SI_C_i · SI_T_i)^(1/4)
+        # weighted by cell area and summed across cells. Important:
+        # the (^1/4) softens marginal habitat — when CSI_dv ∈ (0,1)
+        # and the SI overlays are near 1, the composite is NUMERICALLY
+        # LARGER than the d×v-only base WUA (taking the 1/4 power of
+        # a sub-unit value INCREASES it). So 'composite < base' is
+        # NOT a physical invariant here; we only assert:
+        #   (a) ratio is finite (not NaN/inf — a 0/0 division would
+        #       silently produce NaN under numpy semantics);
+        #   (b) ratio != 1.0 — composite equal to base means the SI
+        #       overlays were silently identity-passed (degenerate
+        #       skip of apply_overlay_per_cell);
+        #   (c) ratio is bounded in a sane window — a 1000x explosion
+        #       or a 0.001x collapse is the regression signature of an
+        #       SI-array swap, normalization break, or NaN-driven
+        #       wipeout.
+        # Initial observed ratio for the Lemhi+v2.7.x dual-raster
+        # fixture is ≈ 0.6 (spawning) and ≈ 3.1 (fry); the 0.05..20
+        # window catches the failure modes above while leaving plenty
+        # of headroom for fixture/species tuning.
+        ratio = row.get("composite_to_base_ratio")
+        assert ratio is not None, (
+            f"v2.10.1 R11-19: composite_to_base_ratio missing for "
+            f"{suffix} — the per-series stats block lost the ratio "
+            f"field that downstream tooling expects."
+        )
+        assert math.isfinite(ratio), (
+            f"v2.10.1 R11-19: composite/base ratio is non-finite "
+            f"({ratio!r}) for {suffix} — likely a NaN from 0/0 in "
+            f"the geometric-mean kernel."
+        )
+        assert ratio != 1.0, (
+            f"v2.10.1 R11-19: composite/base ratio == 1.0 for "
+            f"{suffix} — the overlay step degenerated to identity, "
+            f"meaning the per-cell composite was silently bypassed."
+        )
+        assert 0.05 < ratio < 20.0, (
+            f"v2.10.1 R11-19: composite/base ratio {ratio:.4f} for "
+            f"{suffix} is outside the sane 0.05..20.0 window. "
+            f"This commonly signals an SI-array regression: a swap "
+            f"of cover↔thermal arrays, a normalize-to-1.0 of one of "
+            f"them, or a silently-dropped overlay."
         )
 
 

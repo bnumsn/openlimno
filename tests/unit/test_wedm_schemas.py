@@ -338,6 +338,147 @@ def test_v2100_boundaries_canonical_shape_validates(tmp_path: Path) -> None:
     )
 
 
+# ---------------------------------------------------------------------
+# v2.10.1 — 11th-round review patches: R11-3 (discriminator) +
+# R11-14 (format_checker) + R11-16 ($defs/boundary_spec lift)
+# ---------------------------------------------------------------------
+def _hydro_with_upstream_block(upstream_yaml: str) -> str:
+    """Helper: build a minimal v0.2 case YAML with the given upstream
+    block inserted under hydrodynamics.boundaries."""
+    return _v02_case_base().replace(
+        "hydrodynamics:\n  backend: builtin-1d\n",
+        "hydrodynamics:\n  backend: builtin-1d\n"
+        "  boundaries:\n    upstream:\n" + upstream_yaml,
+    )
+
+
+def test_v2101_discharge_requires_series_or_value(tmp_path: Path) -> None:
+    """v2.10.1 R11-3: a ``boundaries.upstream: {type: discharge}``
+    with neither ``series:`` nor ``value:`` has no usable payload —
+    the solver would crash on first lookup. Pre-v2.10.1 the schema
+    accepted it (only ``type`` was required); v2.10.1 closes that
+    via the $defs/boundary_spec oneOf."""
+    case = tmp_path / "no_payload.yaml"
+    case.write_text(
+        _hydro_with_upstream_block("      type: discharge\n"),
+        encoding="utf-8",
+    )
+    errors = validate_case(case)
+    assert errors, (
+        "v2.10.1 R11-3 regression: a discharge BC with no series/value "
+        "must fail; got 0 errors (silently accepted)."
+    )
+
+
+def test_v2101_discharge_with_series_ok(tmp_path: Path) -> None:
+    """v2.10.1 R11-3: discharge + series is the canonical Lemhi case."""
+    case = tmp_path / "discharge_series.yaml"
+    case.write_text(
+        _hydro_with_upstream_block(
+            "      type: discharge\n      series: ./Q.csv\n",
+        ),
+        encoding="utf-8",
+    )
+    errors = validate_case(case)
+    assert errors == [], (
+        f"v2.10.1 R11-3 over-tightening: discharge+series rejected — {errors}"
+    )
+
+
+def test_v2101_discharge_with_value_ok(tmp_path: Path) -> None:
+    """v2.10.1 R11-3: discharge + constant value must also validate.
+    Pin against future over-tightening that requires only series."""
+    case = tmp_path / "discharge_value.yaml"
+    case.write_text(
+        _hydro_with_upstream_block(
+            "      type: discharge\n      value: 12.5\n",
+        ),
+        encoding="utf-8",
+    )
+    errors = validate_case(case)
+    assert errors == [], (
+        f"v2.10.1 R11-3 over-tightening: discharge+value rejected — {errors}"
+    )
+
+
+def test_v2101_rating_curve_requires_ref(tmp_path: Path) -> None:
+    """v2.10.1 R11-3: a ``boundaries.downstream: {type: rating-curve}``
+    with no ``ref:`` carries no usable rating-table pointer."""
+    case = tmp_path / "rc_no_ref.yaml"
+    case.write_text(
+        _hydro_with_upstream_block("      type: rating-curve\n"),
+        encoding="utf-8",
+    )
+    errors = validate_case(case)
+    assert errors, (
+        "v2.10.1 R11-3 regression: rating-curve BC with no ref must "
+        "fail; got 0 errors."
+    )
+
+
+def test_v2101_rating_curve_with_series_rejected(tmp_path: Path) -> None:
+    """v2.10.1 R11-3: cross-payload misuse — rating-curve declaring
+    ``series:`` instead of ``ref:`` must be rejected (this is a
+    real user mistake mode: copying a discharge block and only
+    changing the type)."""
+    case = tmp_path / "rc_wrong_field.yaml"
+    case.write_text(
+        _hydro_with_upstream_block(
+            "      type: rating-curve\n      series: ./Q.csv\n",
+        ),
+        encoding="utf-8",
+    )
+    errors = validate_case(case)
+    assert errors, (
+        "v2.10.1 R11-3 regression: rating-curve+series (wrong-payload "
+        "combo) was accepted."
+    )
+
+
+def test_v2101_format_checker_wired_uri_reference(tmp_path: Path) -> None:
+    """v2.10.1 R11-14: `format: uri-reference` declarations must
+    actually enforce — pre-v2.10.1 a clearly-malformed URI with
+    spaces would slip through because no format_checker was passed
+    to Draft202012Validator."""
+    case = tmp_path / "bad_uri.yaml"
+    case.write_text(
+        _hydro_with_upstream_block(
+            "      type: discharge\n"
+            "      series: 'has spaces://invalid uri'\n",
+        ),
+        encoding="utf-8",
+    )
+    errors = validate_case(case)
+    assert any("uri-reference" in e for e in errors), (
+        f"v2.10.1 R11-14 regression: a malformed URI passed "
+        f"validate_case without format-checker tripping. Errors: {errors}"
+    )
+
+
+def test_v2101_shipped_fixtures_validate(tmp_path: Path) -> None:
+    """v2.10.1 R11-20: pin that every shipped case.yaml fixture
+    still passes ``validate_case`` after the v2.10.x schema sweeps.
+    Catches future over-tightening that would break the examples
+    or the OSM-bbox-built lemhi-tiny entry-point fixture.
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    fixtures = [
+        repo_root / "examples" / "lemhi" / "case.yaml",
+        repo_root / "examples" / "composite_hsi" / "case.yaml",
+        repo_root / "examples" / "phabsim_replication" / "case.yaml",
+        repo_root / "tests" / "integration" / "fixtures"
+            / "lemhi-tiny" / "case.yaml",
+    ]
+    for fxt in fixtures:
+        if not fxt.exists():
+            continue  # skip if fixture not yet shipped
+        errors = validate_case(fxt)
+        assert errors == [], (
+            f"v2.10.1 R11-20: shipped fixture {fxt} no longer "
+            f"validates: {errors}"
+        )
+
+
 def test_geometric_mean_requires_acknowledge_independence(tmp_path: Path) -> None:
     case = tmp_path / "no_ack.yaml"
     case.write_text(

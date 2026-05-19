@@ -14,6 +14,44 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NoReturn, Protocol
 
+# v2.10.1 R11-24: hoist run_case_with_plots out of QThread.run. Doing
+# a deferred ``from openlimno.studio.headless import ...`` inside the
+# background thread risks the Python import lock deadlocking the GUI
+# or fighting matplotlib's main-thread-init expectations. The headless
+# module is pure-Python (no Qt deps at import time), so importing it
+# at module scope is safe — gui_core/controller.py is already gated
+# from running outside a Qt environment by callers.
+from openlimno.studio.headless import run_case_with_plots
+
+
+def _run_case_for_worker(case_yaml: Path) -> str:
+    """Module-level glue between `_RunCaseWorker.run` (closure-scope
+    Qt subclass) and the headless API. Exists so the worker's actual
+    behavior — call `run_case_with_plots(plot=False)` and format the
+    status summary — is reachable without instantiating a QThread.
+
+    v2.10.1 R11-15 + R11-22: replaces the v2.9.0 inspect.getsource
+    string pin. With this helper, the regression test can
+    ``unittest.mock.patch`` ``run_case_with_plots`` and invoke
+    ``_run_case_for_worker`` directly to verify both the call shape
+    (positional case_yaml + keyword plot=False) and the produced
+    summary text — neither of which a substring inspection on the
+    source code could ever guarantee.
+
+    Args:
+        case_yaml: Path to the case YAML to drive the run.
+
+    Returns:
+        Status summary string for the GUI's ``finished_ok`` signal.
+    """
+    result = run_case_with_plots(case_yaml, plot=False)
+    return (
+        f"Case '{result.case_name}' "
+        f"(HSI {result.wua_quality_grade}): "
+        f"{result.n_discharges} flows; outputs in "
+        f"{result.output_dir!s}"
+    )
+
 
 class Host(Protocol):
     """Adapter interface implemented by both PluginHost and Studio MainWindow.
@@ -816,23 +854,20 @@ class Controller:
                 self._case_yaml = case_yaml_
 
             def run(self_) -> None:  # noqa: N805 (Qt API; outer self is closure)
-                # v2.9.0: delegate to the v2.3.0 headless API instead
-                # of inlining Case.from_yaml + the case-level run call.
-                # ``run_case_with_plots`` is the single supported
-                # entry-point that Studio/GUI/CLI all share; inlining
-                # the chain here diverged from CLI/headless behavior
-                # (no canonical WUA-Q plot, no quality-grade in the
-                # status line).
+                # v2.9.0: delegate to the v2.3.0 headless API. v2.10.1
+                # R11-15 + R11-22: the actual headless call lives in
+                # ``_run_case_for_worker`` at module scope so it can be
+                # mock.patch'd by the regression test. v2.10.1 R11-24:
+                # imports already happened at module load — no deferred
+                # imports in this background thread.
                 try:
                     self_.status.emit(f"Loading {self_._case_yaml.name}…")
-                    from openlimno.studio.headless import run_case_with_plots
-                    self_.status.emit("Solving 1D hydraulics + WUA-Q…")
-                    result = run_case_with_plots(self_._case_yaml, plot=False)
+                    self_.status.emit(
+                        "Running headless pipeline (hydraulics + WUA-Q "
+                        "+ rasters + composite + provenance)…"
+                    )
                     self_.finished_ok.emit(
-                        f"Case '{result.case_name}' "
-                        f"(HSI {result.wua_quality_grade}): "
-                        f"{result.n_discharges} flows; outputs in "
-                        f"{result.output_dir}"
+                        _run_case_for_worker(self_._case_yaml)
                     )
                 except Exception:
                     import traceback

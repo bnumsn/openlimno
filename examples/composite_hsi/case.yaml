@@ -55,10 +55,14 @@ data:
     uri: ./data/thermal_C.tif
     band: 1
     source_citation: synthetic 8..14 °C east-west gradient
+  # v2.10.1 R11-1: aligned to habitat.species (oncorhynchus_mykiss).
+  # Pre-v2.10.1 the example mixed rainbow-trout habitat with
+  # Schizothorax prenanti thermal traits — internally incoherent.
+  # FishBase ECOL_009 for O. mykiss: 0..25 °C survival range.
   fishbase_traits:
-    scientific_name: Schizothorax prenanti
-    temperature_min_C: 2.5
-    temperature_max_C: 18.5
+    scientific_name: Oncorhynchus mykiss
+    temperature_min_C: 0.0
+    temperature_max_C: 25.0
 
   # v2.7.0 inline cover path: LULC GeoTIFF + same per-section locations.
   cover_raster:

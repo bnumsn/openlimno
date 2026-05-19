@@ -213,8 +213,17 @@ PID_CODEX=$!
         # GEMINI_API_KEY / GOOGLE_* vars we just stripped. Running
         # from $GEMINI_TMPDIR breaks that path — the diff is fed
         # via stdin so the actual cwd doesn't matter for input.
+        # Round-11: Gemini CLI ≥0.42 refuses to run from an untrusted
+        # workspace ($GEMINI_TMPDIR is a /tmp path not in the user's
+        # trust list). The documented headless escape is the env var
+        # GEMINI_CLI_TRUST_WORKSPACE=true — a UX gate, not an auth
+        # gate (subscription still flows through ~/.config/gcloud,
+        # no API key involved). Injected via a nested `env` AFTER
+        # safe_env strips the parent shell so it's the only extra
+        # variable that crosses the boundary.
         ( cd "$GEMINI_TMPDIR" && \
-          safe_env gemini -p "$(cat "$PROMPT_FILE")" < "$DIFF_FILE" 2>&1 )
+          safe_env env GEMINI_CLI_TRUST_WORKSPACE=true \
+            gemini -p "$(cat "$PROMPT_FILE")" < "$DIFF_FILE" 2>&1 )
     } > "$OUT_GEMINI"
 ) &
 PID_GEMINI=$!

@@ -54,7 +54,17 @@ def _validate_yaml_against(path: str | Path, schema_name: str) -> list[str]:
     with p.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
     schema = load_schema(schema_name)
-    validator = Draft202012Validator(schema, registry=_registry())
+    # v2.10.1 R11-14: wire FormatChecker so `format: uri-reference`
+    # (and every other declared `format` keyword in any WEDM schema)
+    # is actually enforced. Pre-v2.10.1 the schemas declared formats
+    # but Draft202012Validator without an explicit format_checker
+    # treats them as documentation only — clearly-malformed URIs
+    # like ``has spaces://invalid uri`` passed unflagged.
+    validator = Draft202012Validator(
+        schema,
+        registry=_registry(),
+        format_checker=Draft202012Validator.FORMAT_CHECKER,
+    )
     return [
         f"{'/'.join(str(x) for x in err.absolute_path) or '<root>'}: {err.message}"
         for err in validator.iter_errors(data)

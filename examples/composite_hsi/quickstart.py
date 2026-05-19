@@ -69,12 +69,18 @@ def main() -> None:
         print(f"  n_discharges  = {payload.get('n_discharges')}")
         print("\nPer-series headline (composite vs base WUA):")
         print(f"  {'series':38s}  {'base_max':>10s}  {'composite_max':>14s}  {'ratio':>8s}")
+        # v2.10.1 R11-25: tolerate missing per-series keys. The
+        # quickstart is illustrative, not error-handling exemplary —
+        # but a failed/empty series shouldn't crash the whole report.
         for s in payload.get("by_species_stage", []):
+            sid = s.get("species_stage", "<unknown>")
+            base_max = s.get("wua_m2_base_max", float("nan"))
+            comp_max = s.get("wua_m2_composite_max", float("nan"))
             ratio = s.get("composite_to_base_ratio")
             print(
-                f"  {s['species_stage']:38s}  "
-                f"{s['wua_m2_base_max']:10.2f}  "
-                f"{s['wua_m2_composite_max']:14.2f}  "
+                f"  {sid:38s}  "
+                f"{base_max:10.2f}  "
+                f"{comp_max:14.2f}  "
                 f"{ratio if ratio is None else f'{ratio:8.4f}'}"
             )
     else:
