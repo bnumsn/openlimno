@@ -243,6 +243,101 @@ def test_case_schema_rejects_unknown_match_type(tmp_path: Path) -> None:
     assert errors, "match_type='PARTIAL' must fail (not in GBIF enum)"
 
 
+# ---------------------------------------------------------------------
+# v2.10.0 — validate_case strictness sweep
+# ---------------------------------------------------------------------
+def test_v2100_hydrodynamics_rejects_top_level_typo(tmp_path: Path) -> None:
+    """v2.10.0: a misspelled top-level hydrodynamics key (e.g.
+    ``boudnaries:`` instead of ``boundaries:``) must surface as a
+    schema error, not be silently dropped on the floor. Pre-v2.10.0
+    the ``hydrodynamics`` node had no ``additionalProperties: false``
+    guard, so a typo like this would parse cleanly and the case
+    would run with NO boundary conditions configured.
+    """
+    case = tmp_path / "typo_hydro.yaml"
+    case.write_text(
+        _v02_case_base().replace(
+            "hydrodynamics:\n  backend: builtin-1d\n",
+            "hydrodynamics:\n  backend: builtin-1d\n  "
+            "boudnaries:\n    upstream:\n      type: discharge\n",
+        ),
+        encoding="utf-8",
+    )
+    errors = validate_case(case)
+    assert any("boudnaries" in e for e in errors), (
+        f"v2.10.0 regression: typo at hydrodynamics.boudnaries was "
+        f"silently accepted. Errors seen: {errors}"
+    )
+
+
+def test_v2100_boundaries_rejects_misspelled_upstream(tmp_path: Path) -> None:
+    """v2.10.0: a misspelled key INSIDE ``boundaries`` (e.g.
+    ``upstrem:`` instead of ``upstream:``) must surface. Pre-v2.10.0
+    boundaries was a free-form ``{"type": "object"}`` so any key
+    name was accepted.
+    """
+    case = tmp_path / "typo_boundary.yaml"
+    case.write_text(
+        _v02_case_base().replace(
+            "hydrodynamics:\n  backend: builtin-1d\n",
+            "hydrodynamics:\n  backend: builtin-1d\n"
+            "  boundaries:\n    upstrem:\n      type: discharge\n",
+        ),
+        encoding="utf-8",
+    )
+    errors = validate_case(case)
+    assert any("upstrem" in e for e in errors), (
+        f"v2.10.0 regression: typo at boundaries.upstrem was silently "
+        f"accepted. Errors seen: {errors}"
+    )
+
+
+def test_v2100_boundaries_rejects_unknown_type_enum(tmp_path: Path) -> None:
+    """v2.10.0: ``boundaries.upstream.type`` must enumerate against
+    {'discharge', 'stage', 'rating-curve'}. Pre-v2.10.0 the inner
+    structure was unconstrained — a typo in the type value would slip
+    through.
+    """
+    case = tmp_path / "bad_type.yaml"
+    case.write_text(
+        _v02_case_base().replace(
+            "hydrodynamics:\n  backend: builtin-1d\n",
+            "hydrodynamics:\n  backend: builtin-1d\n"
+            "  boundaries:\n    upstream:\n      type: garbage\n",
+        ),
+        encoding="utf-8",
+    )
+    errors = validate_case(case)
+    assert any("garbage" in e for e in errors), (
+        f"v2.10.0 regression: garbage boundary type silently accepted. "
+        f"Errors seen: {errors}"
+    )
+
+
+def test_v2100_boundaries_canonical_shape_validates(tmp_path: Path) -> None:
+    """v2.10.0: the canonical Lemhi/composite_hsi boundary shape
+    (upstream=discharge+series, downstream=rating-curve+ref) must
+    still validate cleanly. Pin against future schema changes that
+    over-tighten and break the shipped examples.
+    """
+    case = tmp_path / "canonical.yaml"
+    case.write_text(
+        _v02_case_base().replace(
+            "hydrodynamics:\n  backend: builtin-1d\n",
+            "hydrodynamics:\n  backend: builtin-1d\n"
+            "  boundaries:\n"
+            "    upstream:\n      type: discharge\n      series: ./Q.csv\n"
+            "    downstream:\n      type: rating-curve\n      ref: ./rc.parquet\n",
+        ),
+        encoding="utf-8",
+    )
+    errors = validate_case(case)
+    assert errors == [], (
+        f"v2.10.0 over-tightening: canonical boundaries shape rejected. "
+        f"Errors: {errors}"
+    )
+
+
 def test_geometric_mean_requires_acknowledge_independence(tmp_path: Path) -> None:
     case = tmp_path / "no_ack.yaml"
     case.write_text(

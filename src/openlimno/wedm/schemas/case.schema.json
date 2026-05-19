@@ -255,13 +255,59 @@
     "hydrodynamics": {
       "type": "object",
       "required": ["backend"],
+      "additionalProperties": false,
       "properties": {
         "backend": {
           "type": "string",
           "enum": ["builtin-1d", "schism"]
         },
         "cfl": { "type": "number", "minimum": 0.05, "maximum": 0.99 },
-        "boundaries": { "type": "object" },
+        "boundaries": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "v2.10.0: structured 1D boundary conditions. Pre-v2.10.0 this was a free-form object — typos like 'boudnaries:' or 'upstrem:' were silently accepted. v2.10.0 strictness sweep closes that gap.",
+          "properties": {
+            "upstream": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type"],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["discharge", "stage", "rating-curve"]
+                },
+                "series": {
+                  "type": "string",
+                  "format": "uri-reference",
+                  "description": "URI to time-series CSV/parquet (for type=discharge or type=stage)."
+                },
+                "value": {
+                  "type": "number",
+                  "description": "Constant boundary value (m³/s for discharge; m for stage)."
+                },
+                "ref": {
+                  "type": "string",
+                  "format": "uri-reference",
+                  "description": "URI to rating-curve table (type=rating-curve only)."
+                }
+              }
+            },
+            "downstream": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type"],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["discharge", "stage", "rating-curve"]
+                },
+                "series": { "type": "string", "format": "uri-reference" },
+                "value": { "type": "number" },
+                "ref": { "type": "string", "format": "uri-reference" }
+              }
+            }
+          }
+        },
         "schism": { "$ref": "./schism_config.schema.json" },
         "builtin_1d": { "$ref": "./builtin_1d_config.schema.json" }
       }

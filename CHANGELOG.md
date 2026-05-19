@@ -4,6 +4,22 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.10.0] — 2026-05-19
+
+### Changed
+- **v2.10.0 — `validate_case` strictness sweep on the `hydrodynamics` subtree**:
+    Closes two concrete schema-laxness gaps that allowed silent typos to pass `validate_case` and reach `Case.run`. Pre-v2.10.0:
+    - The `hydrodynamics` object had no `additionalProperties: false` guard — a top-level typo like `boudnaries:` parsed cleanly and the case ran with NO boundary conditions configured (the actual `boundaries` key was simply absent), producing wrong-but-not-erroring 1D hydraulics.
+    - The `hydrodynamics.boundaries` object was declared as the open shape `{"type": "object"}` — any inner key name was accepted. A typo like `upstrem:` or `dowstream:` was silently dropped; the solver ran with default fallback boundaries instead of the user's intended ones.
+    Both were the kind of bug that hides for months because the case "runs" — it just runs with the wrong physics. v2.10.0 hardens both nodes:
+    - **`case.schema.json` — `hydrodynamics`**: `additionalProperties: false` added so any unrecognized top-level key (`boudnaries:`, `bcs:`, `boundary:`) surfaces as a `validate_case` error pointing at exactly the misspelled key.
+    - **`case.schema.json` — `hydrodynamics.boundaries`**: replaced the open `{"type": "object"}` with a structured subschema. `boundaries.{upstream,downstream}` are now objects with `additionalProperties: false`, required `type` ∈ {`discharge`, `stage`, `rating-curve`}, plus the discriminator-style `series` (URI for time-series), `value` (constant numeric), and `ref` (URI for rating-curve table) fields that the case-runner already understands.
+    - **4 new tests** in `tests/unit/test_wedm_schemas.py` (`test_v2100_*`): hydrodynamics top-level typo caught with key in error, boundaries inner-key typo caught with key in error, `type: garbage` rejected against the enum, canonical Lemhi/composite_hsi boundary shape still validates (pin against future over-tightening).
+    - **Existing fixtures unaffected**: all four checked-in case.yaml files (`examples/lemhi/`, `examples/composite_hsi/`, `examples/phabsim_replication/`, `tests/integration/fixtures/lemhi-tiny/`) still return 0 errors against the tightened schema.
+    - **`SCHEMA_VERSION` left at `"0.1"`** because this is a backward-compatible tightening: every valid v0.1/v0.2 case stays valid; we now just reject more invalid cases. Existing third-party YAMLs that relied on the loose structure should fix their typos rather than have the schema accept them.
+    - **Scope discipline**: `hydrodynamics.builtin_1d` and `hydrodynamics.schism` keep their explicit `additionalProperties: true` posture. The SCHISM sub-schema is intentionally a pass-through (`param_overrides` is the design); the builtin-1d sub-schema is M0/M2-stub-marked and will be tightened in v3.x as the solver expands. v2.10.0 only touches what's clearly a regression-trap.
+    - Verified: `ruff check` 0 findings; `mypy --strict` core (59 files) + GUI/QGIS (9 files) clean; 29 / 29 `test_wedm_schemas.py` pass (was 25).
+
 ## [2.9.0] — 2026-05-19
 
 ### Changed
