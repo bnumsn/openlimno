@@ -168,10 +168,13 @@ def test_v290_run_case_worker_delegates_to_headless_api() -> None:
     )
     case_yaml = Path("/tmp/mock_case.yaml")
 
+    # v2.13.0: HeadlessRunResult now also carries wua_q_plot.
+    fake_result.wua_q_plot = Path("/tmp/mock_out/wua_q_curve.png")
+
     with patch.object(
         ctl_mod, "run_case_with_plots", return_value=fake_result,
     ) as mock_fn:
-        summary = ctl_mod._run_case_for_worker(case_yaml)
+        summary, png_path = ctl_mod._run_case_for_worker(case_yaml)
 
     mock_fn.assert_called_once()
     args, kwargs = mock_fn.call_args
@@ -179,9 +182,14 @@ def test_v290_run_case_worker_delegates_to_headless_api() -> None:
         f"v2.10.1 R11-15: _run_case_for_worker did not pass case_yaml "
         f"as the first positional arg; got {args!r}"
     )
-    assert kwargs.get("plot") is False, (
-        f"v2.10.1 R11-15: _run_case_for_worker must call "
-        f"run_case_with_plots(..., plot=False); got kwargs={kwargs!r}"
+    # v2.13.0: the worker now asks for the canonical WUA-Q PNG
+    # (was plot=False in v2.10.1; the v2.9.0 'controller renders its
+    # own plot' deferral never landed, so v2.13.0 flips to plot=True
+    # and the controller auto-loads the headless-produced PNG as a
+    # QgsRasterLayer).
+    assert kwargs.get("plot") is True, (
+        f"v2.13.0: _run_case_for_worker must call "
+        f"run_case_with_plots(..., plot=True); got kwargs={kwargs!r}"
     )
 
     # Summary text must surface case_name, quality grade,
@@ -191,3 +199,10 @@ def test_v290_run_case_worker_delegates_to_headless_api() -> None:
     assert "HSI A" in summary
     assert "7 flows" in summary
     assert "/tmp/mock_out" in summary
+
+    # v2.13.0: the PNG path must also be threaded through so the
+    # controller's auto-load step can pick it up.
+    assert png_path == Path("/tmp/mock_out/wua_q_curve.png"), (
+        f"v2.13.0: _run_case_for_worker did not return the wua_q_plot "
+        f"path. Got: {png_path!r}"
+    )

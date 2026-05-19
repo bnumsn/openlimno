@@ -24,33 +24,43 @@ from typing import Any, NoReturn, Protocol
 from openlimno.studio.headless import run_case_with_plots
 
 
-def _run_case_for_worker(case_yaml: Path) -> str:
+def _run_case_for_worker(case_yaml: Path) -> tuple[str, Path | None]:
     """Module-level glue between `_RunCaseWorker.run` (closure-scope
     Qt subclass) and the headless API. Exists so the worker's actual
-    behavior — call `run_case_with_plots(plot=False)` and format the
+    behavior — call `run_case_with_plots(plot=True)` and format the
     status summary — is reachable without instantiating a QThread.
 
     v2.10.1 R11-15 + R11-22: replaces the v2.9.0 inspect.getsource
     string pin. With this helper, the regression test can
     ``unittest.mock.patch`` ``run_case_with_plots`` and invoke
     ``_run_case_for_worker`` directly to verify both the call shape
-    (positional case_yaml + keyword plot=False) and the produced
-    summary text — neither of which a substring inspection on the
-    source code could ever guarantee.
+    and the produced summary text — neither of which a substring
+    inspection on the source code could ever guarantee.
+
+    v2.13.0: now requests the canonical WUA-Q curve PNG
+    (``plot=True``) so the controller can auto-load it as a layer
+    after the run. The headless API writes via ``_atomic_write`` so
+    a stale PNG never appears mid-run.
 
     Args:
         case_yaml: Path to the case YAML to drive the run.
 
     Returns:
-        Status summary string for the GUI's ``finished_ok`` signal.
+        Tuple of:
+            * Status summary string for the GUI's ``finished_ok``
+              signal (case name, HSI grade, n_discharges, output_dir).
+            * Path to the produced ``wua_q_curve.png``, or ``None``
+              if plotting was skipped (shouldn't happen under
+              ``plot=True`` but the headless API supports it).
     """
-    result = run_case_with_plots(case_yaml, plot=False)
-    return (
+    result = run_case_with_plots(case_yaml, plot=True)
+    summary = (
         f"Case '{result.case_name}' "
         f"(HSI {result.wua_quality_grade}): "
         f"{result.n_discharges} flows; outputs in "
         f"{result.output_dir!s}"
     )
+    return summary, result.wua_q_plot
 
 
 class Host(Protocol):
@@ -846,7 +856,11 @@ class Controller:
         # non-Qt environments for tests).
         class _RunCaseWorker(QThread):
             status = pyqtSignal(str)
-            finished_ok = pyqtSignal(str)
+            # v2.13.0: finished_ok now carries (summary_text, png_path_str).
+            # png_path_str is "" when plotting was skipped — Qt's pyqtSignal
+            # doesn't take Optional easily, so we sentinel on empty string
+            # at the slot side. The behavioral test pins both args.
+            finished_ok = pyqtSignal(str, str)
             failed = pyqtSignal(str)
 
             def __init__(self, case_yaml_: Path, parent: Any = None) -> None:
@@ -859,15 +873,20 @@ class Controller:
                 # ``_run_case_for_worker`` at module scope so it can be
                 # mock.patch'd by the regression test. v2.10.1 R11-24:
                 # imports already happened at module load — no deferred
-                # imports in this background thread.
+                # imports in this background thread. v2.13.0: helper
+                # now returns (summary, png_path) so the GUI can
+                # auto-load the canonical WUA-Q curve PNG.
                 try:
                     self_.status.emit(f"Loading {self_._case_yaml.name}…")
                     self_.status.emit(
                         "Running headless pipeline (hydraulics + WUA-Q "
                         "+ rasters + composite + provenance)…"
                     )
+                    summary, png_path = _run_case_for_worker(
+                        self_._case_yaml,
+                    )
                     self_.finished_ok.emit(
-                        _run_case_for_worker(self_._case_yaml)
+                        summary, str(png_path) if png_path else ""
                     )
                 except Exception:
                     import traceback
@@ -879,10 +898,16 @@ class Controller:
         )
         worker = _RunCaseWorker(case_yaml, self.host.main_window())
         worker.status.connect(lambda s: self.host.status_bar().showMessage(s))
+        # v2.13.0: signal now carries (summary, png_path_str). Empty
+        # string sentinel maps back to None at the _on_run_finished
+        # boundary so the auto-load step can skip cleanly.
         worker.finished_ok.connect(
-            lambda summary: self._on_run_finished(case_yaml, summary, None))
+            lambda summary, png_str: self._on_run_finished(
+                case_yaml, summary, None,
+                Path(png_str) if png_str else None,
+            ))
         worker.failed.connect(
-            lambda tb: self._on_run_finished(case_yaml, None, tb))
+            lambda tb: self._on_run_finished(case_yaml, None, tb, None))
         self._run_case_worker = worker
         worker.start()
 
@@ -891,6 +916,7 @@ class Controller:
         case_yaml: Path,
         summary: str | None,
         traceback_text: str | None,
+        wua_q_png: Path | None = None,
     ) -> None:
         from qgis.PyQt.QtWidgets import QMessageBox
 
@@ -907,10 +933,39 @@ class Controller:
             self._load_hydraulics_layer(out_nc)
             loaded_msg = f"\n\nLoaded {out_nc.name} as a mesh layer."
             self._hyd_nc = str(out_nc)
+        # v2.13.0: auto-load the canonical WUA-Q curve PNG that the
+        # v2.3.0 headless API rendered. Closes the v2.9.0 deferral
+        # ("controller renders its own plot via the existing layer-
+        # loading path") that was aspirational and never landed.
+        if wua_q_png is not None and wua_q_png.is_file():
+            self._load_wua_q_plot_layer(wua_q_png)
+            loaded_msg += f"\nLoaded {wua_q_png.name} as a raster layer."
         QMessageBox.information(
             self.host.main_window(), "OpenLimno",
             f"✓ Run finished.\n\n{summary or ''}{loaded_msg}",
         )
+
+    def _load_wua_q_plot_layer(self, png_path: Path) -> None:
+        """v2.13.0: load a WUA-Q curve PNG as a QGIS raster layer so
+        it shows up in the layers panel beside the mesh.
+
+        Why raster-layer-of-PNG rather than a dock widget: it
+        matches the existing UX convention (hydraulics.nc shows up
+        in the layers panel; provenance.json / wua_q.csv are
+        accessible via right-click → Open With…). A QgsRasterLayer
+        on a PNG renders as a flat georeference-less image; users
+        can pan/zoom and right-click to open externally. A dock
+        widget would need its own Qt plumbing and would not survive
+        QGIS session-restart out of the box.
+        """
+        try:
+            from qgis.core import QgsProject, QgsRasterLayer
+        except ImportError:
+            # Non-QGIS environment (unit tests) — nothing to load.
+            return
+        layer = QgsRasterLayer(str(png_path), png_path.stem)
+        if layer.isValid():
+            QgsProject.instance().addMapLayer(layer)
 
     # ------------------------------------------------------------------
     # v0.7: Fetcher dialog — pull DEM / watershed / soil / LULC / species

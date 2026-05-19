@@ -4,6 +4,21 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.13.0] — 2026-05-19
+
+### Added
+- **v2.13.0 — Studio GUI auto-loads the canonical WUA-Q curve PNG (F)**:
+    Closes the v2.9.0 deferral. The v2.9.0 ship CHANGELOG asserted "the QGIS controller renders its own plot via the existing layer-loading path; passing `plot=True` would cause two PNGs to land in the run output dir for the same WUA-Q table" — in reality the QGIS controller never rendered a plot at all; the "existing layer-loading path" line was aspirational. v2.13.0 actually lands it.
+    - **`_run_case_for_worker` now calls `run_case_with_plots(plot=True)`**: the v2.3.0 headless API renders the canonical WUA-Q curve PNG (atomic-write via `Case._atomic_write` so a stale image never appears mid-run; HSI quality grade banner overlaid per `plot_wua_q`'s convention). Return type widened from `str` to `tuple[str, Path | None]` — first element is the same status summary, second is the produced PNG path (or `None` if plotting was skipped).
+    - **`finished_ok` Qt signal widened to `pyqtSignal(str, str)`**: carries the summary text AND the PNG path string. Empty-string sentinel for "no PNG" — Qt's signal type system doesn't take `Optional` cleanly so we sentinel at the slot boundary; back at `_on_run_finished` the empty string maps to `None` before the auto-load step.
+    - **New `Controller._load_wua_q_plot_layer(png_path)` method**: loads the PNG as a `QgsRasterLayer` and adds it to the project's map layers, so it shows up in the QGIS layers panel beside the auto-loaded `hydraulics.nc` mesh layer. The user can right-click → Open With… to view externally; pan/zoom in the canvas; remove via the standard layer-panel ergonomics. Why not a Qt dock widget: would need its own plumbing AND would not survive QGIS session-restart by default. The raster-layer path matches existing UX convention (hydraulics.nc is a layer; provenance.json / wua_q.csv are layer-panel-discoverable too) and gets persistence for free.
+    - **`_on_run_finished` signature extended**: now takes an optional `wua_q_png: Path | None = None` kwarg. The QThread wrapper threads the PNG path through via the widened signal; the lambda glue maps empty-string → None at the boundary. Both happy-path and traceback paths handle the new kwarg.
+    - **`test_v290_run_case_worker_delegates_to_headless_api` updated** to pin the `plot=True` flip AND assert the PNG path is returned/forwarded. The existing call-shape + kwargs check still holds; v2.13.0 just widens what the contract pins. Test patches a `HeadlessRunResult` with a fake `wua_q_plot` so the tuple-return contract is exercised end-to-end.
+    - **What v2.13.0 does NOT do** (deferred):
+        - Render the plot inside the QThread instead of relying on matplotlib's main-thread expectations — `run_case_with_plots` uses `pyplot` under the hood, and the existing v2.10.1 R11-24 hoist to module-top imports plus the headless module's careful figure management have not yet caused trouble. If a sub-polar / Wayland user hits a deadlock, v2.13.1 should switch to the `matplotlib.use("Agg")` form.
+        - Refresh the PNG layer in place when a re-run produces a new image (currently it adds a new layer per run). A swap-in-place would need to track the layer ID across runs.
+    - Verified: `ruff check` 0 findings; `mypy --strict` GUI/QGIS (9 files) clean; 9 / 9 plugin-smoke tests pass (the updated v2.9.0/v2.13.0 mock pin asserts `plot=True` AND tuple-return); 22 / 22 sandbox + 36 / 36 schema tests inherit unchanged.
+
 ## [2.12.0] — 2026-05-19
 
 ### Added
