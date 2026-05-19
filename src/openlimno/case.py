@@ -534,6 +534,107 @@ class Case:
             path = (self.case_dir / path).resolve()
         return path
 
+    def _allowed_data_roots(self) -> list[Path]:
+        """v2.11.0 path-safety sandbox helper. Return the absolute-
+        resolved list of directories under ``case.allowed_data_roots``
+        that ``_resolve_safe`` will permit data URIs to point at.
+        Always includes the case dir itself (no point requiring users
+        to whitelist their own case directory). Relative entries are
+        resolved against the case dir; absolute entries are taken
+        verbatim.
+
+        Returns empty list semantics: NOT empty — the case dir is
+        always present. To detect "user has not configured the
+        sandbox," check whether ``self.config['case'].get(
+        'allowed_data_roots')`` is set in the source YAML.
+        """
+        roots = [self.case_dir.resolve()]
+        for entry in self.config.get("case", {}).get(
+            "allowed_data_roots", []
+        ) or []:
+            p = Path(entry)
+            roots.append(
+                p.resolve() if p.is_absolute()
+                else (self.case_dir / p).resolve()
+            )
+        return roots
+
+    def _resolve_safe(
+        self,
+        uri: str | Path,
+        *,
+        allow_outside_case: bool = False,
+    ) -> Path:
+        """v2.11.0 path-safety sandbox (R11-4 prototype).
+
+        Resolve a YAML-supplied URI like ``_resolve``, BUT — when
+        ``case.allowed_data_roots`` is declared in the YAML — reject
+        any resolved path that escapes both the case directory and
+        every entry in ``allowed_data_roots``.
+
+        Args:
+            uri: Path or URI string from the case YAML (the kind of
+                value ``data.thermal_raster.uri`` or
+                ``boundaries.upstream.series`` carries).
+            allow_outside_case: Explicit per-call escape hatch for
+                legitimate cases that need to reach outside the
+                sandbox (e.g. a fetcher writing to a system temp
+                dir). The caller still gets a normal resolved Path;
+                the sandbox is skipped entirely. Default ``False``.
+
+        Returns:
+            Absolute, fully-resolved ``Path``.
+
+        Raises:
+            ValueError: when ``case.allowed_data_roots`` is set in
+                the YAML AND ``allow_outside_case=False`` AND the
+                resolved path is outside every root. The error
+                message names the offending path and the configured
+                allow-list so the user can fix either the URI or
+                the sandbox.
+
+        Back-compat: when ``case.allowed_data_roots`` is UNSET / empty
+        in the YAML, this method is exactly equivalent to
+        ``_resolve(uri)`` — existing cases that don't opt in are
+        completely unaffected. The v3.0 ship will route every
+        existing ``_resolve`` call through this method and tighten
+        the back-compat path (likely a stderr warning when
+        ``allowed_data_roots`` is unset but the URI escapes the
+        case dir); v2.11.0 only establishes the API surface so
+        Studio + third-party-YAML consumers can opt in TODAY.
+        """
+        resolved = self._resolve(uri)
+        if allow_outside_case:
+            return resolved
+        configured = (
+            self.config.get("case", {}).get("allowed_data_roots") or []
+        )
+        if not configured:
+            # Sandbox is opt-in: no roots declared → back-compat
+            # permissive resolution. v3.0 may change this default.
+            return resolved
+        roots = self._allowed_data_roots()
+        for root in roots:
+            try:
+                if resolved.is_relative_to(root):
+                    return resolved
+            except (ValueError, AttributeError):  # pragma: no cover
+                # is_relative_to landed in 3.9 and is stable in 3.11+;
+                # the except is defensive against PathLike-but-not-Path
+                # types that future code might pass.
+                continue
+        raise ValueError(
+            f"v2.11.0 path-safety: URI {uri!r} resolved to "
+            f"{resolved} which is outside every entry in "
+            f"case.allowed_data_roots. Allowed roots (case dir + "
+            f"configured): {[str(r) for r in roots]}. Either move "
+            f"the data inside one of these roots, add the directory "
+            f"to case.allowed_data_roots, or pass "
+            f"allow_outside_case=True at the call site if this URI "
+            f"is intentionally extra-case (e.g. a system temp dir "
+            f"or write target)."
+        )
+
     def _resolve_mesh_uri(self, cfg: dict[str, Any], warnings: list[str]) -> Path | None:
         """Resolve and validate ``cfg["mesh"]["uri"]`` (UGRID-2D NetCDF).
 

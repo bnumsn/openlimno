@@ -80,6 +80,12 @@
           "items": { "type": "number" },
           "minItems": 4,
           "maxItems": 4
+        },
+        "allowed_data_roots": {
+          "type": "array",
+          "description": "v2.11.0 path-safety sandbox (opt-in prototype for the R11-4 v3.0 cut blocker). When set, this is the additive list of directories outside the case YAML's parent dir that Case._resolve_safe() will permit a data URI to point at — typically used to whitelist a shared-data mount like /mnt/openlimno-data/ or ~/openlimno-fixtures/. When unset/empty, _resolve_safe() falls back to permissive (back-compatible) behavior. The strict policy and full call-site audit land in the v3.x security pass; v2.11.0 ships the API surface so Studio / third-party-YAML consumers can opt into sandboxing today.",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
         }
       }
     },

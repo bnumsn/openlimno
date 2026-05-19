@@ -4,6 +4,34 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.11.0] — 2026-05-19
+
+### Added
+- **v2.11.0 — path-safety sandbox prototype (R11-4 v3.0-cut-blocker shift-left)**:
+    The v2.10.2 SPEC update marked R11-4 (path-traversal surface in user-supplied YAMLs) as a v3.0 cut blocker — Studio opens third-party study YAMLs, so `../../../etc/passwd`-style URIs in `data.*.uri` / `boundaries.*.{series,ref}` are a real exploit vector, not theoretical. v2.11.0 doesn't wait for v3.0: it ships the API surface as an additive opt-in so Studio and third-party-YAML consumers can harden TODAY. Existing cases unaffected.
+    - **`case.allowed_data_roots` schema field** (new optional array of strings in `case.schema.json` under the `case` object). Each entry is a directory the case YAML trusts data URIs to point at, in addition to the case dir (which is always trusted implicitly). Relative entries are anchored on the case dir; absolute entries are taken verbatim. Validates via `format_checker`-aware `additionalProperties: false`-pinned schema, so any typo at the new field name surfaces at validation.
+    - **`Case._resolve_safe(uri, *, allow_outside_case=False)` method**. New sandbox-aware companion to `_resolve`:
+        - When `case.allowed_data_roots` is **unset** in the YAML, falls back to `_resolve` exactly — zero behavior change, perfect back-compat.
+        - When **set**, resolves the URI like `_resolve`, then checks whether the result is under the case dir OR any configured root. If neither, raises `ValueError` with a precise message naming the offending URI and the configured allow-list (so the user can fix either side).
+        - `allow_outside_case=True` is the per-call escape hatch for legitimate extra-case writes (system temp dirs, fetcher staging) without making the user re-declare every allowed root.
+    - **`Case._allowed_data_roots()` helper** returns the active allow-set as resolved `Path` objects, with the case dir always first. Useful for diagnostic output and Studio's sandbox-status display.
+    - **9 new pinned tests** in `tests/unit/test_path_sandbox.py`:
+        - back-compat: `_resolve_safe` ≡ `_resolve` when not configured;
+        - sandbox-on allows paths under the case dir (implicit root);
+        - sandbox-on allows paths under each configured root;
+        - sandbox-on **rejects** `../../../etc/passwd` traversal with the v2.11.0 marker in the error message;
+        - sandbox-on **rejects** an absolute path that's not under any configured root;
+        - `allow_outside_case=True` opt-out works;
+        - `_allowed_data_roots()` always includes the case dir;
+        - schema accepts `case.allowed_data_roots: [./data, /mnt/shared, ~/openlimno-data]`;
+        - schema-tightness preserved: adding `allowed_data_roots` did NOT accidentally loosen the v2.10.0 `additionalProperties: false` guard on the `case` object (an unknown `made_up_field:` at the case level still gets caught).
+    - **What v2.11.0 explicitly does NOT do** (deferred to the v3.0 ship, documented in `docs/SPEC_3x_research_route.md`):
+        - Reroute the existing 23+ `_resolve` call sites in `Case.run` through `_resolve_safe` — that's a v3.0 audit pass, not an additive v2.x change.
+        - Emit a warning when `allowed_data_roots` is unset but a URI escapes the case dir — that's a back-compat-tightening change, also v3.0.
+        - Ship `tests/integration/test_path_sandbox.py` (an audit-style end-to-end matrix exercising every `Case.run` path-consumption code path). v2.11.0 ships the API; v3.0 ships the rewire + the audit.
+    - **Charter posture**: per `feedback_polyglot`, the sandbox surface is a Python method signature — no language-choice commitments. Per `feedback_spec_scope_discipline`, the v2.11.0 prototype scope and the v3.0 remaining-work scope are clearly delineated both here and in `docs/SPEC_3x_research_route.md`'s updated "Prototype status" subsection.
+    - Verified: `ruff check` 0 findings; `mypy --strict` core (59 files) + GUI/QGIS (9 files) clean; 9 / 9 sandbox tests + 36 / 36 schema tests + 9 / 9 plugin-smoke + 3 / 3 composite all green.
+
 ## [2.10.2] — 2026-05-19
 
 ### Changed

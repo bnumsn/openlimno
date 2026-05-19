@@ -111,7 +111,8 @@ plug it in via `data.thermal_si_per_section.uri`.
 
 ### Path-safety / sandbox for user-supplied YAML inputs
 
-(Deferred from v2.10.1 R11-4.) Every `data.*.uri` and
+(Deferred from v2.10.1 R11-4. Prototype landed at v2.11.0 — see
+"Prototype status" below.) Every `data.*.uri` and
 `boundaries.*.{series,ref}` accepts a free-form `uri-reference`
 string. After v2.10.1 wires `format_checker`, the schema rejects
 spaces and other syntactically broken URIs — but it still accepts
@@ -119,23 +120,42 @@ spaces and other syntactically broken URIs — but it still accepts
 to anywhere on disk. The Studio GUI opens user-supplied YAMLs, so
 this is a real concrete-risk surface, not theoretical.
 
-What v3.x should ship: a project-wide `_resolve` sandboxing pass
-that rejects URIs escaping the case directory (or an
-explicitly-listed set of trusted data roots — `~/.openlimno-data/`,
-the case dir, the system fixture set). The fix needs:
+What v3.x must still ship:
 
-1. A central `Case._resolve_safe(uri, *, allow_outside_case=False)`
-   wrapper that all 23+ `_resolve` call sites flow through.
-2. A `case.allowed_data_roots` config key for the override path
-   (researchers who legitimately point at network-mount shared
-   data shouldn't have to copy it into the case dir).
-3. An audit pass against every `Case` method that takes a path
-   argument from YAML — confirmed list in
-   `tests/integration/test_path_sandbox.py` (to be added).
+1. Route all 23+ existing `_resolve` call sites in `Case` through
+   the new `_resolve_safe` wrapper (v2.11.0 ships the wrapper, but
+   the legacy call sites still bypass it — by design, to keep
+   v2.x additive-only).
+2. Tighten the back-compat path: when `allowed_data_roots` is
+   unset but a URI escapes the case dir, v3.x emits a stderr
+   warning (v2.11.0 silently allows for back-compat).
+3. An audit-style integration test `tests/integration/test_path_sandbox.py`
+   that exercises every `Case` method taking a YAML-supplied path
+   to confirm none bypass the sandbox.
 
-Estimated: medium-effort (≈ 300 LoC + ≈ 8 integration tests).
-Must land before any v3.0 stable release because it's a real
-exploit vector for Studio users opening third-party study YAMLs.
+**Prototype status (v2.11.0)**: shipped the API surface so Studio
+and third-party-YAML consumers can opt in TODAY:
+
+* `case.allowed_data_roots` schema field (optional array of strings;
+  validates as a list of trusted directories outside the case dir).
+* `Case._resolve_safe(uri, *, allow_outside_case=False)` method:
+  when `allowed_data_roots` is set, raises `ValueError` for any
+  URI that escapes both the case dir and the configured roots;
+  when unset, falls back to `_resolve` exactly (zero behavior
+  change for existing cases).
+* `Case._allowed_data_roots()` helper that lists the active
+  allow-set (case dir always included).
+* 9 pinned tests in `tests/unit/test_path_sandbox.py` covering
+  back-compat, allowed-under-case-dir, allowed-under-configured-root,
+  traversal rejection, absolute-outside rejection,
+  `allow_outside_case=True` opt-out, the case-dir-always-included
+  invariant, schema acceptance, and schema-tightness preservation.
+
+Estimated remaining: medium-effort (≈ 250 LoC + ≈ 8 integration
+tests, down from the original 300+8 because v2.11.0 already
+landed the API). Must land before any v3.0 stable release because
+it's a real exploit vector for Studio users opening third-party
+study YAMLs.
 
 ### Boundary-condition coverage expansion
 
