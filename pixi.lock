@@ -31152,8 +31152,8 @@ packages:
   timestamp: 1748010484231
 - pypi: ./
   name: openlimno
-  version: 3.6.0
-  sha256: fcac9a1185966daa25d78966c35d1dba4f5c62f320bc0926d17bd13dfb2dff1d
+  version: 3.6.1
+  sha256: 9c9bbf63af3304d8281a0d179b47733bc735cb332ad27edfdb1d214cb1a278d3
   requires_dist:
   - numpy>=1.26
   - pandas>=2.2

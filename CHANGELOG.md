@@ -4,6 +4,44 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [3.6.1] — 2026-05-19
+
+### Fixed
+- **v3.6.1 — 18th-round triple-AI review patches (R18-1, R18-2, R18-3)**:
+    Same-day patch ship after codex + gemini caught three correctness gaps in v3.6.0's R17 fixes. Gemini also flagged the same areas at lower severity; codex was the critical reviewer that identified the actual bug semantics. No API surface change.
+
+    **HIGH (codex)**:
+    - **R18-1 — `Case._open_safe` could double-close a file descriptor**:
+        The v3.6.0 R17-10 context-manager wrapper wrapped BOTH `os.fdopen(fd, mode)` AND the `yield` inside a single try-except that called `os.close(fd)` on any `BaseException`. But `os.fdopen` takes ownership of the fd on success — its returned file object's `__exit__` closes the fd. The outer manual `os.close(fd)` then ran a second time. In a multithreaded GUI process (Studio QThread + worker thread + main thread), the kernel can recycle the closed fd integer to an unrelated open file between the two close calls, so the second close would silently close someone else's file — a particularly nasty class of corruption that's hard to debug because EBADF isn't raised. Gemini also noticed the redundant call but rated LOW with "not a bug"; codex correctly identified it as HIGH because of the fd-reuse race. v3.6.1 limits the manual close to the fdopen-failure path only (`fd` is closed only when ownership hasn't transferred):
+
+        ```python
+        fd = self._open_safe_fd(...)
+        try:
+            f = os.fdopen(fd, mode)
+        except BaseException:
+            os.close(fd)
+            raise
+        with f:
+            yield f
+        ```
+
+        Two new tests: (a) body-raises case asserts the fd is closed at most once via patched `os.close` tracking; (b) fdopen-fails case asserts the raw fd IS closed (not leaked).
+
+    **MEDIUM (codex)**:
+    - **R18-2 — antimeridian buffer still produced world-spanning lon/lat polygon**:
+        v3.6.0's R17-4 fix centred AEQD correctly for dateline-crossing reaches, but the *inverse* projection back to EPSG:4326 returned a planar Shapely polygon. For a buffer that crosses ±180° in AEQD space, the inverse-projected coordinates land on both sides of the seam, and Shapely (with no notion of wrap) sees a polygon whose `bounds` span nearly the entire world in longitude. Downstream `rasterio.mask.mask(..., crop=True)` would then crop using that wrong global bbox instead of a dateline-local strip. v3.6.0's R17-4 test only asserted `is_valid` and missed this. v3.6.1 adds `_split_at_antimeridian(geom, centre_lon)` which: (1) detects the overwide case via `lon_bounds_span > 180°`; (2) unwraps coordinates into a frame centred on the AEQD centre; (3) splits at every ±180°·k seam inside the unwrapped bounds; (4) shifts each piece back into the canonical `[-180, 180]` range and returns a `MultiPolygon`. The result is a geometry whose individual parts each have small local lon bounds, which the rasterio crop respects correctly. New test pins that a 5 km buffer around a `(179.95, 70) → (-179.95, 70)` polyline produces a 2-part MultiPolygon with each part's lon span < 5°. Non-dateline buffers short-circuit (a regression-pin asserts a Wyoming polyline still returns a single Polygon, not a spurious MultiPolygon).
+
+    - **R18-3 — circular-mean longitude had no magnitude guard**:
+        v3.6.0's R17-4 used `atan2(sum_sin, sum_cos)` to compute the AEQD centre. Mathematically `atan2(0, 0)` is undefined — IEEE 754 leaves the return implementation-defined (glibc returns 0; the C standard says "domain error"). When the polyline's longitudes form an antipodal pair like `{0°, 180°}` or a balanced cross like `{0°, 90°, 180°, -90°}`, the unit-vector resultant collapses to magnitude zero. v3.6.0 would have silently used `lon_c = 0`, placing the AEQD centre potentially on the opposite side of the planet from the actual reach. v3.6.1 adds an explicit magnitude check (`math.hypot(sum_sin, sum_cos) < 1e-9`) that raises a clear `ValueError` with the lon span and a remediation hint ("split the polyline into regional segments before buffering"). Two new tests pin both antipodal-pair and orthogonal-quartet cases.
+
+    **DEFERRED to v3.7+ (from the 18th round)**:
+    - **R18-4 (codex + gemini LOW, convergent)**: R16-8's `dump_round_trip(case=...)` is opt-in but no production caller actually passes `case=` (calibrate.py:562, cli.py:1724, cli.py:2052 all still hit the unsandboxed default). The fix is a `dump_case_round_trip(case, data, path)` helper and a sweep of the three production call sites — bundled with the R17-6 source-inspection-test rewrite candidates for v3.7+.
+    - **R18-2 stale comment / R18-3 gemini cosmetic (gemini LOW)**: pure documentation observations; not bugs. Bundled with v3.7+ cleanup.
+
+    **18-round chain summary**: 134 + 4 (R18-1..R18-4) = 138 substantive findings; 120 closed; 18 deferred with v3.7+ scope tags.
+
+    Verified: `ruff check` 0 findings; `mypy --strict` core (60) + GUI/QGIS (9) clean; **675 passing** in the gated suite (+6 over v3.6.0 — 2 R18-1 + 2 R18-3 + 2 R18-2). The one pre-existing v3.5.0 env-drift failure (`test_v2101_format_checker_wired_uri_reference`, jsonschema `uri-reference` needs `rfc3986-validator`) is unchanged; v3.7+ env-deps follow-up.
+
 ## [3.6.0] — 2026-05-19
 
 ### Fixed / Added

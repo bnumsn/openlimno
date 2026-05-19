@@ -916,6 +916,17 @@ class Case:
         yields the buffered file object directly and guarantees
         close on context exit.
 
+        v3.6.1 R18-1 (codex HIGH): the v3.6.0 first cut wrapped
+        BOTH ``os.fdopen`` and the ``yield`` in a single try-except
+        that called ``os.close(fd)`` on any exception. But when
+        ``os.fdopen`` succeeds, the resulting file object takes
+        ownership of the fd; its own ``__exit__`` closes it. The
+        outer ``os.close(fd)`` would then either raise ``EBADF``
+        (best case) or — in a multithreaded GUI process — close a
+        DIFFERENT, possibly-unrelated fd that the kernel had since
+        recycled to the same integer. v3.6.1 limits the manual
+        close to the fdopen-failure path only.
+
         Usage::
 
             with case._open_safe("data/results.csv") as f:
@@ -925,17 +936,12 @@ class Case:
             uri, flags=flags, allow_outside_case=allow_outside_case,
         )
         try:
-            with os.fdopen(fd, mode) as f:
-                yield f
+            f = os.fdopen(fd, mode)
         except BaseException:
-            # os.fdopen takes ownership on success; if we never
-            # got that far (open returned fd but fdopen raised),
-            # close the bare fd ourselves to avoid the leak.
-            try:
-                os.close(fd)
-            except OSError:
-                pass
+            os.close(fd)
             raise
+        with f:
+            yield f
 
     def _resolve_safe(
         self,

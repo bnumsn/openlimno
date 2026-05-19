@@ -1,6 +1,6 @@
 [workspace]
 name = "openlimno"
-version = "3.6.0"
+version = "3.6.1"
 description = "Open-source ecological-flow and fish-habitat decision platform"
 authors = ["OpenLimno Contributors <hello@openlimno.org>"]
 channels = ["conda-forge"]

@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import functools
 import json
+import math
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
@@ -306,6 +307,23 @@ def _riparian_buffer_geodesic(
     rad_lons = np.radians(lons)
     sum_sin = float(np.sum(np.sin(rad_lons)))
     sum_cos = float(np.sum(np.cos(rad_lons)))
+    # v3.6.1 R18-3 (codex MEDIUM): atan2(0, 0) is mathematically
+    # undefined. The resultant unit-vector magnitude reaches zero
+    # when longitudes are antipodal in pairs (e.g. {0°, 180°} or
+    # {-90°, +90°}) — i.e. the polyline is so globally distributed
+    # that no single local AEQD centre makes sense. Surface this
+    # as a clear ValueError instead of letting atan2(0,0) return
+    # an arbitrary platform-dependent angle (0 on glibc, but the
+    # spec leaves it implementation-defined).
+    if math.hypot(sum_sin, sum_cos) < 1e-9:
+        raise ValueError(
+            f"_riparian_buffer_geodesic: polyline is too globally "
+            f"distributed for a local AEQD buffer — circular-mean "
+            f"longitude is undefined (resultant magnitude near 0). "
+            f"Got {len(coords)} vertices spanning lon "
+            f"[{min(lons):.3f}, {max(lons):.3f}]. Split the polyline "
+            f"into regional segments before buffering."
+        )
     lon_c = float(np.degrees(np.arctan2(sum_sin, sum_cos)))
     # v3.6.0 R17-5 (claude + gemini): cache Transformer instances
     # keyed on rounded centre. PROJ.4 initialisation is non-trivial
@@ -317,16 +335,97 @@ def _riparian_buffer_geodesic(
     lon_key = round(lon_c)
     to_aeqd = _aeqd_transformer_to(lat_key, lon_key)
     from_aeqd = _aeqd_transformer_from(lat_key, lon_key)
-    # Note: we still build the proj string for the actual transform
-    # below (used by caller via the cached functions). The cache is
-    # internal to _aeqd_transformer_{to,from}.
 
     line_lonlat = LineString(coords)
     line_metric = shapely_transform(to_aeqd, line_lonlat)
     buf_metric = line_metric.buffer(
         buffer_m, cap_style="round", join_style="round",
     )
-    return cast(BaseGeometry, shapely_transform(from_aeqd, buf_metric))
+    buf_lonlat = shapely_transform(from_aeqd, buf_metric)
+    # v3.6.1 R18-2 (codex MEDIUM): AEQD inverse projection of a
+    # buffer that straddles the antimeridian produces a polygon
+    # whose coordinates are valid in metric space but span nearly
+    # 360° in lon/lat space when interpreted naively (Shapely is
+    # planar; it has no notion of "wrap"). Downstream
+    # rasterio.mask.mask(crop=True) then crops the WRONG global
+    # bbox instead of the small dateline-local strip. Detect the
+    # over-wide case (lon bounds span > 180°) and split into a
+    # MultiPolygon that respects the ±180° seam.
+    buf_lonlat = _split_at_antimeridian(buf_lonlat, lon_c)
+    return cast(BaseGeometry, buf_lonlat)
+
+
+def _split_at_antimeridian(
+    geom: BaseGeometry, centre_lon: float,
+) -> BaseGeometry:
+    """v3.6.1 R18-2: rewrap a Shapely geometry that an AEQD inverse
+    projection produced across the ±180° seam.
+
+    Strategy: shift longitudes into an unwrapped frame around
+    ``centre_lon`` (so the buffer is a connected blob in that
+    frame), then split the unwrapped polygon at ±180° lines, and
+    finally remap each piece back into the canonical [-180, 180]
+    range. The result is a MultiPolygon whose parts each respect
+    the seam — what ``rasterio.mask.mask(crop=True)`` and any GIS
+    consumer expect.
+
+    For geometries that don't actually cross the seam, this is a
+    near no-op (the lon-bounds-span guard short-circuits).
+    """
+    minx, _miny, maxx, _maxy = geom.bounds
+    if (maxx - minx) <= 180.0:
+        # Doesn't straddle the seam — pass through untouched.
+        return geom
+
+    from shapely.geometry import MultiPolygon, Polygon
+    from shapely.ops import transform as shapely_transform
+
+    # Unwrap: shift longitudes into [centre - 180, centre + 180].
+    def _unwrap(lon: float, lat: float, z: float | None = None) -> tuple[float, ...]:
+        # Move lon to its representative within ±180° of centre_lon.
+        shifted = ((lon - centre_lon + 180.0) % 360.0) - 180.0 + centre_lon
+        if z is not None:
+            return shifted, lat, z
+        return shifted, lat
+
+    unwrapped = shapely_transform(_unwrap, geom)
+    u_minx, u_miny, u_maxx, u_maxy = unwrapped.bounds
+
+    # Split at every ±180°·k line inside the unwrapped bounds.
+    parts: list[BaseGeometry] = []
+    k_lo = int(np.floor((u_minx + 180.0) / 360.0))
+    k_hi = int(np.floor((u_maxx + 180.0) / 360.0))
+    for k in range(k_lo, k_hi + 1):
+        strip_min = -180.0 + 360.0 * k
+        strip_max = 180.0 + 360.0 * k
+        strip = Polygon([
+            (strip_min, u_miny - 1), (strip_max, u_miny - 1),
+            (strip_max, u_maxy + 1), (strip_min, u_maxy + 1),
+        ])
+        piece = unwrapped.intersection(strip)
+        if piece.is_empty:
+            continue
+        # Rewrap this piece by shifting its longitudes by -360·k.
+        def _rewrap_k(
+            lon: float, lat: float, z: float | None = None, _k: int = k,
+        ) -> tuple[float, ...]:
+            if z is not None:
+                return lon - 360.0 * _k, lat, z
+            return lon - 360.0 * _k, lat
+
+        parts.append(shapely_transform(_rewrap_k, piece))
+
+    if not parts:
+        return geom  # paranoia — shouldn't happen
+    if len(parts) == 1:
+        return parts[0]
+    flat: list[Polygon] = []
+    for p in parts:
+        if p.geom_type == "Polygon":
+            flat.append(cast(Polygon, p))
+        elif p.geom_type == "MultiPolygon":
+            flat.extend(cast(MultiPolygon, p).geoms)
+    return MultiPolygon(flat)
 
 
 def cover_si_from_polyline(
