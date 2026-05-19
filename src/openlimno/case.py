@@ -225,7 +225,13 @@ class Case:
 
         # 3. Run hydraulics (sweep) via HydroSolver Protocol
         backend = cfg["hydrodynamics"]["backend"]
-        out_dir = self._resolve(cfg["output"]["dir"])
+        # v3.2.0: write-target sandbox on output.dir. Pre-v3.2.0 a
+        # malicious YAML could write into ~/.ssh/ or any other
+        # privileged location the running process could reach.
+        # _resolve_write_safe applies the same allowed_data_roots
+        # check but tolerates non-existent leaves (output.dir is
+        # often created on first run).
+        out_dir = self._resolve_write_safe(cfg["output"]["dir"])
         out_dir.mkdir(parents=True, exist_ok=True)
         hydro_work = out_dir / f"hydro_work_{backend}"
         hydro_work.mkdir(parents=True, exist_ok=True)
@@ -236,6 +242,29 @@ class Case:
         mesh_path = self._resolve_mesh_uri(cfg, warnings)
 
         if backend == "builtin-1d":
+            # v3.2.0 R11-2 closure: solver-level warning when the
+            # case has no boundaries block AND the case isn't an
+            # OSM-bbox stub. v2.10.0 deferred this from the schema
+            # because Studio's case-from-OSM-bbox workflow ships
+            # boundaries-less (the user fills them in via a wizard).
+            # The signal: a real case will have `case.bbox` (set by
+            # init-from-osm), so no-bbox + no-boundaries is the
+            # Studio stub state we tolerate; bbox + no-boundaries is
+            # a user error we surface.
+            hydro_block = cfg.get("hydrodynamics", {})
+            if (
+                "boundaries" not in hydro_block
+                and "bbox" not in cfg.get("case", {})
+            ):
+                warnings.append(
+                    "v3.2.0 R11-2: case has no hydrodynamics.boundaries "
+                    "block; the builtin-1d solver will use default "
+                    "fallback BCs. If you intended to declare upstream "
+                    "/ downstream conditions, add a `boundaries:` "
+                    "block. If this is an OSM-bbox stub before BC "
+                    "fill-in, declare `case.bbox: [...]` to silence "
+                    "this warning."
+                )
             solver = Builtin1D(slope=slope)
             solver.prepare(
                 self.case_yaml_path,
@@ -791,11 +820,130 @@ class Case:
                 "`allow_outside_case=True` to _resolve_safe — this "
                 "is a Python kwarg, NOT a YAML key."
             )
+        # v3.2.0 R14-10: option to redact the absolute paths in the
+        # error message. Default (env var unset) keeps the verbose
+        # form for researcher debugging; hosted-Studio deployments
+        # can set OPENLIMNO_PATH_SAFETY_REDACT=1 to substitute a
+        # path-count summary so user-visible errors don't leak the
+        # server's directory tree.
+        if os.environ.get("OPENLIMNO_PATH_SAFETY_REDACT", "0") == "1":
+            roots_repr = f"<{len(roots)} configured roots>"
+            resolved_repr = "<redacted absolute path>"
+        else:
+            roots_repr = str([str(r) for r in roots])
+            resolved_repr = str(resolved)
         raise ValueError(
             f"v3.0.0 path-safety: URI {uri!r} resolved to "
-            f"{resolved} which is outside every entry in "
+            f"{resolved_repr} which is outside every entry in "
             f"case.allowed_data_roots. Allowed roots (case dir + "
-            f"configured): {[str(r) for r in roots]}. {hint}"
+            f"configured): {roots_repr}. {hint}"
+        )
+
+    def _resolve_write_safe(
+        self,
+        uri: str | Path,
+        *,
+        allow_outside_case: bool = False,
+    ) -> Path:
+        """v3.2.0 — write-target sandbox.
+
+        Separate from ``_resolve_safe`` because read and write have
+        different containment semantics:
+        * Read: the URI must point at an existing file under one of
+          the allowed roots. If the file doesn't exist yet that's a
+          user error (typo, missing data); the sandbox check is the
+          first signal.
+        * Write: the URI is a target that may not exist yet —
+          ``Case.run`` creates ``output.dir`` if absent. The check
+          must still reject paths that escape the sandbox AFTER
+          resolution (so a malicious ``output.dir: ~/.ssh/`` is
+          caught) but it must NOT require the target to exist.
+
+        Implementation: same containment check as ``_resolve_safe``,
+        but the path doesn't need to resolve to an existing inode.
+        ``Path.resolve(strict=False)`` is the right primitive — it
+        normalizes ``..`` and traverses parent symlinks but doesn't
+        require the final path component to exist.
+
+        SPEC_v3 §3 deferred this from v3.0 as "write-target semantics
+        differ"; v3.2.0 closes the gap with a dedicated entry-point
+        that ``Case.run``'s output-dir resolution now uses.
+
+        Args:
+            uri: write-target path or URI from the case YAML.
+            allow_outside_case: per-call escape hatch (system temp,
+                fetcher staging). Default False.
+
+        Returns:
+            Absolute Path (may not exist yet).
+
+        Raises:
+            ValueError: same conditions as ``_resolve_safe`` —
+                URL-scheme rejection AND escape rejection when
+                allowed_data_roots is declared.
+        """
+        if isinstance(uri, str) and self._URL_SCHEME_RE.match(uri):
+            raise ValueError(
+                f"v3.2.0 path-safety (write): URI {uri!r} carries a "
+                f"URL scheme; this resolver only handles local-"
+                f"filesystem write targets. Use a local path."
+            )
+        # Path.resolve(strict=False) handles non-existent targets
+        # cleanly — it normalizes the path string without requiring
+        # the inode to exist.
+        candidate = Path(self._resolve(uri))
+        # Defensively walk up to find an existing ancestor for the
+        # resolve check (handles symlinks in the parent chain
+        # without requiring the leaf to exist).
+        existing_ancestor = candidate
+        while not existing_ancestor.exists():
+            parent = existing_ancestor.parent
+            if parent == existing_ancestor:
+                break
+            existing_ancestor = parent
+        resolved_existing = existing_ancestor.resolve()
+        # Rebuild the canonical path by joining resolved-existing
+        # with the remaining (non-existent) suffix.
+        try:
+            suffix = candidate.relative_to(existing_ancestor)
+        except ValueError:
+            suffix = Path()
+        resolved = (resolved_existing / suffix).resolve() if suffix.parts else resolved_existing
+
+        if allow_outside_case:
+            return resolved
+        raw = self._get_allowed_data_roots_raw()
+        roots = self._allowed_data_roots()
+        for root in roots:
+            try:
+                if resolved.is_relative_to(root):
+                    return resolved
+            except ValueError:
+                continue
+        if raw is None:
+            hint = (
+                "Pre-v3.0 this would have been permitted; v3.2.0 "
+                "applies the strict sandbox to WRITE targets too. "
+                "YAML fix: set output.dir to a path inside the case "
+                "directory, or add the target directory to "
+                "case.allowed_data_roots."
+            )
+        else:
+            hint = (
+                "YAML fix: choose a write target inside one of these "
+                "roots, or extend case.allowed_data_roots."
+            )
+        if os.environ.get("OPENLIMNO_PATH_SAFETY_REDACT", "0") == "1":
+            roots_repr = f"<{len(roots)} configured roots>"
+            resolved_repr = "<redacted absolute path>"
+        else:
+            roots_repr = str([str(r) for r in roots])
+            resolved_repr = str(resolved)
+        raise ValueError(
+            f"v3.2.0 path-safety (write): URI {uri!r} resolved to "
+            f"{resolved_repr} which is outside every entry in "
+            f"case.allowed_data_roots. Allowed roots: {roots_repr}. "
+            f"{hint}"
         )
 
     def _resolve_mesh_uri(self, cfg: dict[str, Any], warnings: list[str]) -> Path | None:

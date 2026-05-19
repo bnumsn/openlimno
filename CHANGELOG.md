@@ -4,6 +4,40 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [3.2.0] — 2026-05-19
+
+### Added
+- **v3.2.0 — write-target sandbox + error redaction + boundaries warning**:
+    Closes 3 of the 9 v3.1.0-deferred items in one ship. All three are path-safety adjacent: extends the sandbox to write targets, adds an opt-in error-redaction mode for hosted deployments, and surfaces the v2.10.0-deferred "boundaries missing for builtin-1d" warning at the right layer (solver, not schema).
+
+    **1. `Case._resolve_write_safe` — write-target sandbox**:
+    The v3.0.0 ship explicitly deferred write-target sandboxing because read and write have different semantics: a read URI must point at an existing inode, but a write target like `output.dir` often doesn't exist on first run. `_resolve_safe` would reject the non-existent path; `_resolve_write_safe` tolerates it by walking up to the nearest existing ancestor for the resolve check, then rebuilding the canonical path. Same containment semantics otherwise (URL-scheme rejection, `allowed_data_roots` strict-default, per-call `allow_outside_case=True` opt-out).
+    - **`Case.run` now routes `output.dir` through `_resolve_write_safe`**. A malicious YAML setting `output.dir: ~/.ssh/` (or `output.dir: ../../../tmp/leaked_run`) is now rejected at the resolution head, before the solver creates the directory. Closes the SPEC_v3 §3 gap that explicitly excluded `output.dir`.
+    - Pinned by `test_v320_output_dir_routes_through_write_safe` (source inspection) + 4 behavioral tests covering in-case-dir/non-existent/escape/configured-root/URL-scheme.
+
+    **2. R14-10 — `OPENLIMNO_PATH_SAFETY_REDACT` env var for hosted Studio**:
+    The 14th-round gemini review caught that the path-safety `ValueError` messages leak the full absolute paths of the case dir AND every configured `allowed_data_roots` entry. For researcher debugging this is helpful; for a hosted Studio deployment (multi-tenant web instance), the server's internal directory tree shouldn't reach the user's error pane.
+    - **Opt-in via `OPENLIMNO_PATH_SAFETY_REDACT=1`**: replaces the absolute resolved path with `<redacted absolute path>` and the allowed-roots list with `<N configured roots>` in the error message. Default unset → verbose (researcher-debug) form. Both `_resolve_safe` and `_resolve_write_safe` honor the flag.
+    - **Why env var, not a Case config field**: deployment-wide policy belongs at deployment-time, not per-YAML. A hosted Studio sets it once via the systemd unit / container env; researcher CLIs leave it off.
+    - 3 pinned tests: redact-strips-paths, default-off-verbose, applies-to-write-safe-too.
+
+    **3. R11-2 — solver-level warning for missing boundaries**:
+    v2.10.0 deferred this from the schema-level fix because making `boundaries` schema-required would have broken Studio's "case-from-OSM-bbox" entry-point (lemhi-tiny fixture ships boundaries-less; the Studio wizard fills them in later). The right fix is solver-level: when `backend=builtin-1d` AND no `boundaries:` block AND no `case.bbox` (the Studio-stub signal), emit a runtime warning. v3.2.0 closes this.
+    - **The bbox signal**: a real basin case has `case.bbox` (set by `init-from-osm`). No-bbox + no-boundaries is interpreted as Studio-stub state (tolerated, no warning). Bbox + no-boundaries OR a manually-built case with neither field IS a user error and surfaces the warning.
+    - 2 pinned tests: source-inspection that both signals are checked + a positive test that bbox-present silences the warning.
+
+    **DEFERRED to v3.3+ (from the v3.1.0 deferral list)**:
+    - **R14-11 (gemini) TOCTOU**: still needs `openat`-style deeper sandbox design. v3.3+.
+    - **R14-13 (gemini) Python 3.13 upper bound**: cosmetic; sync to Python's release schedule.
+    - **R13-3 ruamel.yaml**: adds a runtime dependency; touches 5+ YAML writers. v3.3+ ergonomics ship.
+    - **R11-23** lateral inflows / point sources: solver-side groundwork hasn't started.
+    - **R9-3** high-lat projected-CRS buffering: still no user report. v3.3+ if/when.
+    - **Real QGIS + real `pestpp-glm` integration tests**: environmentally blocked; needs CI runner with both installed.
+
+    Verified: `ruff check` 0 findings; `mypy --strict` core (59 files) + GUI/QGIS (9 files) clean; **512 / 512 tests pass** across the gated suite (was 502 — +10 new v3.2.0 tests).
+
+    Sandbox-routed call sites: 11 / 11 user-data sites now sandboxed (10 readers via `_resolve_safe` + 1 writer via `_resolve_write_safe`). The 14-round review chain's R11-4 v3.0-blocker is now fully closed at the call-site level; the remaining v3.3+ items are TOCTOU + error-message ergonomics + bookkeeping.
+
 ## [3.1.0] — 2026-05-19
 
 ### Added / Fixed

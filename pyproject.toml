@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openlimno"
-version = "3.1.0"
+version = "3.2.0"
 description = "Open-source ecological-flow and fish-habitat decision platform with hydraulic-model interoperability"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
