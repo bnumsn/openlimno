@@ -14,6 +14,7 @@ import json
 import math
 import os
 import platform
+import re
 import socket
 import subprocess
 import sys
@@ -534,25 +535,52 @@ class Case:
             path = (self.case_dir / path).resolve()
         return path
 
-    def _allowed_data_roots(self) -> list[Path]:
-        """v2.11.0 path-safety sandbox helper. Return the absolute-
-        resolved list of directories under ``case.allowed_data_roots``
-        that ``_resolve_safe`` will permit data URIs to point at.
-        Always includes the case dir itself (no point requiring users
-        to whitelist their own case directory). Relative entries are
-        resolved against the case dir; absolute entries are taken
-        verbatim.
+    # v2.11.0 path-safety sandbox (R11-4 prototype) — patched in
+    # v2.11.1 per 12th-round review:
+    #   R12-1: expanduser() so '~/openlimno-data' works as documented
+    #   R12-2: normalize absolute candidates so /case/../secret.csv
+    #          can't bypass the sandbox via lexical-only matching
+    #   R12-3: explicit empty allowed_data_roots: [] now means
+    #          "lock to case dir only" (NOT permissive)
+    #   R12-7: dropped the dead except clause (Py >= 3.11 pinned)
+    #   R12-8: URL-scheme URIs (http://, s3://, …) explicitly rejected
+    #   R12-9: single source of truth for the config-traversal
 
-        Returns empty list semantics: NOT empty — the case dir is
-        always present. To detect "user has not configured the
-        sandbox," check whether ``self.config['case'].get(
-        'allowed_data_roots')`` is set in the source YAML.
+    # URI-scheme detector (R12-8). Matches RFC 3986 §3.1 scheme syntax
+    # plus the "//" authority marker, so Windows drive letters
+    # (``C:\foo``) are NOT classified as URL schemes.
+    _URL_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+
+    def _get_allowed_data_roots_raw(self) -> list[Any] | None:
+        """v2.11.1 R12-9: single source of truth for reading
+        ``case.allowed_data_roots`` out of the config. Returns the
+        raw list (with whatever YAML-supplied content) or ``None``
+        when the user hasn't set the key at all.
+
+        The distinction between ``None`` (key absent) and ``[]``
+        (key explicitly empty) matters for R12-3: an empty list now
+        means "lock to case dir only," not "use permissive mode."
+        """
+        case_section = self.config.get("case", {})
+        if "allowed_data_roots" not in case_section:
+            return None
+        return case_section["allowed_data_roots"]
+
+    def _allowed_data_roots(self) -> list[Path]:
+        """v2.11.0/v2.11.1 path-safety sandbox helper. Return the
+        absolute-resolved list of directories that ``_resolve_safe``
+        will permit data URIs to point at.
+
+        Always includes the case dir itself first (the implicit
+        root). Entries from ``case.allowed_data_roots`` are appended;
+        relative entries are anchored on the case dir, absolute
+        entries (including ``~``-prefixed ones, which are expanded
+        via ``Path.expanduser`` per R12-1) are taken verbatim.
         """
         roots = [self.case_dir.resolve()]
-        for entry in self.config.get("case", {}).get(
-            "allowed_data_roots", []
-        ) or []:
-            p = Path(entry)
+        raw = self._get_allowed_data_roots_raw() or []
+        for entry in raw:
+            p = Path(entry).expanduser()  # R12-1
             roots.append(
                 p.resolve() if p.is_absolute()
                 else (self.case_dir / p).resolve()
@@ -565,7 +593,7 @@ class Case:
         *,
         allow_outside_case: bool = False,
     ) -> Path:
-        """v2.11.0 path-safety sandbox (R11-4 prototype).
+        """Path-safety sandbox (R11-4 prototype, v2.11.0; tightened in v2.11.1).
 
         Resolve a YAML-supplied URI like ``_resolve``, BUT — when
         ``case.allowed_data_roots`` is declared in the YAML — reject
@@ -586,43 +614,59 @@ class Case:
             Absolute, fully-resolved ``Path``.
 
         Raises:
-            ValueError: when ``case.allowed_data_roots`` is set in
-                the YAML AND ``allow_outside_case=False`` AND the
-                resolved path is outside every root. The error
-                message names the offending path and the configured
-                allow-list so the user can fix either the URI or
-                the sandbox.
+            ValueError: when one of the following is true:
+                (a) The URI is a URL-scheme string (``http://``,
+                    ``s3://``, etc.) — these are out of scope for
+                    the local-filesystem sandbox (R12-8); reject
+                    eagerly with a clear message rather than treat
+                    them as relative-path strings.
+                (b) ``case.allowed_data_roots`` is declared (even as
+                    an empty list, per R12-3) AND
+                    ``allow_outside_case=False`` AND the fully-
+                    resolved candidate path is outside every root.
 
-        Back-compat: when ``case.allowed_data_roots`` is UNSET / empty
-        in the YAML, this method is exactly equivalent to
-        ``_resolve(uri)`` — existing cases that don't opt in are
-        completely unaffected. The v3.0 ship will route every
-        existing ``_resolve`` call through this method and tighten
-        the back-compat path (likely a stderr warning when
-        ``allowed_data_roots`` is unset but the URI escapes the
-        case dir); v2.11.0 only establishes the API surface so
-        Studio + third-party-YAML consumers can opt in TODAY.
+        Back-compat: when ``case.allowed_data_roots`` is UNSET (key
+        absent from the YAML), this method is exactly equivalent to
+        ``_resolve(uri)``. v3.0 will route the existing ``_resolve``
+        call sites through this wrapper and tighten the back-compat
+        path. v2.11.x establishes the API surface AND, as of
+        v2.11.1, sandbox-routes one real engine call site
+        (``_resolve_mesh_uri``) so the API is no longer dead code.
         """
-        resolved = self._resolve(uri)
+        # R12-8: reject URL-scheme URIs up front. Detecting these
+        # before _resolve() prevents a downstream consumer from
+        # silently treating ``http://attacker/x`` as a relative path
+        # that gets joined onto the case dir.
+        if isinstance(uri, str) and self._URL_SCHEME_RE.match(uri):
+            raise ValueError(
+                f"v2.11.0 path-safety: URI {uri!r} carries a URL "
+                f"scheme (http/https/s3/etc.); this resolver only "
+                f"handles local-filesystem paths. Either dereference "
+                f"the URL outside the case YAML (download then point "
+                f"at the local file) or wait for v3.x to add URL-"
+                f"scheme handlers."
+            )
+        # R12-2: fully resolve the candidate path BEFORE the
+        # containment check. _resolve() only calls .resolve() on
+        # relative paths, so a YAML carrying an absolute URI with
+        # ``..`` or symlink components (e.g.
+        # ``/case_dir/../etc/passwd``) would otherwise be matched
+        # lexically against the case dir and slip through.
+        resolved = Path(self._resolve(uri)).resolve()
         if allow_outside_case:
             return resolved
-        configured = (
-            self.config.get("case", {}).get("allowed_data_roots") or []
-        )
-        if not configured:
-            # Sandbox is opt-in: no roots declared → back-compat
-            # permissive resolution. v3.0 may change this default.
+        raw = self._get_allowed_data_roots_raw()
+        if raw is None:
+            # Sandbox is opt-in: the YAML didn't declare any roots
+            # → back-compat permissive resolution. v3.0 may change
+            # this default. R12-3: this is the ONLY permissive path
+            # now; an explicit empty list falls through to the
+            # strict branch below (case dir only).
             return resolved
         roots = self._allowed_data_roots()
         for root in roots:
-            try:
-                if resolved.is_relative_to(root):
-                    return resolved
-            except (ValueError, AttributeError):  # pragma: no cover
-                # is_relative_to landed in 3.9 and is stable in 3.11+;
-                # the except is defensive against PathLike-but-not-Path
-                # types that future code might pass.
-                continue
+            if resolved.is_relative_to(root):
+                return resolved
         raise ValueError(
             f"v2.11.0 path-safety: URI {uri!r} resolved to "
             f"{resolved} which is outside every entry in "
@@ -646,7 +690,20 @@ class Case:
         uri = mesh_cfg.get("uri")
         if not uri:
             return None
-        path = self._resolve(uri)
+        # v2.11.1 R12-4: route through _resolve_safe so the v2.11.0
+        # sandbox API isn't dead logic. With case.allowed_data_roots
+        # unset (every shipped fixture), this falls through to the
+        # same _resolve() call _resolve_safe wraps — zero behavior
+        # change. Cases that DO opt in now get sandboxing on the
+        # mesh URI for free, and we have at least one real engine
+        # call site exercising the API.
+        try:
+            path = self._resolve_safe(uri)
+        except ValueError as e:
+            warnings.append(
+                f"mesh.uri rejected by path-safety sandbox: {e}"
+            )
+            return None
         if not path.exists():
             warnings.append(f"mesh.uri does not exist: {path}")
             return None

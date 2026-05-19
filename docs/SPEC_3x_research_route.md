@@ -122,10 +122,12 @@ this is a real concrete-risk surface, not theoretical.
 
 What v3.x must still ship:
 
-1. Route all 23+ existing `_resolve` call sites in `Case` through
-   the new `_resolve_safe` wrapper (v2.11.0 ships the wrapper, but
-   the legacy call sites still bypass it — by design, to keep
-   v2.x additive-only).
+1. Route the remaining 22+ existing `_resolve` call sites in `Case`
+   through the new `_resolve_safe` wrapper. v2.11.0 shipped the
+   wrapper; v2.11.1 wired the first real engine call site
+   (`_resolve_mesh_uri`) per R12-4 so the API is no longer dead
+   logic — but the rest of the call sites in `Case.run` still
+   bypass it (by design, to keep v2.x additive-only).
 2. Tighten the back-compat path: when `allowed_data_roots` is
    unset but a URI escapes the case dir, v3.x emits a stderr
    warning (v2.11.0 silently allows for back-compat).
