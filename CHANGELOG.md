@@ -4,6 +4,20 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.7.1] — 2026-05-19
+
+### Fixed
+- **v2.7.1 — 10th-pass review patches (R10-1, R10-2, R10-3, R10-4)**:
+    10th-pass review of v2.7.0 (gemini single-source; codex hit usage quota and produced no output). All R9 lessons mirrored cleanly into the cover path; 4 v2.7.0-specific findings closed here.
+    - **R10-1 (HIGH gemini): point-sample vs buffered behaved inconsistently on unmapped LULC codes.** The buffered path (`cover_si_from_lulc_raster`) treats unmapped codes as INVALID (excluded from denominator; raises RuntimeError when every pixel is unmapped). The v2.7.0 point-sample path silently returned `SI=0.0` via `DEFAULT_RIPARIAN_COVER_SI.get(code, 0.0)` — same raster + same section could produce DIFFERENT SI depending on whether the user set `buffer_m=0` or `buffer_m>0`. Fixed by checking each sampled code against `DEFAULT_RIPARIAN_COVER_SI` membership; sections hitting unmapped codes drop the whole batch with a fail-loud warning, matching buffered semantics.
+    - **R10-2 (MED gemini): wrong-raster-type silent failure**. The v2.7.0 point-sample path silently rounded continuous-value rasters (NDVI 0..1 stored as float32; user mistake) to 0/1 — neither in `DEFAULT_RIPARIAN_COVER_SI` — and returned all-zero SI. v2.7.1 adds a diagnostic hint in the unmapped-code warning that lists the unmapped codes and asks "Did you point cover_raster at a continuous-value raster instead of an LULC class raster?"
+    - **R10-3 (LOW gemini): `cover_si_from_lulc_raster` docstring mismatched implementation**. Pre-v2.7.1 the docstring said unmapped codes "contribute SI = 0", but the actual code excludes them from both the weighted sum and the pixel-count denominator (mean of known-class pixels only) and raises `RuntimeError` if every pixel is unmapped. Docstring corrected.
+    - **R10-4 (LOW gemini): missing end-to-end raster test**. `test_v270_cover_si_drives_composite_alone` covered the CSV path; the inline-raster end-to-end path had no integration test against `Case.run`. Added `test_v271_r104_cover_raster_drives_composite_end_to_end` that builds a uniform-LULC GeoTIFF + section_locations CSV beside the Lemhi case and asserts the inline helper is invoked + composite_summary is produced.
+    - codex single-source coverage caveat: codex hit usage quota mid-review and produced no output. PASS 1 symmetry verification + PASS 2 findings rely on gemini alone for round 10. The R8/R9 chain has been thoroughly cross-verified by both reviewers; v2.7.0/v2.7.1 is the first round where independent dual-source coverage was not available. Findings are concrete and reproducible.
+    - 4 new tests in `test_wua_watermark.py` (`test_v271_*`): R10-1 unmapped LULC fails loud (point-sample matches buffered), R10-2 NDVI hint in warning, R10-3 docstring accuracy, R10-4 raster end-to-end through Lemhi case.
+    - **10-round review chain summary**: 51 + 4 = 55 substantive findings; 53 closed; 2 deferred (F11 cosmetic + R9-3 high-lat buffer).
+    - Verified: `ruff check` 0 findings; `mypy --strict` core (59 files) + GUI/QGIS (9 files) clean; 561 passed / 6 skipped (h5py absent) / 31 deselected on the default test gate.
+
 ## [2.7.0] — 2026-05-18
 
 ### Added

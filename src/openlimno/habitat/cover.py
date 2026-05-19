@@ -97,7 +97,15 @@ def cover_si_from_lulc_raster(
             for WorldCover).
         cover_si_table: optional override of
             :data:`DEFAULT_RIPARIAN_COVER_SI`. Class codes missing
-            from the table contribute SI = 0.
+            from the table are EXCLUDED from both the weighted sum
+            and the pixel-count denominator (v2.7.1 R10-3 doc fix:
+            the pre-v2.7.1 wording incorrectly described unmapped
+            pixels as "contributing SI = 0", but the actual
+            implementation skips them — equivalent to "average over
+            known-class pixels only"). If every pixel in the
+            geometry is unmapped or no-data, the function raises
+            ``RuntimeError`` rather than returning a misleading
+            mean of zero.
         all_touched: forwarded to :func:`rasterio.mask.mask`. Default
             ``False`` matches pre-v2.7.0 "center-inside polygon"
             semantics. Set ``True`` for sub-pixel buffer geometries

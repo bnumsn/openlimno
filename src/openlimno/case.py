@@ -1898,13 +1898,49 @@ class Case:
             valid = in_bounds.copy()
             if raster_nodata is not None and np.isfinite(raster_nodata):
                 valid &= codes != int(round(float(raster_nodata)))
+            # v2.7.1 (R10-1): the buffered path treats LULC codes
+            # missing from DEFAULT_RIPARIAN_COVER_SI as INVALID (it
+            # raises RuntimeError when every pixel is unmapped), so
+            # point-sample must do the same — otherwise the same
+            # section can return SI=0 (point-sample default) or fail
+            # loud (buffered) depending on buffer_m, which is a real
+            # internal inconsistency.
+            mapped = np.array(
+                [int(code) in DEFAULT_RIPARIAN_COVER_SI for code in codes],
+                dtype=bool,
+            )
+            valid &= mapped
             if not np.all(valid):
                 bad = np.where(~valid)[0].tolist()
+                unmapped_codes = sorted({
+                    int(codes[i]) for i in bad
+                    if in_bounds[i]
+                    and (
+                        raster_nodata is None
+                        or not np.isfinite(raster_nodata)
+                        or int(codes[i]) != int(round(float(raster_nodata)))
+                    )
+                    and int(codes[i]) not in DEFAULT_RIPARIAN_COVER_SI
+                })
+                # v2.7.1 (R10-2): unmapped codes typically mean the
+                # user pointed at a continuous-value raster (e.g.
+                # NDVI 0..1, ESA WorldCover stored as float32). Fail
+                # loud rather than silently return SI=0 everywhere.
+                hint = (
+                    f" (unmapped codes: {unmapped_codes}; valid "
+                    f"codes per DEFAULT_RIPARIAN_COVER_SI are "
+                    f"{sorted(DEFAULT_RIPARIAN_COVER_SI)}. Did you "
+                    f"point cover_raster at a continuous-value "
+                    f"raster instead of an LULC class raster?)"
+                    if unmapped_codes
+                    else ""
+                )
                 warnings.append(
                     f"Section indices {bad} sampled outside the "
-                    f"cover raster bounds or hit the nodata "
-                    f"sentinel. Falling back from inline cover-"
-                    f"raster path."
+                    f"cover raster bounds, hit the nodata sentinel, "
+                    f"or sampled an LULC code not in "
+                    f"DEFAULT_RIPARIAN_COVER_SI{hint}. Falling back "
+                    f"from inline cover-raster path."
                 )
                 return None
             si = np.array(

@@ -3602,3 +3602,202 @@ def test_v270_cover_si_drives_composite_alone(monkeypatch):
         "v2.7.0 regression: per_section_cover_si did not thread through."
     )
     assert result.composite_summary is not None
+
+
+# ---------------------------------------------------------------------------
+# v2.7.1 — 10th-pass review patches (R10-1, R10-2, R10-3, R10-4)
+# ---------------------------------------------------------------------------
+
+
+def test_v271_r101_unmapped_lulc_point_sample_fails_loud(tmp_path):
+    """R10-1 (HIGH gemini): pre-fix, point-sample silently returned
+    SI=0.0 for unmapped LULC codes (e.g. user pointed at NDVI 0..1
+    where rounded codes 0/1 aren't in DEFAULT_RIPARIAN_COVER_SI),
+    while the buffered path correctly raised RuntimeError on the
+    same input. v2.7.1 makes point-sample also fail loud.
+    """
+    import numpy as np
+    import pandas as pd
+    import rasterio
+    from rasterio.transform import from_bounds
+
+    from openlimno.case import Case
+
+    raster_path = tmp_path / "wrong_raster.tif"
+    arr = np.full((4, 4), 1, dtype=np.uint8)
+    with rasterio.open(
+        raster_path, "w", driver="GTiff",
+        height=4, width=4, count=1, dtype="uint8",
+        crs="EPSG:4326",
+        transform=from_bounds(0.0, 0.0, 4.0, 4.0, 4, 4),
+    ) as dst:
+        dst.write(arr, 1)
+    locs_path = tmp_path / "loc.csv"
+    pd.DataFrame({
+        "station_m": [0.0, 100.0],
+        "lon": [1.0, 2.0],
+        "lat": [1.0, 2.0],
+    }).to_csv(locs_path, index=False)
+    case = object.__new__(Case)
+    case.case_yaml_path = tmp_path / "case.yaml"
+    cfg = {"data": {
+        "cover_raster": {"uri": raster_path.name},
+        "section_locations": {"uri": locs_path.name, "buffer_m": 0},
+    }}
+    warnings: list[str] = []
+    arr_si = case._maybe_compute_per_section_cover_si_from_raster(
+        cfg, [object(), object()], warnings,
+    )
+    assert arr_si is None, (
+        f"R10-1 regression: unmapped LULC silently returned "
+        f"{arr_si!r}; should fall back with a warning."
+    )
+    assert any(
+        "DEFAULT_RIPARIAN_COVER_SI" in w or "unmapped" in w.lower()
+        for w in warnings
+    ), f"R10-1 regression: no diagnostic warning: {warnings}"
+
+
+def test_v271_r102_ndvi_continuous_raster_hint(tmp_path):
+    """R10-2 (MED gemini): when an NDVI-style continuous-value
+    raster slips through, the v2.7.1 warning hint should mention
+    the likely cause."""
+    import numpy as np
+    import pandas as pd
+    import rasterio
+    from rasterio.transform import from_bounds
+
+    from openlimno.case import Case
+
+    raster_path = tmp_path / "ndvi.tif"
+    # NDVI 0..1 stored as float32; rounding gives 0 or 1, neither
+    # in DEFAULT_RIPARIAN_COVER_SI.
+    arr = np.full((4, 4), 0.55, dtype=np.float32)
+    with rasterio.open(
+        raster_path, "w", driver="GTiff",
+        height=4, width=4, count=1, dtype="float32",
+        crs="EPSG:4326",
+        transform=from_bounds(0.0, 0.0, 4.0, 4.0, 4, 4),
+    ) as dst:
+        dst.write(arr, 1)
+    locs_path = tmp_path / "loc.csv"
+    pd.DataFrame({
+        "station_m": [0.0], "lon": [1.0], "lat": [1.0],
+    }).to_csv(locs_path, index=False)
+    case = object.__new__(Case)
+    case.case_yaml_path = tmp_path / "case.yaml"
+    cfg = {"data": {
+        "cover_raster": {"uri": raster_path.name},
+        "section_locations": {"uri": locs_path.name, "buffer_m": 0},
+    }}
+    warnings: list[str] = []
+    arr_si = case._maybe_compute_per_section_cover_si_from_raster(
+        cfg, [object()], warnings,
+    )
+    assert arr_si is None
+    assert any("continuous-value" in w for w in warnings), (
+        f"R10-2 regression: no continuous-value-raster hint: {warnings}"
+    )
+
+
+def test_v271_r103_cover_si_from_lulc_raster_docstring_accurate():
+    """R10-3 (LOW): docstring of ``cover_si_from_lulc_raster`` used
+    to say unmapped codes "contribute SI = 0", but they were
+    actually excluded from the denominator. v2.7.1 corrects the
+    wording. Pin: the docstring mentions "excluded" or "skipped"
+    rather than "contribute".
+    """
+    import inspect
+
+    from openlimno.habitat.cover import cover_si_from_lulc_raster
+
+    doc = inspect.getdoc(cover_si_from_lulc_raster) or ""
+    assert "EXCLUDED" in doc or "skipped" in doc.lower(), (
+        f"R10-3 regression: docstring still says unmapped → SI=0. "
+        f"Got:\n{doc[:500]}"
+    )
+
+
+def test_v271_r104_cover_raster_drives_composite_end_to_end(monkeypatch, tmp_path):
+    """R10-4 (LOW): v2.7.0 R9-7 mirror test
+    (``test_v270_cover_si_drives_composite_alone``) uses the CSV
+    path; v2.7.1 adds the analogous RASTER path test — case.yaml
+    with ``data.cover_raster`` + ``data.section_locations`` (no
+    CSV, no v1.5.0 scalar) must drive the composite end-to-end."""
+    if not CASE_YAML.exists():
+        pytest.skip("Lemhi example missing")
+
+    import numpy as np
+    import pandas as pd
+    import rasterio
+    import yaml
+    from rasterio.transform import from_bounds
+
+    from openlimno.case import Case
+    from openlimno.habitat.cover import DEFAULT_RIPARIAN_COVER_SI
+    from openlimno.hydro.builtin_1d import load_sections_from_parquet
+
+    captured: dict[str, object] = {}
+    real = Case._maybe_compute_per_section_cover_si_from_raster
+
+    def _spy(self, cfg, sections, warnings):
+        captured["called"] = True
+        result = real(self, cfg, sections, warnings)
+        captured["array_len"] = (
+            int(len(result)) if result is not None else None
+        )
+        return result
+
+    monkeypatch.setattr(
+        Case, "_maybe_compute_per_section_cover_si_from_raster", _spy,
+    )
+
+    cfg = yaml.safe_load(CASE_YAML.read_text())
+    cfg["habitat"]["composite_overlay_method"] = "geom_mean_per_cell"
+    case_dir = CASE_YAML.parent
+    xs_path = (case_dir / cfg["data"]["cross_section"]).resolve()
+    sections = load_sections_from_parquet(xs_path, manning_n=0.035)
+
+    # Pick a Lemhi-ish bbox in EPSG:4326 with a uniform mapped LULC
+    # code so sampling at any (lon, lat) returns a valid SI.
+    valid_code = next(iter(DEFAULT_RIPARIAN_COVER_SI))
+    lulc_path = CASE_YAML.parent / "lulc_r104.tif"
+    arr = np.full((4, 4), valid_code, dtype=np.uint8)
+    with rasterio.open(
+        lulc_path, "w", driver="GTiff",
+        height=4, width=4, count=1, dtype="uint8",
+        crs="EPSG:4326",
+        transform=from_bounds(-114.0, 44.0, -113.0, 45.0, 4, 4),
+    ) as dst:
+        dst.write(arr, 1)
+    locs_path = CASE_YAML.parent / "loc_r104.csv"
+    n = len(sections)
+    # All sections sit inside the raster bbox.
+    pd.DataFrame({
+        "station_m": [s.station_m for s in sections],
+        "lon": [-113.5] * n,
+        "lat": [44.5] * n,
+    }).to_csv(locs_path, index=False)
+    cfg.setdefault("data", {})["cover_raster"] = {"uri": lulc_path.name}
+    cfg["data"]["section_locations"] = {"uri": locs_path.name, "buffer_m": 0}
+    y2 = CASE_YAML.parent / "case.r104.yaml"
+    y2.write_text(yaml.safe_dump(cfg))
+    try:
+        result = Case.from_yaml(y2).run(discharges_m3s=[3.0])
+    finally:
+        y2.unlink(missing_ok=True)
+        lulc_path.unlink(missing_ok=True)
+        locs_path.unlink(missing_ok=True)
+
+    assert captured.get("called"), (
+        "R10-4 regression: inline cover-raster helper was not invoked "
+        "by Case.run."
+    )
+    assert captured.get("array_len") == n, (
+        f"R10-4 regression: per-section cover SI array length "
+        f"{captured.get('array_len')} != section count {n}."
+    )
+    assert result.composite_summary is not None, (
+        "R10-4 regression: cover-raster-only case did not produce "
+        "a composite_summary."
+    )
