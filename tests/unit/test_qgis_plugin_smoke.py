@@ -206,3 +206,27 @@ def test_v290_run_case_worker_delegates_to_headless_api() -> None:
         f"v2.13.0: _run_case_for_worker did not return the wua_q_plot "
         f"path. Got: {png_path!r}"
     )
+
+
+def test_v310_r1311_pyqtsignal_uses_object_payload() -> None:
+    """v3.1.0 R13-11: the worker's finished_ok signal must carry
+    (str, object), not (str, str). The empty-string sentinel
+    pattern is gone — Path | None now crosses the signal/slot
+    boundary natively. Pin via source inspection."""
+    import inspect
+
+    from openlimno.gui_core.controller import Controller
+
+    src = inspect.getsource(Controller.run_case)
+    # Either the new form (preferred) OR the old form (regression).
+    assert "pyqtSignal(str, object)" in src, (
+        "v3.1.0 R13-11 regression: finished_ok no longer uses "
+        "pyqtSignal(str, object); empty-string sentinel form is "
+        "back. See SPEC_v3 §4 for the migration rationale."
+    )
+    assert "pyqtSignal(str, str)" not in src, (
+        "v3.1.0 R13-11 regression: the v2.13.0 empty-string sentinel "
+        "form (pyqtSignal(str, str)) reappeared. Use "
+        "pyqtSignal(str, object) so None can cross the boundary "
+        "natively."
+    )

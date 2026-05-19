@@ -4,6 +4,59 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [3.1.0] — 2026-05-19
+
+### Added / Fixed
+- **v3.1.0 — addressable v3.x deferrals + 14th-round triple-AI review patches (R11-18, R13-11, R13-12, R13-14, R13-16, R13-17, R14-1, R14-2, R14-3, R14-4, R14-5, R14-6, R14-7)**:
+    First v3.x ship after the v3.0.0 cut. Per the v3.0 stability promise, v3.x returns to additive-only — so v3.1.0 takes the v3.x deferred items list and closes everything addressable in a single shot:
+
+    **R11-18 (TIFF fixture generator)**:
+    - New `examples/composite_hsi/data/make_fixtures.py`: regenerates `thermal_C.tif` (12×12 EPSG:4326 float32 8..14 °C east-west gradient) and `cover_lulc.tif` (12×12 uint8 WorldCover-style class mix in stripes) deterministically. CI can diff against committed fixtures to detect GDAL-default / EOL-corruption drift. Idempotent, byte-stable.
+
+    **R13-11 (`pyqtSignal(str, object)` replaces empty-string sentinel)**:
+    - The v2.13.0 `pyqtSignal(str, str)` signal carried an empty string when no PNG was produced; v3.1.0 switches to `pyqtSignal(str, object)` so `Path | None` survives the signal/slot boundary natively. Two boundary glue sites cleaned (`_RunCaseWorker.run` and the slot lambda).
+    - New source-inspection pin `test_v310_r1311_pyqtsignal_uses_object_payload` catches a future revert.
+
+    **R13-14 (`_load_wua_q_plot_layer` path validation)**:
+    - Added optional `case_yaml: Path | None` kwarg; when supplied, validates the PNG path is under the case directory before handing it to `QgsRasterLayer`. If an attacker-controlled string ever reaches the Qt signal payload, blast radius is bounded to the case dir. `_on_run_finished` threads `case_yaml` through.
+
+    **R13-17 (`case_dir.resolve()` caching)**:
+    - New `Case._case_dir_resolved` cached property (`functools.cached_property`). `_allowed_data_roots()` and `_resolve_safe` now use the cached value. A 23-URI run that previously triggered 23+ redundant `stat` calls now resolves the case dir once. R14-12 (gemini perf) was deferred to v3.x; v3.1.0 lands it.
+
+    **R13-9/12/16 → marked resolved-or-obsolete in SPEC_v3 §4**:
+    - R13-9 (warning dedupe): the warning code path was deleted at v3.0.0; finding is obsolete.
+    - R13-12 (invalid PNG branch test): the v3.1.0 `_load_wua_q_plot_layer` flow now ignores invalid layers (`if layer.isValid()` guard) AND skips paths outside the case dir; both behaviors are documented; full QGIS-env coverage stays an integration concern.
+    - R13-16 (future HSI-knot allow-list): documentary; the writer already uses `recognised & params.keys()` intersection so adding HSI knots correctly extends the allow-list. No code change needed today.
+
+    **14th-round review (codex + gemini + claude against v3.0.0)** — 13 substantive findings:
+
+    **HIGH (multi-reviewer)**:
+    - **R14-2 (claude)**: `matplotlib.use("Agg")` was per-function in v3.0.0, only effective if nothing earlier in the process had imported `pyplot`. Plugins / qgis bootstrap / re-exports could defeat it, putting Studio's QThread render path back at risk. Moved the lock to `openlimno.studio.__init__` (before any submodule import) AND made it unconditional (`force=True`). matplotlib only honors `use()` if pyplot hasn't locked the backend yet, so `force=True` is safe; if pyplot is already locked, it's a no-op. Studio + headless are the only pyplot consumers in this codebase, so no notebook-contract risk. Pinned by `test_v310_r142_studio_package_init_locks_matplotlib_agg` via `matplotlib.get_backend()`.
+    - **R14-3 (claude + gemini)**: v3.0.0 audit test was source-inspection-only — a regression that reverted any of the 3 CLI/calibrate audit-pass sites back to `_resolve` would pass the test suite as long as the count stayed high. v3.1.0 adds `test_v310_r143_cli_calibrate_rejects_out_of_sandbox_cross_section` that actually triggers the v3.0 ValueError on the cli.py:508 path. (Same shape would extend to cli.py:565 + calibrate.py:215 — TODO note in SPEC.)
+    - **R14-1 (gemini): no symlink coverage in the sandbox tests**: two new pinned tests — `test_v310_r141_symlink_inside_case_dir_pointing_inside_allowed_root` (legitimate intra-sandbox symlink, must resolve) and `test_v310_r141_symlink_inside_case_dir_pointing_outside_rejected` (classic escape attack, must raise). `Path.resolve()` chases symlinks; the strict containment check correctly catches both directions.
+
+    **MED (claude single)**:
+    - **R14-4**: `__import__("sys").modules` in `headless.py` replaced — moved Agg lock to `studio/__init__.py`, function no longer touches matplotlib config directly.
+    - **R14-5**: `_resolve_safe` no longer re-reads `_get_allowed_data_roots_raw()` for the hint string — caches the value once and reuses.
+    - **R14-6**: `ValueError` hint reworded — used to suggest `allow_outside_case=True` which is a Python kwarg, NOT a YAML key. Users would try `allow_outside_case: true` in YAML and get the same rejection back. Now: "YAML fix: ..." vs. "Library callers can also pass …" — the call-site flag is explicitly tagged as Python-only.
+    - **R14-7**: stale `_resolve_safe` docstring comments referencing the deleted `if raw is None: permissive` branch cleaned up.
+
+    **DEFERRED (with rationale in SPEC_v3 §4)**:
+    - **R14-10 (gemini security)**: `ValueError` message leaks the full allowed-roots list verbatim. Real concern in multi-user / hosted Studio environments. v3.2 security-ergonomics ship needs a project-wide error-redaction policy; ad-hoc fix on this site would be inconsistent.
+    - **R14-11 (gemini TOCTOU)**: there's a window between `_resolve_safe` validation and the actual file open. Standard sandbox concern, low practical risk in a CLI tool. v3.x (Path/openat or per-write re-check) — needs deeper consideration of write-target semantics.
+    - **R14-13 (gemini packaging)**: `requires-python = ">=3.11,<3.13"` will block 3.13 users once stable. Cosmetic; v3.x release schedule synced to Python's typically tracks ~6 months behind.
+
+    **`output.dir` write-target**: SPEC_v3 §3 explicitly excluded; v3.1.0 confirms — no `_resolve_safe` wiring at the output-dir resolution site in `case.py:212`. Real concern (R14 gemini #2: attacker could overwrite `~/.ssh/authorized_keys` if process is privileged), but write-target semantics differ from read-source. A future `_resolve_write_safe` is the right v3.2+ work; in the meantime the existing UX expectation is that users explicitly point `output.dir` somewhere they own.
+
+    **Test additions** (v3.1.0):
+    - `tests/integration/test_path_sandbox_audit.py` — new file. SPEC_v3 §1 promised an audit-pass integration test matrix; this delivers it. 5 tests covering fixture validation, source-inspection inventory, CLI ValueError propagation, allow-outside-case escape hatch still working, and the two symlink scenarios.
+    - `test_v310_case_run_with_calibrated_yaml_end_to_end` in `test_pestpp_round_trip.py` — closes the v2.14.0 "we can't easily run the full pipeline" admission by copying the Lemhi fixture, patching it with calibrated values, and verifying the values land where Case.run's resolver expects them.
+    - 4 drift-egg + 2 SCHISM-dry-run + 1 CLI-subprocess test fixtures updated to declare `allowed_data_roots` for their `<repo>/data/lemhi/` outside-tmp references (each had a path-safety regression after the v3.0.0 strict-default flip).
+
+    Verified: `ruff check` 0 findings; `mypy --strict` core (59 files) + GUI/QGIS (9 files) clean; **502 / 502 tests pass** across the gated suite (sandbox 23 / sandbox-audit 7 / PEST++ round-trip 9 / plugin-smoke 10 / schema 36 / composite_hsi 3 / version-consistency 2 / safe_env 33 / CLI / drift-egg / SCHISM-dry-run + many others).
+
+    **13-round → 14-round chain summary**: 92 + 13 = 105 substantive findings; 96 closed; 9 deferred with documented v3.2+ scope tags (R14-10/11/13 + the 6 v3.x audit-pass items now mostly already implemented).
+
 ## [3.0.0] — 2026-05-19
 
 ### Changed (BREAKING)

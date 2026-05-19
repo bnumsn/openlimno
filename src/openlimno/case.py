@@ -9,6 +9,7 @@ M2+ extends to SCHISM 2D, multi-scale aggregation, regulatory exports.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import math
@@ -103,6 +104,18 @@ class Case:
     @property
     def name(self) -> str:
         return self.config["case"]["name"]
+
+    @functools.cached_property
+    def _case_dir_resolved(self) -> Path:
+        """v3.1.0 R13-17: cache ``self.case_dir.resolve()``.
+
+        Pre-v3.1.0 ``_resolve_safe`` and ``_allowed_data_roots``
+        called ``self.case_dir.resolve()`` on every URI — a sync
+        ``stat`` per call to chase symlinks. A 23-URI case run could
+        trigger 23+ redundant stat calls. The resolved case dir is
+        invariant for the Case object's lifetime; cache it.
+        """
+        return self.case_dir.resolve()
 
     @property
     def case_dir(self) -> Path:
@@ -644,13 +657,14 @@ class Case:
         entries (including ``~``-prefixed ones, which are expanded
         via ``Path.expanduser`` per R12-1) are taken verbatim.
         """
-        roots = [self.case_dir.resolve()]
+        # v3.1.0 R13-17: use cached case_dir.resolve().
+        roots = [self._case_dir_resolved]
         raw = self._get_allowed_data_roots_raw() or []
         for entry in raw:
             p = Path(entry).expanduser()  # R12-1
             roots.append(
                 p.resolve() if p.is_absolute()
-                else (self.case_dir / p).resolve()
+                else (self._case_dir_resolved / p).resolve()
             )
         return roots
 
@@ -723,19 +737,17 @@ class Case:
         if allow_outside_case:
             return resolved
 
-        # v3.0.0: STRICT-BY-DEFAULT. Pre-v3.0 the missing-key branch
-        # was permissive (DeprecationWarning advance-notice on
-        # escape, allow); v3.0 cuts the chain: missing-key now means
-        # the user implicitly opted into "lock to case dir only,"
-        # exactly the same semantics as the explicit empty list.
-        # Reasoning: Studio + third-party-YAML consumers had one ship
-        # cycle (v2.12.0 → v2.14.1) of DeprecationWarning advance
-        # notice; CI runs with `-W error::DeprecationWarning` already
-        # caught any escapes in that window. Making missing the strict
-        # default closes the v3.0 cut blocker R11-4 (path-traversal
-        # surface in user-supplied YAMLs) at the cost of a one-line
-        # migration for YAMLs that legitimately use shared-data roots
-        # outside their case dir: add `case.allowed_data_roots: [...]`.
+        # v3.0.0: STRICT-BY-DEFAULT. Missing-key === empty list:
+        # both mean "lock to case dir only." Pre-v3.0 the missing
+        # key was permissive (DeprecationWarning advance-notice
+        # on escape) — v2.12.0 ship cycle gave CI users one
+        # release of advance notice; v3.0 cuts the chain. Migration
+        # for YAMLs legitimately using shared-data roots outside the
+        # case dir: add `case.allowed_data_roots: [...]`.
+        # v3.1.0 R14-5: read the raw config ONCE per call and reuse
+        # for both the strict-check (via _allowed_data_roots) and
+        # the hint-selection at the failure path below.
+        raw = self._get_allowed_data_roots_raw()
         roots = self._allowed_data_roots()
         for root in roots:
             # v2.14.1 R13 defensive: pathlib.is_relative_to raises
@@ -750,24 +762,34 @@ class Case:
                 continue
             if relative:
                 return resolved
-        configured = self._get_allowed_data_roots_raw()
-        if configured is None:
+        # v3.1.0 R14-5: ``raw`` already loaded above; pick the
+        # right hint without re-traversing the config.
+        # v3.1.0 R14-6: the ``allow_outside_case=True`` escape hatch
+        # is a Python-call-site flag, NOT a YAML key. Pre-v3.1.0 the
+        # error message worded it ambiguously — users tried
+        # ``allow_outside_case: true`` in YAML and got the same
+        # rejection back. Reword so YAML users see the YAML-side
+        # path (allowed_data_roots) and only library callers see the
+        # per-call kwarg.
+        if raw is None:
             hint = (
                 "Pre-v3.0 this would have been permitted (with a "
                 "DeprecationWarning); v3.0 made the sandbox strict "
-                "by default. To restore the v2.x permissive behavior "
-                "for THIS case only, add `case.allowed_data_roots: "
-                "[<paths>]` listing the directory you want to allow, "
-                "or — if the URI is for a system temp / write target "
-                "— pass `allow_outside_case=True` at the call site."
+                "by default. YAML fix: add "
+                "`case.allowed_data_roots: [<paths>]` listing the "
+                "directory you want to allow. Library callers can "
+                "additionally pass `allow_outside_case=True` to "
+                "_resolve_safe for legitimate extra-case URIs (e.g. "
+                "system temp dir / write target) — this is a Python "
+                "kwarg, NOT a YAML key."
             )
         else:
             hint = (
-                "Either move the data inside one of these roots, "
-                "add the directory to case.allowed_data_roots, or "
-                "pass allow_outside_case=True at the call site if "
-                "this URI is intentionally extra-case (e.g. a "
-                "system temp dir or write target)."
+                "YAML fix: move the data inside one of these roots, "
+                "or add the directory to case.allowed_data_roots. "
+                "Library callers can also pass "
+                "`allow_outside_case=True` to _resolve_safe — this "
+                "is a Python kwarg, NOT a YAML key."
             )
         raise ValueError(
             f"v3.0.0 path-safety: URI {uri!r} resolved to "

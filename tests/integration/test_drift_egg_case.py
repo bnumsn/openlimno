@@ -39,11 +39,15 @@ def _write_case(tmp_path: Path, *, with_drift: bool, with_csv_temp: bool = False
         )
 
     metric = "drifting-egg" if with_drift else "wua-q"
+    # v3.0.0: declare allowed_data_roots so the strict-by-default
+    # sandbox lets us reach DATA_DIR (which lives at the repo's
+    # data/ tree, outside the test's tmp_path case dir).
     yaml_text = (
         "openlimno: '0.1'\n"
         "case:\n"
         "  name: drift_egg_case\n"
         "  crs: EPSG:32612\n"
+        f"  allowed_data_roots: ['{DATA_DIR}']\n"
         "mesh:\n"
         f"  uri: {DATA_DIR / 'mesh.ugrid.nc'}\n"
         "data:\n"

@@ -856,11 +856,15 @@ class Controller:
         # non-Qt environments for tests).
         class _RunCaseWorker(QThread):
             status = pyqtSignal(str)
-            # v2.13.0: finished_ok now carries (summary_text, png_path_str).
-            # png_path_str is "" when plotting was skipped — Qt's pyqtSignal
-            # doesn't take Optional easily, so we sentinel on empty string
-            # at the slot side. The behavioral test pins both args.
-            finished_ok = pyqtSignal(str, str)
+            # v3.1.0 R13-11: finished_ok carries
+            # (summary_text, png_path | None). Earlier (v2.13.0)
+            # used an empty-string sentinel; v3.1.0 (claude)
+            # switched to the cleaner object-payload form so None
+            # crosses the signal/slot boundary natively without
+            # per-call sentinel conversion glue. PyQt unwraps
+            # ``object`` payloads to native Python — Path | None
+            # survives the round trip.
+            finished_ok = pyqtSignal(str, object)
             failed = pyqtSignal(str)
 
             def __init__(self, case_yaml_: Path, parent: Any = None) -> None:
@@ -885,9 +889,10 @@ class Controller:
                     summary, png_path = _run_case_for_worker(
                         self_._case_yaml,
                     )
-                    self_.finished_ok.emit(
-                        summary, str(png_path) if png_path else ""
-                    )
+                    # v3.1.0 R13-11: emit Path | None natively via
+                    # the ``object`` payload — no more empty-string
+                    # sentinel.
+                    self_.finished_ok.emit(summary, png_path)
                 except Exception:
                     import traceback
                     self_.failed.emit(traceback.format_exc())
@@ -898,13 +903,12 @@ class Controller:
         )
         worker = _RunCaseWorker(case_yaml, self.host.main_window())
         worker.status.connect(lambda s: self.host.status_bar().showMessage(s))
-        # v2.13.0: signal now carries (summary, png_path_str). Empty
-        # string sentinel maps back to None at the _on_run_finished
-        # boundary so the auto-load step can skip cleanly.
+        # v3.1.0 R13-11: signal now carries (summary, Path | None)
+        # natively via pyqtSignal(str, object) — no empty-string
+        # sentinel glue at the slot boundary anymore.
         worker.finished_ok.connect(
-            lambda summary, png_str: self._on_run_finished(
-                case_yaml, summary, None,
-                Path(png_str) if png_str else None,
+            lambda summary, png_path: self._on_run_finished(
+                case_yaml, summary, None, png_path,
             ))
         worker.failed.connect(
             lambda tb: self._on_run_finished(case_yaml, None, tb, None))
@@ -938,14 +942,18 @@ class Controller:
         # ("controller renders its own plot via the existing layer-
         # loading path") that was aspirational and never landed.
         if wua_q_png is not None and wua_q_png.is_file():
-            self._load_wua_q_plot_layer(wua_q_png)
+            # v3.1.0 R13-14: thread case_yaml so the load step can
+            # validate the PNG is under the case dir.
+            self._load_wua_q_plot_layer(wua_q_png, case_yaml=case_yaml)
             loaded_msg += f"\nLoaded {wua_q_png.name} as a raster layer."
         QMessageBox.information(
             self.host.main_window(), "OpenLimno",
             f"✓ Run finished.\n\n{summary or ''}{loaded_msg}",
         )
 
-    def _load_wua_q_plot_layer(self, png_path: Path) -> None:
+    def _load_wua_q_plot_layer(
+        self, png_path: Path, *, case_yaml: Path | None = None,
+    ) -> None:
         """v2.13.0: load a WUA-Q curve PNG as a QGIS raster layer so
         it shows up in the layers panel beside the mesh.
 
@@ -957,12 +965,32 @@ class Controller:
         can pan/zoom and right-click to open externally. A dock
         widget would need its own Qt plumbing and would not survive
         QGIS session-restart out of the box.
+
+        v3.1.0 R13-14: validate the PNG path is under the case
+        directory before handing it to QGIS. The path string comes
+        through a Qt signal payload — if a worker exception path
+        ever lets attacker-controlled output into that string, this
+        keeps the blast radius bounded to the case directory rather
+        than letting QGIS load arbitrary system PNGs as map layers.
+        Skipped (path loaded as-is) if ``case_yaml`` is not provided
+        — back-compat with the v2.13.0 single-arg call shape; the
+        controller's standard call path now passes ``case_yaml``.
         """
         try:
             from qgis.core import QgsProject, QgsRasterLayer
         except ImportError:
             # Non-QGIS environment (unit tests) — nothing to load.
             return
+        if case_yaml is not None:
+            try:
+                resolved = png_path.resolve()
+                if not resolved.is_relative_to(
+                    case_yaml.parent.resolve(),
+                ):
+                    return  # silently drop; user-visible status
+                    # already showed the run finished.
+            except (OSError, ValueError):
+                return  # path resolution failed → can't validate
         layer = QgsRasterLayer(str(png_path), png_path.stem)
         if layer.isValid():
             QgsProject.instance().addMapLayer(layer)

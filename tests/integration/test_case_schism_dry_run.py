@@ -43,11 +43,14 @@ def _write_case_yaml(tmp_path: Path, mesh_path: Path, dry_run: bool) -> Path:
     case_dir = tmp_path / "case"
     case_dir.mkdir(parents=True, exist_ok=True)
     out_dir = case_dir / "out"
+    # v3.0.0: declare allowed_data_roots so the strict-by-default
+    # sandbox lets us reach DATA_DIR (outside the test's tmp_path).
     yaml_text = (
         "openlimno: '0.1'\n"
         "case:\n"
         "  name: schism_dry_run\n"
         "  crs: EPSG:32612\n"
+        f"  allowed_data_roots: ['{DATA_DIR}', '{mesh_path.parent}']\n"
         "mesh:\n"
         f"  uri: {mesh_path}\n"
         "data:\n"
