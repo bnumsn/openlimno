@@ -4,6 +4,52 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [3.6.0] — 2026-05-19
+
+### Fixed / Added
+- **v3.6.0 — R16-8/R16-9 housekeeping + 17th-round review patches**:
+    Two planned items deferred from v3.5.0 plus 6 closures from the 17th-round triple-AI CLI review (claude + gemini against v3.5.0). All changes are internal-correctness / API-non-breaking.
+
+    **Planned items (from the 16th-round deferred backlog)**:
+    - **R16-8 (claude) — `_yaml_rt.dump_round_trip` optional sandbox routing**:
+        v3.5.0's helper bypassed `Case._resolve_write_safe`, which was tolerable since no caller invoked it with hostile paths, but it left a documentary inconsistency with the rest of the write-path sandbox. v3.6.0 adds an optional keyword-only `case: Case | None` parameter; when supplied, the helper routes through `case._resolve_write_safe(path)` and any `PathOutsideAllowedRoots` raise propagates. Default `case=None` keeps unsandboxed behavior for callers (such as the schema bootstrap) that already validate their own destination. 3 new tests pin unsandboxed-default, sandbox-when-case-provided, and sandbox-allows-in-case-dir.
+    - **R16-9 (claude) — thread-safe `_WARNED_MISSING_RUAMEL` singleton**:
+        Pre-v3.6.0 the one-shot stderr warning used a plain module-level boolean. Under the Studio QThread + GUI main thread, two concurrent first-time `load_round_trip` calls could both observe `False` and double-print the deprecation banner — cosmetic but ugly. v3.6.0 guards the read/write with `threading.Lock`. 2 new tests: a source-inspection pin that the lock is wired in, plus a 10-thread stress that asserts at most one warning emits across concurrent invocations.
+
+    **17th-round review patches** (claude + gemini against v3.5.0):
+
+    **HIGH multi-reviewer**:
+    - **R17-1 (claude + gemini) — Windows literal bugs in `_uri_looks_absolute` + case-insensitive scheme check**:
+        v3.5.0 introduced `_uri_looks_absolute` to widen redaction beyond `Path.is_absolute()`. Two bugs:
+        1. The Windows extended-path literal `r"\\?\\"` was a 5-char string with a trailing backslash, not the 4-char `\\?\` prefix Windows actually uses. UNC prefix `r"\\\\"` had similar over-escaping.
+        2. The check was case-sensitive — `FILE:///etc/secret` slipped past while `file://...` was caught. RFC 3986 §3.1 explicitly defines schemes as case-insensitive.
+        v3.6.0 rewrites with raw-string literals (`r"""..."""`) so the docstring examples render correctly AND lowercases the URI before the scheme check. 5 new tests pin each form: `\\?\`, UNC `\\server\share`, POSIX UNC `//server/share`, mixed-case `file:` / `File:` / `FILE:`, and the negative (relative paths must NOT be misclassified).
+
+    - **R17-4 (claude + gemini HIGH) — antimeridian-aware AEQD centre**:
+        v3.5.0's R16-1 AEQD round-trip used arithmetic-mean longitude as the projection centre. For polylines crossing ±180° (e.g. `[(179.5, 70), (-179.5, 70)]`), the mean collapses to `lon=0` — a centre on the opposite side of the globe, producing distorted or empty geometry. v3.6.0 computes the centre via the circular mean: `atan2(sum(sin(lon)), sum(cos(lon)))`. New test plants a dateline-crossing polyline at 70°N and asserts a valid non-zero-area buffer geometry — would have failed under v3.5.0. (Closes part of the R16-4 deferral; full dateline-split for very long polylines remains v3.7+ scope.)
+
+    **HIGH single-reviewer**:
+    - **R17-5 (claude) — Transformer caching**: pre-v3.6.0 every `_riparian_buffer_geodesic` call re-initialised two PROJ Transformers (one for forward, one for reverse). In a per-reach calibration loop this is wasted setup. v3.6.0 wraps the factories in `functools.lru_cache(maxsize=256)` keyed by rounded `(lat, lon)` integers — adjacent reaches in the same study site share the AEQD centre and hit the cache. Test pins the `1 miss + 4 hits` pattern at the same key.
+    - **R17-10 (gemini) — `_open_safe` context-manager wrapper**: `_open_safe_fd` returns a raw fd that callers must manually `os.close`. Easy to leak under exception paths. v3.6.0 adds `@contextlib.contextmanager`-wrapped `Case._open_safe(uri, *, flags, mode, allow_outside_case)` which yields a `os.fdopen`'d file and closes the fd cleanly even when the body raises. 2 tests: happy-path roundtrip + a body-raises-then-no-ResourceWarning assertion.
+
+    **MEDIUM**:
+    - **R17-3 (claude HIGH) — `_run_case_for_worker` trust-roots fallback scope**:
+        Pre-v3.6.0 the GUI worker had `except Exception: trust_roots = [case_yaml.parent]` — a silent catch-all that hid schema/CRS/import errors inside the worker thread, leaving the user with no diagnostic. v3.6.0 narrows to `(OSError, ValueError, _yaml.YAMLError)` (the actually-expected `Case.from_yaml` failure modes) and writes a one-line stderr diagnostic when the fallback path fires so the worker traceback chain still surfaces what went wrong. Test exercises the path with a syntactically-broken YAML and asserts the `"trust_roots fallback"` string appears in stderr.
+
+    - **R17-2 (claude + gemini) — docstring honesty in `_open_safe_fd`**:
+        v3.5.0 R15-4 added `_open_safe_fd` with `os.O_NOFOLLOW` for POSIX TOCTOU mitigation. The docstring claimed a Windows fallback existed ("post-open fstat consistency check"). It did not — the code degraded silently to no protection on Windows. v3.6.0 corrects the docstring to be honest about scope (POSIX-only leaf-symlink protection; Windows parent-chain TOCTOU is still v4 scope). Test pins via `inspect.getsource` that the false claim is gone.
+
+    **DEFERRED to v3.7+ (from the 17th-round backlog)**:
+    - **R17-6 (claude LOW) — source-inspection test brittleness**: several recent tests (R11-15 source-pin, R16-6 R11-2 source-pin, R17-2 docstring-pin) read `inspect.getsource(...)` and assert on substring presence. Sensitive to comment/formatting drift. v3.7+ rewrite candidates with behavioral assertions where possible.
+    - **R17-7 (gemini MEDIUM) — `_load_wua_q_plot_layer.resolve()` on GUI thread**: even with v3.5.0's R16-2 worker-side trust-roots threading, the consumer still does a `Path.resolve()` on the GUI thread. Cheap for local paths but blocks on slow filesystems (NFS, SMB). v3.7+ move to the worker.
+    - **R17-8 (claude) — test gaps**: explicit gaps in coverage of `_apply_sandbox_check` (R15-7 dedup helper), `_atomic_write` partial-failure paths, and `Geod.fwd` cache invalidation. Documented; behavioral tests in v3.7+.
+    - **R17-9 (claude) — CI matrix Python 3.13 entry**: `requires-python` was bumped to allow `<3.14`, but the CI matrix only exercises 3.11 and 3.12. Test infrastructure work; not a code change. v3.7+.
+    - **R16-11 (claude from 16th round, restored to backlog)** — versioned error-prefix drift; cosmetic and bundled with R17-6 rewrite candidates.
+
+    **17-round chain summary**: 125 + 9 (R17-1..R17-10, two single-reviewer dropouts) = 134 substantive findings; 117 closed; 17 deferred with documented v3.7+ scope tags.
+
+    Verified: `ruff check` 0 findings; `mypy --strict` core (60 files) + GUI/QGIS (9 files) clean; **669 passing** in the gated suite (+16 over v3.5.0: 11 R17 + 5 R16-8/R16-9). One pre-existing v3.5.0 failure remains (`test_v2101_format_checker_wired_uri_reference` — env-drift: jsonschema's `uri-reference` format-checker requires `rfc3986-validator` or `rfc3987`, neither of which is in the pixi env). Not introduced by v3.6.0; flagged for v3.7+ env-deps follow-up.
+
 ## [3.5.0] — 2026-05-19
 
 ### Fixed / Added

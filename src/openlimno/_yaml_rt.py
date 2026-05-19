@@ -32,6 +32,7 @@ runtime dependency; v3.3.0 commits.
 """
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +45,13 @@ except ImportError:  # pragma: no cover — ruamel is now a runtime dep
     _RUAMEL_AVAILABLE = False
 
 
+# v3.6.0 R16-9 (claude): the "warned once" flag used to be a plain
+# module global with no lock — two threads racing on first import
+# could double-print the stderr warning. Real-world impact is small
+# (cosmetic double-line) but a threading.Lock is one line and
+# closes the race cleanly.
 _WARNED_MISSING_RUAMEL = False
+_WARNED_MISSING_RUAMEL_LOCK = threading.Lock()
 
 
 def _ruamel() -> YAML:
@@ -86,7 +93,12 @@ def load_round_trip(path: str | Path) -> Any:
     return yaml.safe_load(text)
 
 
-def dump_round_trip(data: Any, path: str | Path) -> Path:
+def dump_round_trip(
+    data: Any,
+    path: str | Path,
+    *,
+    case: Any = None,
+) -> Path:
     """Write a YAML file preserving comments + key order + blanks.
 
     Atomic via ``Case._atomic_write`` so process interrupts can't
@@ -96,11 +108,38 @@ def dump_round_trip(data: Any, path: str | Path) -> Path:
     Falls back to ``yaml.safe_dump`` if ``ruamel.yaml`` isn't
     installed. The fallback strips comments.
 
-    Returns the resolved Path written to.
+    v3.6.0 R16-8 (claude): optional ``case`` kwarg routes the
+    destination through ``Case._resolve_write_safe`` so the
+    sandbox applies to round-trip YAML writes too. The 16th-
+    round review flagged the unsandboxed helper as a "tempting
+    backdoor for future writers" — v3.6.0 closes that gap WITHOUT
+    breaking the current callers (which pass user case.yaml paths
+    that are unambiguously the user's own files; they pass
+    ``case=None`` and the sandbox is skipped, matching pre-v3.6.0
+    behavior). New callers in v3.6+ should pass ``case=<Case
+    instance>`` to opt into the sandbox.
+
+    Args:
+        data: Document to serialise.
+        path: Destination path (str or Path).
+        case: Optional ``Case`` instance. When provided, ``path``
+            is routed through ``case._resolve_write_safe`` to
+            enforce the v3.0 path-safety sandbox. ``None`` (default)
+            skips the sandbox — back-compat with v3.3.0/v3.4.0.
+
+    Returns:
+        Resolved Path written to.
+
+    Raises:
+        ValueError: if ``case`` is provided and the path escapes
+            the sandbox.
     """
     from openlimno.case import Case  # avoid circular at module top
 
-    dst = Path(path).resolve()
+    if case is not None:
+        dst = case._resolve_write_safe(path)
+    else:
+        dst = Path(path).resolve()
     if _RUAMEL_AVAILABLE:
         y = _ruamel()
         import io
@@ -119,13 +158,20 @@ def dump_round_trip(data: Any, path: str | Path) -> Path:
 
 
 def _warn_missing_ruamel_once() -> None:
-    """One-shot stderr warning so the user knows the lossy fallback
-    is in play. Repeating per-call would spam (a single fetcher
-    might patch the case YAML multiple times)."""
+    """v3.6.0 R16-9: thread-safe one-shot stderr warning.
+
+    The lock protects against double-printing if two threads call
+    a round-trip API concurrently on first use (e.g., a Studio
+    QThread doing a case load while a fetch subprocess writes a
+    patch). Without the lock both threads see ``_WARNED_MISSING_RUAMEL
+    is False``, both write, and the user sees two identical lines.
+    With the lock at most one wins.
+    """
     global _WARNED_MISSING_RUAMEL
-    if _WARNED_MISSING_RUAMEL:
-        return
-    _WARNED_MISSING_RUAMEL = True
+    with _WARNED_MISSING_RUAMEL_LOCK:
+        if _WARNED_MISSING_RUAMEL:
+            return
+        _WARNED_MISSING_RUAMEL = True
     import sys
     sys.stderr.write(
         "openlimno._yaml_rt: ruamel.yaml not installed; YAML round-trip "

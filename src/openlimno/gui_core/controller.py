@@ -50,6 +50,10 @@ def _run_case_for_worker(
             * Trust roots list (resolved Paths) — for the GUI plot
               autoload's containment check.
     """
+    import sys as _sys
+
+    import yaml as _yaml
+
     from openlimno.case import Case
     result = run_case_with_plots(case_yaml, plot=True)
     # R16-2: load the Case once just to extract trust_roots. This
@@ -57,13 +61,25 @@ def _run_case_for_worker(
     # (this function is called from there), not the GUI main
     # thread. And the parse + schema validation happen ONCE per
     # run rather than on every plot autoload.
+    #
+    # v3.6.0 R17-3 (claude HIGH): scope the except to actual YAML/
+    # schema failure modes and EMIT a diagnostic instead of
+    # silently narrowing trust roots. The pre-v3.6.0 bare
+    # ``except Exception`` swallowed CRS/schema errors AND
+    # silently dropped configured allowed_data_roots, making
+    # legitimate external-output-dir PNGs fail autoload with no
+    # diagnostic. We catch the parsing/IO/value-error family and
+    # log to stderr so the worker's traceback path still shows
+    # what went wrong without falling back silently.
     try:
         case = Case.from_yaml(case_yaml)
         trust_roots = case._allowed_data_roots()
-    except Exception:
-        # If the case YAML can't re-parse here (corrupted post-run
-        # or similar), fall back to the case dir alone. The plot
-        # autoload's stricter trust_roots=None path handles this.
+    except (OSError, ValueError, _yaml.YAMLError) as exc:
+        _sys.stderr.write(
+            f"openlimno: trust_roots fallback (case dir only) because "
+            f"Case.from_yaml({case_yaml}) failed: "
+            f"{type(exc).__name__}: {exc}\n"
+        )
         trust_roots = [case_yaml.parent.resolve()]
     summary = (
         f"Case '{result.case_name}' "

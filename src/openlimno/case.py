@@ -9,6 +9,7 @@ M2+ extends to SCHISM 2D, multi-scale aggregation, regulatory exports.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import hashlib
 import json
@@ -23,7 +24,7 @@ import sys
 # v2.14.1 R13-13 hoisted ``import warnings``; v3.0.0 deleted the
 # DeprecationWarning advance-notice consumer along with strict-by-
 # default cutover, so the module no longer uses warnings directly.
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -57,22 +58,45 @@ PerCellCsiMap: TypeAlias = dict[
 
 
 def _uri_looks_absolute(uri: str | Path) -> bool:
-    """v3.5.0 R16-5 (claude): detect "absolute-looking" URIs more
-    broadly than ``Path(...).is_absolute()``.
+    r"""v3.5.0 R16-5 + v3.6.0 R17-1 (claude + gemini): detect
+    "absolute-looking" URIs more broadly than ``Path(...).is_absolute()``.
 
     Path's own detection returns False for several forms that
     nonetheless leak server-side filesystem context:
-      * ``file:///etc/secret`` — RFC 3986 file URI scheme
+      * ``file:///etc/secret``, ``FILE:///etc/secret`` (case-
+        insensitive, per RFC 3986 §3.1)
       * ``~/secret`` — POSIX home expansion
-      * ``\\\\?\\C:\\secret`` — Windows extended path syntax
-      * ``\\\\server\\share\\…`` — UNC paths
-    All of these need to be redacted in ``OPENLIMNO_PATH_SAFETY_REDACT``
-    mode. v3.5.0 widens the check to cover them.
+      * ``\\?\C:\secret`` — Windows extended-path prefix
+        (4 chars: backslash, backslash, question, backslash)
+      * ``\\server\share\…`` — UNC paths (2-char backslash prefix)
+      * ``//server/share/…`` — POSIX-style UNC form
+
+    v3.5.0 first cut had two bugs the 17th-round review caught:
+      * The Windows literals (``r"\\?\\"`` and ``r"\\\\"``) were
+        the wrong number of backslashes — raw strings preserved
+        the visible chars, so ``r"\\?\\"`` was actually 5 chars
+        ``\\?\\`` (with trailing backslash), not the 4-char
+        ``\\?\`` prefix Windows uses.
+      * Case sensitivity: ``FILE://`` slipped through the lowercase
+        ``file:`` check.
+
+    v3.6.0 fixes both. Tested by the Windows-literal regression
+    pin below.
     """
     s = str(uri)
     if Path(s).is_absolute():
         return True
-    return s.startswith(("~", "file:", r"\\?\\", r"\\\\", "//"))
+    # Case-insensitive scheme check (RFC 3986 §3.1: scheme is
+    # case-insensitive but lowercase is the canonical form).
+    lowered = s.lower()
+    if lowered.startswith(("~", "file:")):
+        return True
+    # Windows + UNC prefixes (raw string forms so the visible
+    # backslash count matches the actual filesystem prefix):
+    # - ``\\?\`` extended path: 4 chars
+    # - ``\\`` UNC: 2 chars
+    # - ``//`` POSIX-style UNC: 2 chars
+    return s.startswith(("\\\\?\\", "\\\\", "//"))
 
 
 @dataclass
@@ -821,57 +845,97 @@ class Case:
         flags: int = os.O_RDONLY,
         allow_outside_case: bool = False,
     ) -> int:
-        """v3.5.0 — TOCTOU-safe file open (R15-4 / R14-11 mitigation).
+        """v3.5.0 + v3.6.0 R17-2 — TOCTOU mitigation surface.
 
-        Standard ``_resolve_safe`` + downstream ``open()`` has a
-        TOCTOU window: after the sandbox check returns the
-        resolved path, an attacker with write access to the
-        sandbox could swap the file for a symlink to ``/etc/passwd``
-        before the consumer's open call. The window is small
-        (microseconds) and the threat model requires existing
-        sandbox write access — but the residual gap is real, and
-        the 14th + 15th review rounds flagged it.
+        On POSIX: opens via ``os.open(path, flags | O_NOFOLLOW)``,
+        refusing to traverse a symlink at the final path component.
+        The 17th-round review (claude + gemini) flagged that the
+        v3.5.0 docstring overstated this — ``_resolve_safe`` already
+        calls ``Path.resolve()`` (which follows symlinks), so the
+        canonical path handed to ``os.open`` is never a symlink in
+        the steady state. ``O_NOFOLLOW`` here only catches the
+        narrow window where an attacker REPLACES the canonical file
+        with a symlink between ``resolve()`` and ``os.open()``.
+        That's a real race (small window, but real); v3.5.0's
+        framing was misleading because the simulated test used
+        monkeypatch to make ``_resolve_safe`` return the symlink
+        path verbatim — not the production code path.
 
-        This helper closes the leaf-component TOCTOU on POSIX by
-        opening via ``os.open(path, flags | O_NOFOLLOW)``:
-        the OS refuses to traverse a symlink at the final path
-        component. Parent-chain TOCTOU is still possible (an
-        attacker swapping a parent dir for a symlink between
-        ``resolve()`` and ``os.open``) — that needs ``openat``-
-        style descriptor chains, which Python exposes via
-        ``os.O_PATH`` + ``os.open(..., dir_fd=...)`` and which
-        v3.x defers as too invasive for the existing consumer
-        chain (rasterio.open, pandas read_parquet, …).
+        v3.6.0 R17-2: docstring corrected to scope the mitigation
+        honestly. Parent-chain TOCTOU stays v4-scope (needs
+        ``openat`` descriptor chains, would require migrating
+        rasterio/parquet/QGIS consumers).
 
-        Windows note: ``O_NOFOLLOW`` doesn't exist on Windows.
-        Falls back to a post-open ``fstat`` consistency check
-        against the resolved path's lstat — best-effort, but
-        Windows symlinks are gated behind administrator privilege
-        by default so the practical TOCTOU surface is narrower.
+        On Windows: ``getattr(os, "O_NOFOLLOW", 0)`` returns 0, so
+        the open proceeds with no symlink protection. **The v3.5.0
+        docstring claimed a Windows ``fstat`` fallback existed; it
+        did NOT — the code just silently degraded to "no
+        protection."** v3.6.0 is honest about this. Windows symlink
+        attacks are gated behind administrator privilege by default
+        so the practical TOCTOU surface is narrower; full Windows
+        coverage is v4-scope.
 
         Args:
             uri: same URI semantics as ``_resolve_safe``.
-            flags: ``os.O_*`` flags (e.g. ``os.O_RDONLY``,
-                ``os.O_WRONLY``). ``O_NOFOLLOW`` is OR'd in
-                automatically on POSIX.
+            flags: ``os.O_*`` flags (e.g. ``os.O_RDONLY``).
+                ``O_NOFOLLOW`` is OR'd in on POSIX.
             allow_outside_case: same kwarg as ``_resolve_safe``.
 
         Returns:
-            File descriptor (int). Caller is responsible for
-            wrapping in ``os.fdopen`` and closing.
+            File descriptor (int). The caller MUST close it.
+            See ``_open_safe`` (context-manager wrapper) for the
+            leak-resistant API.
 
         Raises:
-            ValueError: sandbox rejection (delegates to
-                ``_resolve_safe``).
-            OSError: includes the case where the final component
-                IS a symlink (``ELOOP`` on POSIX with
-                ``O_NOFOLLOW``).
+            ValueError: sandbox rejection.
+            OSError: ELOOP on POSIX when the final component IS
+                a symlink at open time (the post-resolve swap
+                scenario).
         """
         resolved = self._resolve_safe(
             uri, allow_outside_case=allow_outside_case,
         )
         nofollow_flag = getattr(os, "O_NOFOLLOW", 0)
         return os.open(resolved, flags | nofollow_flag)
+
+    @contextlib.contextmanager
+    def _open_safe(
+        self,
+        uri: str | Path,
+        *,
+        flags: int = os.O_RDONLY,
+        mode: str = "rb",
+        allow_outside_case: bool = False,
+    ) -> Iterator[Any]:
+        """v3.6.0 R17-10 (gemini): context-manager wrapper around
+        ``_open_safe_fd`` that closes the fd on exit.
+
+        ``_open_safe_fd`` returns a raw integer fd, which is
+        leak-prone — if the caller raises before wrapping in
+        ``os.fdopen`` or closing, the fd is orphaned. This wrapper
+        yields the buffered file object directly and guarantees
+        close on context exit.
+
+        Usage::
+
+            with case._open_safe("data/results.csv") as f:
+                contents = f.read()
+        """
+        fd = self._open_safe_fd(
+            uri, flags=flags, allow_outside_case=allow_outside_case,
+        )
+        try:
+            with os.fdopen(fd, mode) as f:
+                yield f
+        except BaseException:
+            # os.fdopen takes ownership on success; if we never
+            # got that far (open returned fd but fdopen raised),
+            # close the bare fd ourselves to avoid the leak.
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            raise
 
     def _resolve_safe(
         self,

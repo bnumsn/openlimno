@@ -34,7 +34,9 @@ adapted to the WorldCover 11-class LCCS schema.
 """
 from __future__ import annotations
 
+import functools
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -232,6 +234,23 @@ def riparian_buffer_from_polyline(
     return cast(BaseGeometry, transform(unscale, buf_m))
 
 
+@functools.lru_cache(maxsize=256)
+def _aeqd_transformer_to(lat_key: int, lon_key: int) -> Callable[..., tuple[float, float]]:
+    """v3.6.0 R17-5: cached EPSG:4326 → AEQD transformer factory.
+    lat_key/lon_key are integer-rounded centres."""
+    from pyproj import Transformer
+    proj = f"+proj=aeqd +lat_0={lat_key} +lon_0={lon_key} +ellps=WGS84"
+    return Transformer.from_crs("EPSG:4326", proj, always_xy=True).transform
+
+
+@functools.lru_cache(maxsize=256)
+def _aeqd_transformer_from(lat_key: int, lon_key: int) -> Callable[..., tuple[float, float]]:
+    """v3.6.0 R17-5: cached AEQD → EPSG:4326 transformer factory."""
+    from pyproj import Transformer
+    proj = f"+proj=aeqd +lat_0={lat_key} +lon_0={lon_key} +ellps=WGS84"
+    return Transformer.from_crs(proj, "EPSG:4326", always_xy=True).transform
+
+
 def _riparian_buffer_geodesic(
     coords: list[tuple[float, float]],
     *,
@@ -258,29 +277,49 @@ def _riparian_buffer_geodesic(
     (where you've moved away from the AEQD centre) is well within
     the tolerance the buffer-distance contract promises.
 
-    Antimeridian handling (R16-4): if the polyline crosses ±180°,
-    the AEQD round-trip still produces correct coords (each point
-    is independent), but the resulting EPSG:4326 polygon may have
-    wrapped-coord artefacts. Shapely's ``buffer`` in the projected
-    space handles this cleanly; the inverse-transform back to
-    lon/lat preserves the topology.
+    Antimeridian handling (R16-4 / R17-4): v3.5.0's first cut
+    naively averaged longitudes — a polyline with vertices at
+    +179 and -179 (crossing the dateline) collapsed to mean
+    lon ≈ 0, placing the AEQD centre on the opposite side of the
+    planet. v3.6.0 R17-4 (claude + gemini) fixes this with
+    circular-mean (atan2 of unit vectors) which handles wraps
+    correctly: the mean of +179 and -179 becomes ±180 (the
+    midpoint along the short arc), not 0.
+
+    Empty-coords guard: v3.5.0 would have raised ``ZeroDivisionError``
+    on an empty list; v3.6.0 short-circuits earlier (the caller's
+    ``len(coords) < 2`` check already covers this for the public
+    entry point, but the internal helper now also validates).
     """
-    from pyproj import Transformer
     from shapely.ops import transform as shapely_transform
 
-    # AEQD centred on the polyline mean — distance-preserving from
-    # that centre. EPSG:4326 (lon, lat) → AEQD metric coords.
+    if not coords:
+        raise ValueError("_riparian_buffer_geodesic: empty coords")
+
+    # v3.6.0 R17-4: circular-mean longitude (atan2 of unit vectors)
+    # so a polyline crossing ±180° centres correctly on the short
+    # arc instead of collapsing to lon≈0 on the opposite side.
+    # Latitude doesn't wrap, so arithmetic mean is fine.
     lats = [lat for _, lat in coords]
     lons = [lon for lon, _ in coords]
     lat_c = sum(lats) / len(lats)
-    lon_c = sum(lons) / len(lons)
-    aeqd_proj = f"+proj=aeqd +lat_0={lat_c} +lon_0={lon_c} +ellps=WGS84"
-    to_aeqd = Transformer.from_crs(
-        "EPSG:4326", aeqd_proj, always_xy=True,
-    ).transform
-    from_aeqd = Transformer.from_crs(
-        aeqd_proj, "EPSG:4326", always_xy=True,
-    ).transform
+    rad_lons = np.radians(lons)
+    sum_sin = float(np.sum(np.sin(rad_lons)))
+    sum_cos = float(np.sum(np.cos(rad_lons)))
+    lon_c = float(np.degrees(np.arctan2(sum_sin, sum_cos)))
+    # v3.6.0 R17-5 (claude + gemini): cache Transformer instances
+    # keyed on rounded centre. PROJ.4 initialisation is non-trivial
+    # (~ms per call); a basin-wide per-reach loop would hit it
+    # hundreds of times. Round to 1° because AEQD precision drops
+    # well outside that anyway, so a per-1° cache key is the right
+    # granularity.
+    lat_key = round(lat_c)
+    lon_key = round(lon_c)
+    to_aeqd = _aeqd_transformer_to(lat_key, lon_key)
+    from_aeqd = _aeqd_transformer_from(lat_key, lon_key)
+    # Note: we still build the proj string for the actual transform
+    # below (used by caller via the cached functions). The cache is
+    # internal to _aeqd_transformer_{to,from}.
 
     line_lonlat = LineString(coords)
     line_metric = shapely_transform(to_aeqd, line_lonlat)
