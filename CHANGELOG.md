@@ -4,6 +4,22 @@ All notable changes documented here. Format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [2.8.0] — 2026-05-19
+
+### Added
+- **v2.8.0 — `examples/composite_hsi/` upgraded to a real YAML-driven dual-raster workflow**:
+    Promotes the v1.10.0 synthetic-DataFrame walkthrough of `apply_overlay()` to a fully YAML-driven `Case.run` chain that exercises *both* the v2.6.0 thermal-raster path and the v2.7.0 cover-raster path end-to-end. No offline preprocessing, no in-script DataFrame construction — everything flows through `Case.from_yaml` → `Case.run` the same way a real basin study would.
+    - **`examples/composite_hsi/case.yaml`** — new file. Carries the full WEDM schema (mesh, hydrodynamics, habitat, regulatory_export defaults) **plus** the v2.6/v2.7 keys: `data.thermal_raster.uri`, `data.cover_raster.uri`, `data.section_locations.uri`, `data.fishbase_traits` (Schizothorax prenanti, 2.5..18.5 °C from FishBase ECOL_009), and `habitat.composite_overlay_method = geom_mean_per_cell`. Reuses Lemhi PHABSIM-equivalent hydraulic + HSI fixtures via relative path so the example only ships the new raster artefacts under `./data/`.
+    - **`examples/composite_hsi/data/`** — three new fixture files:
+        - `thermal_C.tif` (12×12 float32 EPSG:4326): east-west 8..14 °C gradient simulating a real river thermal cross-section.
+        - `cover_lulc.tif` (12×12 uint8 EPSG:4326): WorldCover-style class mix (10=tree, 20=shrub, 30=grass, 60=bare); symbolic stand-in for an ESA WorldCover tile clipped to a real Heihe riparian buffer.
+        - `section_locations.csv` (11 rows): one (station_m, lon, lat) per Lemhi cross-section. Same CSV drives both raster paths.
+    - **`examples/composite_hsi/quickstart.py`** — rewritten. Old script built synthetic bell-shaped WUA-Q DataFrames in Python and called `apply_overlay()`. New script loads the YAML, runs `Case.run`, reads `composite_hsi.json` for headline stats, and produces a base-vs-composite comparison plot per species/stage. End-to-end runtime <2 s; no network.
+    - **`examples/composite_hsi/README.md`** — rewritten. Walks through the dual-raster pipeline (inline thermal SI via FishBase ThermalRange; inline cover SI via DEFAULT_RIPARIAN_COVER_SI), enumerates every output the run produces (with the ship that introduced it), and pins down v2.8.0 as the example that proves the v2.0.0 charter "per-cell raster overlay end-to-end, YAML-driven" closure.
+    - **3 new integration tests** in `tests/integration/test_composite_hsi_example.py`: end-to-end Case.run (asserts `n_overlays == 2`, both `cover_si` and `thermal_si` non-null, per-species composite populated); schema validation (catches typos in the v2.6/v2.7 schema keys); section_locations row count matches cross_section count (catches fixture drift).
+    - **Verifies the v2.7.1 R10-4 deferral**: that finding asked for an end-to-end raster test. v2.8.0's example IS that test, at a real user-facing level.
+    - Verified: `ruff check` 0 findings; `mypy --strict` core (59 files) + GUI/QGIS (9 files) clean; 564 passed / 6 skipped (h5py absent) / 31 deselected on the default test gate.
+
 ## [2.7.1] — 2026-05-19
 
 ### Fixed

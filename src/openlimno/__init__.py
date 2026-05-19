@@ -8,6 +8,6 @@ See SPEC.md (v0.5 frozen, Approved-for-M0) for the full design contract.
 # stale installed-wheel metadata. The version string here MUST agree
 # with ``pyproject.toml``'s ``[project].version``; a pinned test
 # (``tests/unit/test_version_consistency.py``) enforces that.
-__version__ = "2.7.1"
+__version__ = "2.8.0"
 
 __all__ = ["__version__"]
