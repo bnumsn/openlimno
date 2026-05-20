@@ -1,0 +1,78 @@
+C ----------------------------------------------------------------------
+C OpenLimno R-PHABSIM-REAL synthesized IFG4/HABTAE input deck.
+C
+C Provenance:
+C   Synthesized on 2026-05-20 from the public PHABSIM/IFG4 card style
+C   documented for STA / ELE / ROUGH / Q records and from OpenLimno's
+C   closed-form Bovee 1997 benchmark in benchmarks/phabsim_bovee1997.
+C   This is NOT asserted to be the canonical USFWS cookbook deck.
+C   Verify against the acquired USFWS PHABSIM binary before using it to
+C   close U3.
+C
+C Case:
+C   Six identical rectangular cross-sections, 100 m spacing, b = 10 m,
+C   Manning n = 0.030, reach slope = 0.001. Bed elevation drops 0.1 m
+C   per section. High near-vertical banks prevent overbank flow for the
+C   benchmark discharges. HSI curves match test_bovee_1997.py.
+C ----------------------------------------------------------------------
+TITLE   BOVEE 1997 COOKBOOK 5.1 - OPENLIMNO SYNTHETIC IFG4 DECK
+UNITS   METRIC
+CASEID  BOVEE1997_5_1_OPENLIMNO_SYNTH
+SLOPE   0.001000
+NSEC    6
+NQ      4
+Q       0.500000  1.500000  4.000000  8.000000
+
+SPECIES ONCORHYNCHUS_MYKISS
+LSTAGE  SPAWNING
+COMPOS  GEOMEAN
+HSCURVE DEPTH     5
+HSPOINT 0.000000  0.000000
+HSPOINT 0.300000  1.000000
+HSPOINT 0.600000  1.000000
+HSPOINT 1.200000  0.500000
+HSPOINT 2.000000  0.000000
+HSCURVE VELOCITY  5
+HSPOINT 0.000000  0.000000
+HSPOINT 0.500000  1.000000
+HSPOINT 1.000000  1.000000
+HSPOINT 1.500000  0.300000
+HSPOINT 2.000000  0.000000
+
+XSEC    1   0.000
+NCOL    4
+STA     0.000000  0.010000  10.010000  10.020000
+ELE     6.000000  1.000000   1.000000   6.000000
+ROUGH   0.030000  0.030000   0.030000   0.030000
+
+XSEC    2   100.000
+NCOL    4
+STA     0.000000  0.010000  10.010000  10.020000
+ELE     5.900000  0.900000   0.900000   5.900000
+ROUGH   0.030000  0.030000   0.030000   0.030000
+
+XSEC    3   200.000
+NCOL    4
+STA     0.000000  0.010000  10.010000  10.020000
+ELE     5.800000  0.800000   0.800000   5.800000
+ROUGH   0.030000  0.030000   0.030000   0.030000
+
+XSEC    4   300.000
+NCOL    4
+STA     0.000000  0.010000  10.010000  10.020000
+ELE     5.700000  0.700000   0.700000   5.700000
+ROUGH   0.030000  0.030000   0.030000   0.030000
+
+XSEC    5   400.000
+NCOL    4
+STA     0.000000  0.010000  10.010000  10.020000
+ELE     5.600000  0.600000   0.600000   5.600000
+ROUGH   0.030000  0.030000   0.030000   0.030000
+
+XSEC    6   500.000
+NCOL    4
+STA     0.000000  0.010000  10.010000  10.020000
+ELE     5.500000  0.500000   0.500000   5.500000
+ROUGH   0.030000  0.030000   0.030000   0.030000
+
+END
