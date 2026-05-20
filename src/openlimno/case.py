@@ -346,9 +346,20 @@ class Case:
                 f"SCHISM run finished: rc={report.return_code}, "
                 f"dry_run={report.dry_run}, log={report.log_path.name}"
             )
-            if dry or report.return_code != 0:
-                # Fall back to Builtin1D approximation so the rest of the
-                # pipeline still produces output (useful for CI without SCHISM)
+            # 2026-05-20 round-20 codex A10 + gemini A7 (HIGH convergent):
+            # the pre-fix path silently substituted Builtin1D for ANY of
+            # (a) dry_run=True or (b) SCHISM return_code != 0 — meaning a
+            # real SCHISM failure on a user requesting 2D would yield 1D
+            # math with only a soft warning. A regulatory reviewer signing
+            # an SL-712 export from such a run would be misled. Now: the
+            # dry-run CI path keeps the explicit fallback (intentional
+            # "test the pipeline without the binary"), but a real
+            # return_code != 0 raises RuntimeError so the caller has to
+            # decide whether to retry, switch backend, or fail loudly.
+            if dry:
+                # CI / dry-run path — explicit user opt-in via
+                # schism_cfg.dry_run=True. Fall back to Builtin1D and
+                # leave the warning trail.
                 solver = Builtin1D(slope=slope)
                 solver.prepare(
                     self.case_yaml_path,
@@ -359,8 +370,19 @@ class Case:
                 solver.run(hydro_work)
                 hydraulic_results = solver.read_results(hydro_work)
                 warnings.append(
-                    "SCHISM unavailable / dry-run — fell back to Builtin1D "
-                    "for habitat post-processing"
+                    "SCHISM dry_run=True — used Builtin1D approximation "
+                    "for habitat post-processing (CI / pipeline-smoke path)"
+                )
+            elif report.return_code != 0:
+                raise RuntimeError(
+                    f"SCHISM hydrodynamic run failed with return_code="
+                    f"{report.return_code}; log at {report.log_path}. "
+                    f"OpenLimno will NOT silently substitute Builtin1D "
+                    f"for a real SCHISM failure (round-20 codex A10 + "
+                    f"gemini A7 fix). Investigate the SCHISM log, fix "
+                    f"the input deck or container env, and re-run. To "
+                    f"explicitly accept a Builtin1D approximation, set "
+                    f"``hydrodynamics.schism.dry_run: true`` in case.yaml."
                 )
             else:
                 # Real SCHISM result reading lands in M3 beta;

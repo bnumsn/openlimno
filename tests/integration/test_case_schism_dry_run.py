@@ -104,15 +104,26 @@ def test_schism_dry_run_end_to_end(tmp_path: Path, lemhi_present: bool) -> None:
     assert "wua_m2_oncorhynchus_mykiss_spawning" in df.columns
     assert (df["wua_m2_oncorhynchus_mykiss_spawning"] >= 0).all()
 
-    # Warnings explicitly mention the SCHISM dry_run + fallback path
+    # Warnings explicitly mention the SCHISM dry_run + fallback path.
+    # 2026-05-20 round-20 codex A10 + gemini A7: the warning wording
+    # was updated when the silent-fallback behavior was split into
+    # dry_run-keeps-fallback vs return_code-raises. The dry-run path
+    # still emits a Builtin1D-approximation warning; the precise text
+    # is "dry_run=True — used Builtin1D approximation".
     joined = " ".join(res.warnings)
     assert "dry_run=True" in joined
-    assert "SCHISM unavailable / dry-run" in joined
+    assert "Builtin1D approximation" in joined
 
 
-def test_schism_without_executable_falls_back(tmp_path: Path, lemhi_present: bool) -> None:
-    """If SCHISM isn't installed and dry_run isn't set, run() must still
-    produce habitat output by falling back to Builtin1D (return_code != 0).
+def test_schism_without_executable_raises_no_silent_fallback(
+    tmp_path: Path, lemhi_present: bool,
+) -> None:
+    """2026-05-20 round-20 codex A10 + gemini A7 (HIGH convergent): if
+    SCHISM is missing AND ``dry_run`` is not set, ``Case.run`` must
+    NOT silently fall back to Builtin1D — that would be a regulatory-
+    defense hazard (a user requesting 2D would get 1D math + a soft
+    warning). Pre-round-20 this test asserted the silent fallback; it
+    is now inverted to pin the safer post-round-20 contract.
     """
     if not lemhi_present:
         pytest.skip("Lemhi data not built")
@@ -126,7 +137,7 @@ def test_schism_without_executable_falls_back(tmp_path: Path, lemhi_present: boo
     import shutil
 
     if shutil.which("pschism_TVD-VL") or shutil.which("schism"):
-        pytest.skip("Real SCHISM binary present; test only exercises fallback")
-    res = case.run(discharges_m3s=[5.0])
-    df = pd.read_csv(res.output_dir / "wua_q.csv", comment="#")
-    assert len(df) == 1
+        pytest.skip("Real SCHISM binary present; cannot exercise the no-binary raise path")
+
+    with pytest.raises(RuntimeError, match="SCHISM hydrodynamic run failed"):
+        case.run(discharges_m3s=[5.0])

@@ -64,7 +64,7 @@ of converting `NEEDS-AUDIT` to `CLOSED` / `CLOSED-API-ONLY` /
 
 | Metric | Value |
 |---|---|
-| Total rounds | **18** (F = round 1, N = round 2, M = round 3, R5..R18 = rounds 4..18) |
+| Total rounds | **18 code-review + 2 strategic (S, A)** = 20 rounds (F + N + M + R5..R18 + Round-S 2026-05-19 + Round-A 2026-05-20 architecture review) |
 | Total unique findings | **~146** (124 distinct `Rxx-y` codes + 22 F/N/M codes) |
 | Findings flagged closed (per CHANGELOG) | **~128** |
 | Findings deferred (per CHANGELOG) | **~18** |
@@ -85,6 +85,7 @@ only case.**
 | 2026-05-20 | Second R-DOC-AUDIT-WIRED pass | R11-4 inline-raster cluster: 4 loaders flipped from BYPASSED → CLOSED (all route through `_resolve_safe`) | `tests/unit/test_r11_4_audit_wired.py` (8 tests) |
 | 2026-05-20 | Third R-DOC-AUDIT-WIRED pass | R15-R17 sweep: 18 substantive closures audit-confirmed (11 WIRED + 7 INTRINSIC), 3 cosmetic, 7 explicitly deferred to v3.7+ | `docs/reviews/R15_R17_audit.md` (audit doc) + `tests/unit/test_r15_r17_audit_pins.py` (7 cluster smoke pins) |
 | 2026-05-20 | Fourth R-DOC-AUDIT-WIRED pass | R5..R14 sweep: ~85 codes audit-confirmed via Lemhi end-to-end run (the v1.x..v2.x foundational helpers all exercised in composition). R-DOC-AUDIT-WIRED track substantively complete. | `docs/reviews/R5_R14_audit.md` (audit doc) + `tests/integration/test_r5_r14_lemhi_end_to_end_audit.py` (8 anchor pins: atomic-write, 3 regulatory CSVs, provenance, watermark, schema, full pipeline) |
+| 2026-05-20 | Round-20 architecture review (codex + gemini) | 10+10 architectural findings; 6 convergent (case.py god / preprocess split / WEDM typed / HydroSolver protocol / surface size / SCHISM silent fallback); 1 real bug fixed (SCHISM no-silent-fallback); 1 ADR (0013 GUI dep direction); 9 post-moratorium R-tracks logged | `docs/reviews/round_20_audit.md` (audit doc) + `docs/decisions/0013-gui-dependency-direction.md` + `tests/unit/test_round20_schism_no_silent_fallback.py` (2 behavioral pins) |
 
 ---
 

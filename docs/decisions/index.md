@@ -18,6 +18,7 @@ ADRs document significant architectural / technical decisions. Format: [MADR 4.0
 | [0010](0010-spec-scope-discipline.md) | SPEC §0.3 enforcement via PR template + CI check | Accepted |
 | [0011](0011-stable-major-tag-moratorium.md) | Moratorium on stable major-version tags until D1+D2+(D5∨D6∨D7) close | **Accepted (interim)** |
 | [0012](0012-phabsim-real-fortran-validation.md) | PHABSIM Fortran real-run validation harness (R-PHABSIM-REAL) | Proposed |
+| [0013](0013-gui-dependency-direction.md) | GUI dependency direction: `gui_core` / `studio` / `qgis` cleanup (doc-only, refactor blocked by moratorium) | Proposed |
 
 ## Template
 
