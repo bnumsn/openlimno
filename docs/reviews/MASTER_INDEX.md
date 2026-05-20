@@ -127,7 +127,7 @@ ledger:
 | **Path-safety sandbox** | R11-4, R12-1..R12-3, R13-1, R13-2, R13-4, R13-5, R14-1, R14-3, R14-11, R15-1, R15-7, R15-9, R16-3, R16-5, R17-1, R17-2 | v2.10.1 (R11-4) | v3.0.0 wrap, v3.5.0 TOCTOU, v3.6.0 R17 hardening, v3.6.1 R18-1 fd, **2026-05-20 R-DOC-AUDIT-WIRED inline-raster sweep** | `_resolve_safe` + `_resolve_write_safe` + `_open_safe_fd` + `_open_safe` — wired through ~10 of 11 audit sites per SPEC_v3.md §3 + 4 v2.6/v2.7 inline-raster loaders (`_maybe_compute_per_section_thermal_si_from_raster`, `_maybe_load_per_section_thermal_si`, `_maybe_compute_per_section_cover_si_from_raster`, `_maybe_load_per_section_cover_si`) **swept 2026-05-20** — previously bypassed sandbox via raw `self.case_dir / uri` joins; now route through `_resolve_safe` with fallback warning on rejection. Pinned by `tests/unit/test_r11_4_audit_wired.py` (8 tests: 4 source-inspection + 4 behavioural sandbox-block). `output.dir` intentionally bypassed (write-target → uses `_resolve_write_safe`). |
 | **AEQD high-latitude buffer** | R9-3, R16-1, R16-4, R16-7, R17-4, R17-5, R18-2, R18-3 | v2.6.1 (R9-3) | v3.6.1 (R18-2 antimeridian split + R18-3 magnitude guard) | `_riparian_buffer_geodesic` — called from `cover_si_from_polyline` via `riparian_buffer_from_polyline`; production users: any thermal/cover raster sampling at > ±60° lat |
 | **YAML round-trip** | R13-3 | v2.12.0 deferred | v3.3.0 (apply_optimised_params), v3.4.0 (NWIS auto-wire + WEDM patch), v3.6.0 R16-8 (sandbox routing), **2026-05-20 R-DOC-AUDIT-WIRED** (R16-8 sandbox-routing actually-wired) | `apply_optimised_params_to_case_yaml` (calibrate.py) wired; cli.py fetch-chain wired; cli.py NWIS auto-wire wired; **R16-8 `case=` kwarg now passed by all three production callers** (2026-05-20). Pinned by `tests/unit/test_r18_4_audit_wired.py`. |
-| **fd ownership / TOCTOU** | R15-4, R14-11, R17-10, R18-1 | v3.0 deferred | v3.5.0 (`_open_safe_fd` O_NOFOLLOW), v3.6.0 (`_open_safe` cm), v3.6.1 (R18-1 no-double-close) | `_open_safe` + `_open_safe_fd` — **NEEDS-AUDIT**: not yet confirmed which consumers (rasterio, parquet, yaml) actually route through these versus raw `open()` |
+| **fd ownership / TOCTOU** | R15-4, R14-11, R17-10, R18-1 | v3.0 deferred | v3.5.0 (`_open_safe_fd` O_NOFOLLOW), v3.6.0 (`_open_safe` cm), v3.6.1 (R18-1 no-double-close) | `_open_safe` + `_open_safe_fd` exist + are pinned by `test_r15_r17_audit_pins.py::test_r15_4_r17_10_fd_chain_intact`. **Open question**: which downstream consumers (rasterio, parquet, yaml, mesh readers) route file opens through `_open_safe` vs raw `open()` is not yet audited. The helpers exist, but full leaf-symlink protection across the read surface remains incomplete — flagged as a future audit candidate, parked because rasterio/pyogrio/h5py do their own opens internally and routing them through a fd wrapper is invasive. v4-scope. |
 | **Studio QThread GUI** | R13-4 (matplotlib Agg), R16-2 (worker-side trust_roots), R17-3 (fallback diagnostic), R17-7 (resolve on GUI thread; deferred) | v3.0.0 | partly v3.6.0; R17-7 still open | `gui_core/controller.py` `_run_case_for_worker` + `_load_wua_q_plot_layer` — wired |
 
 ---
@@ -189,7 +189,7 @@ historical CHANGELOG entries.
 | S2 | HIGH | codex (claude concurs) | Review chain became the product | feedback_review_cadence (memory rule) |
 | S3 | HIGH | codex (claude concurs) | SPEC hierarchy fragmented / docs stale | This file + ROADMAP.md |
 | S4 | HIGH | codex (claude concurs) | QGIS plugin still treated as growth surface | `src/openlimno/qgis/.../MAINTENANCE_ONLY.md` |
-| S5 | HIGH | codex (claude concurs) | "API exists ≠ capability exists" — R11-4, R18-4 patterns | R-DOC-AUDIT-WIRED track — 3 passes complete (R18-4, R11-4 inline-raster, R15-R17 sweep); R5..R14 remainder pending |
+| S5 | HIGH | codex (claude concurs) | "API exists ≠ capability exists" — R11-4, R18-4 patterns | R-DOC-AUDIT-WIRED track — **substantively complete** as of 2026-05-20: 4 passes (R18-4 + R11-4 inline-raster + R15-R17 sweep + R5-R14 Lemhi anchor); ~110 of ~146 findings audit-confirmed |
 | S6 | CHARTER-BLOCKING | codex (claude concurs) | Competitive positioning ≫ evidence; PHABSIM real run missing | ADR-0012 |
 | S7 | CHARTER-BLOCKING | codex (claude concurs) | Governance on paper, not in release process | Triggers unfreeze gate U1+U2 |
 | S8 | MEDIUM | claude (third-party补位) | Memory `feedback_review_cli_only` was literal-followed but no frequency rule | feedback_review_cadence (memory rule, now added) |
@@ -198,14 +198,26 @@ historical CHANGELOG entries.
 
 ### Rounds R5..R17 (historical)
 
-**Status: NEEDS-AUDIT.** The R-DOC-AUDIT-WIRED track will populate
-these tables in the order: R17 → R16 → R15 → ... (most recent first,
-so production-caller status is established before drift accumulates).
+**Status: AUDITED 2026-05-20.** The R-DOC-AUDIT-WIRED track ran
+4 passes between 2026-05-20 and 2026-05-20:
 
-Each round, when audited, gets its own subsection here. CHANGELOG
-entries are the authoritative source for severity / reviewer / theme;
-this index is the authoritative source for current
-production-caller status. The two MUST agree at audit time.
+- [`R15_R17_audit.md`](R15_R17_audit.md) — R15..R17 per-finding
+  audit table with verdicts (11 WIRED + 7 INTRINSIC + 3 COSMETIC + 7 DEFERRED)
+- [`R5_R14_audit.md`](R5_R14_audit.md) — R5..R14 cluster audit
+  anchored by `tests/integration/test_r5_r14_lemhi_end_to_end_audit.py`
+- [`test_r18_4_audit_wired.py`](../../tests/unit/test_r18_4_audit_wired.py)
+  — R18-4 per-call-site sandbox wiring pins
+- [`test_r11_4_audit_wired.py`](../../tests/unit/test_r11_4_audit_wired.py)
+  — R11-4 inline-raster sweep pins
+
+CHANGELOG entries remain the authoritative source for
+severity / reviewer / theme; the audit-doc files above are the
+authoritative source for current production-caller status. The two
+agree at audit time.
+
+R-DOC-AUDIT-WIRED is **substantively complete**. Any future full
+triple-AI round MUST append its production-caller verification
+to this file in the same release.
 
 ---
 

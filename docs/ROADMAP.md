@@ -34,13 +34,14 @@ DoD closes (see [ADR-0011](decisions/0011-stable-major-tag-moratorium.md)).
 |---|---|---|
 | [**this file (`docs/ROADMAP.md`)**](ROADMAP.md) | Plan entry point and document index | **Living** |
 | [`SPEC.md`](../SPEC.md) (= `docs/SPEC.md`) | Frozen 1.0 technical spec (v0.5) | Frozen for 1.0 line |
+| [`docs/external_action_phase.md`](external_action_phase.md) | Where code-side work halts; what external action unblocks the moratorium | **Living** (effective 2026-05-20) |
 | [`docs/governance/CAPABILITY_BOUNDARY_1_0.md`](governance/CAPABILITY_BOUNDARY_1_0.md) | What 1.0 will and will NOT do; D1–D8 cut criteria | **Draft** (signatures pending) |
 | [`docs/SPEC_v3.md`](SPEC_v3.md) | v3.0 hardening cut (path sandbox + matplotlib threading + audit pass) | Closed (executed via v3.0–v3.6.1) |
 | [`docs/SPEC_3x_research_route.md`](SPEC_3x_research_route.md) | 3.x research tier deliverables | Partly executed; needs sync-back (see audit in MASTER_INDEX) |
 | [`docs/reviews/MASTER_INDEX.md`](reviews/MASTER_INDEX.md) | Full triple-AI review-chain ledger (F/N/M/R series, ~146 findings) | **Living** |
 | [`docs/strategy/competitive-positioning.md`](strategy/competitive-positioning.md) | "Interop before replacement"; HEC-RAS / TELEMAC / MIKE / HABBY / FishXing | Stable |
 | [`docs/decisions/`](decisions/) | ADRs (0001–0012, growing) | Stable; append-only |
-| [`docs/STATE_2026_05.md`](STATE_2026_05.md) | Time-stamped snapshot (stale at v1.3.0-dev; needs refresh) | **Stale** — refresh on next dated snapshot |
+| [`docs/STATE_2026_05.md`](STATE_2026_05.md) | Time-stamped snapshot, last refreshed 2026-05-20 post-consolidation | Living — refreshed in-place when audit-pass count or unfreeze-gate status changes |
 | [`docs/governance/GOVERNANCE.md`](governance/GOVERNANCE.md) | PSC / maintainers / release cadence | **Draft** (M0 deliverable) |
 
 If two documents conflict, this index points to the canonical one. Notify
@@ -92,16 +93,14 @@ Per [ADR-0011](decisions/0011-stable-major-tag-moratorium.md):
 The moratorium lifts when **all** of the following hold (i.e. when the
 project demonstrates evidence-grade readiness, not just clean lint):
 
-| # | Criterion | Verification |
-|---|---|---|
-| **U1** | At least 3 named maintainers + PSC quorum signed | `docs/governance/MAINTAINERS.md` filled, GPG verified |
-| **U2** | CAPABILITY_BOUNDARY_1_0.md ratified and committed | Signature section non-`Pending` |
-| **U3** | One real PHABSIM Fortran case Δ ≤ 1e-3 vs OpenLimno | [ADR-0012](decisions/0012-phabsim-real-fortran-validation.md) harness committed and CI-green on tagged ship |
-| **U4** | One real basin case study published | Charter target: China-domestic (Yangtze tributary / Yellow River); fallback: any peer-reviewed basin |
-| **U5** | At least one reviewer-of-record signed for one regulatory export template (CN-SL712 / US-FERC §4(e) / EU-WFD) | `docs/governance/announcements/` signature |
-| **U6** | Production-caller audit pass | Every "closed" Rxx finding in
-[`MASTER_INDEX.md`](reviews/MASTER_INDEX.md) has either ≥ 1 production
-call site OR an explicit `INTENTIONALLY-API-ONLY` flag with justification |
+| # | Criterion | Status 2026-05-20 | Verification |
+|---|---|---|---|
+| **U1** | At least 3 named maintainers + PSC quorum signed | ❌ pending external action | `docs/governance/MAINTAINERS.md` filled, GPG verified |
+| **U2** | CAPABILITY_BOUNDARY_1_0.md ratified and committed | ❌ pending external action | Signature section non-`Pending` |
+| **U3** | One real PHABSIM Fortran case Δ ≤ 1e-3 vs OpenLimno | 🟡 scaffold only (`benchmarks/phabsim_real/`); binary acquisition + Bovee §5.1 deck pending | [ADR-0012](decisions/0012-phabsim-real-fortran-validation.md) harness committed and CI-green on tagged ship |
+| **U4** | One real basin case study published | ❌ prerequisite met (Lemhi fixture pipeline runs end-to-end), but real cross-sections + field-data comparison + reviewer not started — see [`u4_prerequisite_lemhi_fixture_pipeline.md`](u4_prerequisite_lemhi_fixture_pipeline.md) | Charter target: China-domestic (Yangtze tributary / Yellow River); fallback: any peer-reviewed basin |
+| **U5** | At least one reviewer-of-record signed for one regulatory export template (CN-SL712 / US-FERC §4(e) / EU-WFD) | ❌ pending external action | `docs/governance/announcements/` signature |
+| **U6** | Production-caller audit pass | ✅ **substantively complete** 2026-05-20 (4 audit passes; ~110/~146 findings audit-confirmed-wired; see [`reviews/MASTER_INDEX.md`](reviews/MASTER_INDEX.md) audit-pass log) | Every "closed" Rxx finding in [`MASTER_INDEX.md`](reviews/MASTER_INDEX.md) has either ≥ 1 production call site OR an explicit `INTENTIONALLY-API-ONLY` flag with justification |
 
 U1+U2 are governance. U3+U4+U5 are evidence. U6 is hygiene.
 U1+U2 are the **necessary** floor; U3 OR U4 OR U5 (any one) is the
@@ -125,11 +124,11 @@ they advance the unfreeze gate or document existing state honestly.
 | Track | First deliverable | Closes |
 |---|---|---|
 | **R-PHABSIM-REAL** | PHABSIM Fortran-in-OCI container harness; replicate Bovee 1997 cookbook 5.1 (Trapezoidal Channel) Δ ≤ 1e-3 | U3 |
-| **R-BASIN-1** | Lemhi end-to-end **OPERATIONAL (2026-05-20)**: pipeline runs against `data/lemhi/` fixtures, produces all 13 core artifacts + 2 plots; pinned by `tests/integration/test_r5_r14_lemhi_end_to_end_audit.py`. Publication-grade closure (real cross-sections, field-data comparison, U5 sign-off) still pending. See [`docs/r_basin_1_lemhi_status.md`](r_basin_1_lemhi_status.md). | U4 (partial — engineering done, science pending) |
+| **R-BASIN-1** | Lemhi fixture pipeline **OPERATIONAL** (prerequisite only — fixture geometry is synthetic per `data/lemhi/manifest.json`; pipeline produces 7 default artifacts + 1 Studio PNG; pinned by `tests/integration/test_r5_r14_lemhi_end_to_end_audit.py`). **NOT** counted toward U4 evidence — that requires real cross-sections + field-data comparison + reviewer-of-record (all external-data work, see [`u4_prerequisite_lemhi_fixture_pipeline.md`](u4_prerequisite_lemhi_fixture_pipeline.md)). | U4 prerequisite (not U4 evidence) |
 | **R-CN-BASIN** | Yangtze-tributary or Yellow-River case (memory `project_openlimno` charter) | U4 (preferred) |
 | **R-REGREVIEW-SL712** | CN SL/Z 712-2014 reviewer-of-record outreach + sample signed export | U5 |
 | **R-DOC-AUDIT-WIRED** | Production-caller audit on all R5-x..R18-x closures; flag every API-only "closed" item | U6 + closes the S5 strategic finding |
-| **R-DOC-STATE-REFRESH** | Update `STATE_2026_05.md` (or replace with `STATE_2026_06.md`) to reflect v3.6.1 reality, not v1.3.0-dev | Documentation hygiene |
+| **R-DOC-STATE-REFRESH** | ✅ **Closed 2026-05-20** — `STATE_2026_05.md` rewritten in-place to reflect v3.6.1 + 4 audit passes + moratorium status | Documentation hygiene |
 | **R-QGIS-MAINT** | Move QGIS strict-typing gate out of `pixi run check` default; mark plugin as maintenance-only | Reduces v3.x carrying cost |
 | **R-SPEC-3X-SYNC** | Update SPEC_3x_research_route.md to mark items closed in v3.0–v3.6.1 | Documentation hygiene |
 

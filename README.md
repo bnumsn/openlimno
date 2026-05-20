@@ -20,6 +20,16 @@ findings. **675 tests pass; ruff 0; mypy `--strict` core + Studio clean.**
 > regulatory reviewer-of-record signed). Until then, v1.0–v3.6.1
 > should be read as engineering pre-GA snapshots; treat the version
 > chain as informational, not as a stability promise.
+>
+> ⚠️ **External-action phase (2026-05-20)** — internal-code work is
+> substantively complete (U6 audit gate closed; 4 R-DOC-AUDIT-WIRED
+> passes; 702 tests green). The project is now blocked on **external
+> action only**: maintainer recruitment, regulatory reviewer outreach,
+> real-basin data acquisition, USFWS PHABSIM source license
+> verification. See [`docs/external_action_phase.md`](./docs/external_action_phase.md)
+> for the recommended outreach paths and what code work continues
+> (narrowly: bug fixes against real reports + docs + U3 container
+> work). Do not open PRs adding new features or new audit passes.
 
 **Where to start:**
 - New contributors → [`docs/ROADMAP.md`](./docs/ROADMAP.md) (canonical plan + doc index)

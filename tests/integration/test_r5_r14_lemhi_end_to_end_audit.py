@@ -115,7 +115,20 @@ def test_r5_r14_atomic_write_publishes_no_partials(lemhi_result) -> None:
 # ---------------------------------------------------------------------
 # Cluster: F/N/M/R7 — Regulatory CSV atomic publish + watermark
 # ---------------------------------------------------------------------
-@pytest.mark.parametrize("name", ["sl712.csv", "ferc_4e.csv", "eu_wfd.csv"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        # Base regulatory CSVs — what bare ``Case.run`` actually
+        # produces from the default Lemhi case.yaml. Composite
+        # variants (``*_composite.csv``) require an explicit
+        # composite-overlay configuration (e.g.
+        # ``habitat.composite_overlay_method = geom_mean_per_cell``)
+        # that the shipped Lemhi case does not set. The status doc
+        # was corrected 2026-05-20 round-19 codex S1 to stop
+        # claiming all 6 are produced by the default run.
+        "sl712.csv", "ferc_4e.csv", "eu_wfd.csv",
+    ],
+)
 def test_r5_r14_regulatory_csv_emitted_with_watermark(
     lemhi_result, name: str,
 ) -> None:
@@ -222,12 +235,18 @@ def test_r5_r14_lemhi_full_pipeline_produces_full_artifact_set(
     contract; missing any one of them is a regression in either
     the orchestrator or one of the helpers."""
     result, out_dir = lemhi_result
-    # PNGs are produced by ``studio.headless.run_case_with_plots``,
-    # NOT bare ``Case.run`` — kept out of this required set so the
-    # core pipeline can be audited without pulling in the plotting
-    # path (which has its own separate test surface).
+    # 2026-05-20 round-19 codex S1: the r_basin_1 status doc
+    # initially claimed "13 core artifacts + 2 plots" — but that
+    # count came from a cached output dir (a prior run with composite
+    # overlay enabled), NOT from the fresh-run default Case.run on
+    # Lemhi. Bare Case.run on the shipped Lemhi case actually produces
+    # 8 artifacts (this list); composite CSVs + composite_hsi.json
+    # require ``habitat.composite_overlay_method = geom_mean_per_cell``
+    # opt-in, and PNGs require ``studio.headless.run_case_with_plots``
+    # (pinned separately by ``test_r5_r14_studio_plots_produced``).
     required = [
         "wua_q.csv",
+        "wua_hmu.csv",
         "hydraulics.nc",
         "provenance.json",
         "sl712.csv",
@@ -236,8 +255,9 @@ def test_r5_r14_lemhi_full_pipeline_produces_full_artifact_set(
     ]
     missing = [f for f in required if not (out_dir / f).exists()]
     assert not missing, (
-        f"R5-R14 master cluster regression: complete-artifact-set "
-        f"contract broken — missing: {missing}. Output dir: {out_dir}"
+        f"R5-R14 master cluster regression: 7-artifact contract "
+        f"(bare Case.run default) broken — missing: {missing}. "
+        f"Output dir: {out_dir}"
     )
     assert result.case_name == "lemhi_phabsim_replication"
     assert len(result.discharges_m3s) == 4
@@ -246,3 +266,72 @@ def test_r5_r14_lemhi_full_pipeline_produces_full_artifact_set(
     # cardinality.
     assert result.wua_q is not None
     assert len(result.wua_q) == 4
+
+
+# ---------------------------------------------------------------------
+# Cluster: Studio path A — run_case_with_plots produces the PNGs
+# the r_basin_1 status doc claims are part of the artifact set.
+# 2026-05-20 round-19 codex S1: prior pin set didn't cover PNGs.
+# ---------------------------------------------------------------------
+def test_r5_r14_studio_plots_produced(tmp_path_factory) -> None:
+    """``studio.headless.run_case_with_plots`` is the user-facing
+    entry point for Studio path A; it wraps ``Case.run`` and emits
+    PNGs alongside the CSV/NetCDF outputs. r_basin_1 status doc
+    claims ``wua_q_curve.png`` + per-species/stage PNG are part of
+    the operational artifact set. Pin via a real run.
+
+    The function reloads the case from disk, so we write a temp
+    case.yaml that extends ``allowed_data_roots`` to include the
+    tmp_out dir (otherwise the v3.0 sandbox would refuse the
+    write — itself a signal R11-4 is wired)."""
+    _require_fixtures()
+    import yaml as _yaml
+
+    from openlimno.studio.headless import run_case_with_plots
+
+    tmp_dir = tmp_path_factory.mktemp("lemhi_studio_plots")
+    tmp_out = tmp_dir / "out"
+
+    # Copy + tweak the Lemhi case.yaml so output.dir points into
+    # tmp + allowed_data_roots includes tmp_out.
+    src_yaml = LEMHI_CASE.read_text(encoding="utf-8")
+    cfg = _yaml.safe_load(src_yaml)
+    # Anchor data paths absolutely so the temp-case can reach the
+    # repo data/ tree without recomputing relative paths from
+    # /tmp/.../case.yaml's location.
+    repo_data = REPO_ROOT / "data"
+    cfg["case"]["allowed_data_roots"] = [
+        str(repo_data),
+        str(tmp_out),
+    ]
+    cfg["mesh"]["uri"] = str(repo_data / "lemhi" / "mesh.ugrid.nc")
+    for k, v in list(cfg.get("data", {}).items()):
+        if isinstance(v, str) and v.startswith("../../data/"):
+            cfg["data"][k] = str(REPO_ROOT / v.removeprefix("../../"))
+    if "hydrodynamics" in cfg and "boundaries" in cfg["hydrodynamics"]:
+        for bdy in cfg["hydrodynamics"]["boundaries"].values():
+            for field in ("series", "ref"):
+                if isinstance(bdy.get(field), str) and bdy[field].startswith(
+                    "../../data/"
+                ):
+                    bdy[field] = str(
+                        REPO_ROOT / bdy[field].removeprefix("../../")
+                    )
+    cfg["output"]["dir"] = str(tmp_out)
+
+    tmp_case_yaml = tmp_dir / "case.yaml"
+    tmp_case_yaml.write_text(_yaml.safe_dump(cfg), encoding="utf-8")
+    sr = run_case_with_plots(tmp_case_yaml, discharges_m3s=[5.0, 10.0, 20.0])
+    out_dir = Path(sr.output_dir)
+    assert (out_dir / "wua_q_curve.png").exists(), (
+        "Studio PNG regression: run_case_with_plots no longer emits "
+        "wua_q_curve.png — r_basin_1 status doc claim broken."
+    )
+    # Note: per-species/stage panels (e.g.
+    # ``wua_q_oncorhynchus_mykiss_spawning.png``) are emitted by the
+    # plot pipeline only when both species/stage curves carry nonzero
+    # WUA across the discharge sweep. With 3 toy discharges + the
+    # Lemhi default HSI, fry stage collapses to 0 immediately, so the
+    # per-stage panel may not appear in CI. Pin only the composite
+    # PNG, which IS the user-facing artifact promised in the
+    # r_basin_1 status doc.
