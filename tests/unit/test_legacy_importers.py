@@ -41,6 +41,23 @@ X1=  200.0,      3,      0.,     18.,      0.,      0.
 GR=     1.6,      0.,     1.1,      9.,     1.6,    18.0
 """
 
+_HECRAS_STA_ELEV_G01 = """\
+Geom Title=Modern HEC-RAS Test Geometry
+Program Version=5.07
+River Reach=Clinch River    ,Upper Reach
+Type RM Length L Ch R = 1 ,4893.771,44.6,45.31,43.51
+XS GIS Cut Line=2
+     320729.9764    4049882.4458     320876.6807    4049955.5874
+#Sta/Elev= 4
+       0  357.05    3.56  355.87    5.34  355.44    7.12  354.92
+#Mann= 1 ,-1 , 0
+       0     .03       0
+Bank Sta=0,7.12
+Type RM Length L Ch R = 1 ,4848.462,47.67,49.13,49.02
+#Sta/Elev= 3
+       0  358.65    1.82  357.54    3.63  355.78
+"""
+
 
 _CDG_BED = """\
 HEADER River2D Bed File v1.0
@@ -91,6 +108,26 @@ def test_read_hecras_geometry_finds_two_xs(tmp_path: Path) -> None:
     assert (df["river"] == "Lemhi").all()
 
 
+def test_read_hecras_geometry_finds_sta_elev_blocks(tmp_path: Path) -> None:
+    p = tmp_path / "modern.g01"
+    p.write_text(_HECRAS_STA_ELEV_G01)
+    df = read_hecras_geometry(p)
+
+    assert sorted(set(df["station_m"])) == [4848.462, 4893.771]
+    assert len(df) == 7
+    first = df[df["station_m"] == 4893.771].sort_values("point_index").iloc[0]
+    assert first["distance_m"] == pytest.approx(0.0)
+    assert first["elevation_m"] == pytest.approx(357.05)
+    assert first["x_m"] == pytest.approx(320729.9764)
+    assert first["y_m"] == pytest.approx(4049882.4458)
+    georef = df[df["station_m"] == 4893.771].sort_values("point_index")
+    assert georef["x_m"].notna().all()
+    assert georef.iloc[-1]["x_m"] == pytest.approx(320876.6807)
+    assert georef.iloc[-1]["y_m"] == pytest.approx(4049955.5874)
+    assert (df["river"] == "Clinch River").all()
+    assert (df["reach"] == "Upper Reach").all()
+
+
 def test_read_hecras_geometry_empty_raises(tmp_path: Path) -> None:
     p = tmp_path / "empty.g03"
     p.write_text("Geom Title=Empty\n")
@@ -117,9 +154,7 @@ def test_read_river2d_cdg_official_2002_format(tmp_path: Path) -> None:
 
     assert len(nodes) == 3
     assert nodes.attrs["river2d_n_elements"] == 1
-    assert {"bed_elevation_m", "roughness_m", "depth_m", "velocity_ms"}.issubset(
-        nodes.columns
-    )
+    assert {"bed_elevation_m", "roughness_m", "depth_m", "velocity_ms"}.issubset(nodes.columns)
     assert nodes.loc[nodes["node_id"] == 1, "velocity_ms"].iloc[0] == pytest.approx(0.5)
     assert nodes.loc[nodes["node_id"] == 3, "velocity_ms"].iloc[0] == 0.0
     assert list(elements[["node_1", "node_2", "node_3"]].iloc[0]) == [1, 2, 3]
@@ -319,9 +354,13 @@ def test_external_model_aggregates_hecras_face_velocity(tmp_path: Path) -> None:
         geom.create_dataset("Cells Center Coordinate", data=[[0.0, 0.0], [1.0, 0.0]])
         geom.create_dataset("Cells Surface Area", data=[10.0, 11.0])
         geom.create_dataset("Cells Face and Orientation Info", data=[[0, 2], [2, 2]])
-        geom.create_dataset("Cells Face and Orientation Values", data=[[0, 0], [1, 0], [1, 0], [2, 0]])
+        geom.create_dataset(
+            "Cells Face and Orientation Values", data=[[0, 0], [1, 0], [1, 0], [2, 0]]
+        )
         geom.create_dataset("Faces FacePoint Indexes", data=[[0, 1], [1, 2], [2, 3]])
-        geom.create_dataset("FacePoints Coordinate", data=[[0.0, 0.0], [0.5, 0.0], [1.0, 0.0], [1.5, 0.0]])
+        geom.create_dataset(
+            "FacePoints Coordinate", data=[[0.0, 0.0], [0.5, 0.0], [1.0, 0.0], [1.5, 0.0]]
+        )
         ts = h5.create_group(
             "/Results/Unsteady/Output/Output Blocks/Base Output/"
             "Unsteady Time Series/2D Flow Areas/Area 1"
@@ -355,7 +394,9 @@ def test_inspect_hecras_hdf_reports_cell_aligned_candidates(tmp_path: Path) -> N
     assert inspection.selected_flow_area == "Area 1"
     assert inspection.n_cells == 2
     assert inspection.cell_center_path is not None
-    assert any(info.path.endswith("/Depth") and info.cell_aligned for info in inspection.depth_candidates)
+    assert any(
+        info.path.endswith("/Depth") and info.cell_aligned for info in inspection.depth_candidates
+    )
     assert not inspection.velocity_candidates
     assert any(
         info.path.endswith("/Cells Surface Area") and info.cell_aligned
@@ -628,8 +669,7 @@ def test_external_model_imports_habitat_exchange_wua_summary(tmp_path: Path) -> 
 def test_external_model_imports_habby_txt_spu_summary(tmp_path: Path) -> None:
     p = tmp_path / "d1_to_d9_sub_PolygonSandreCoarser-dom_spu.txt"
     p.write_text(
-        "discharge\tSPU\twetted_area\tspecies\tstage\n"
-        "74.7\t31.5\t90.0\tbarbel\tadult\n",
+        "discharge\tSPU\twetted_area\tspecies\tstage\n74.7\t31.5\t90.0\tbarbel\tadult\n",
         encoding="utf-8",
     )
 
@@ -714,6 +754,6 @@ def test_external_model_imports_instream_depth_matrix(tmp_path: Path) -> None:
     result = read_external_model(p, source="instream-netlogo")
 
     assert result.table.attrs["openlimno_output_table"] == "ibm_hydraulic_lookup"
-    assert list(result.table["cell_id"]) == [1, 1, 2, 2]
+    assert list(result.table["cell_id"]) == ["1", "1", "2", "2"]
     assert list(result.table["discharge_m3s"]) == [1.0, 2.0, 1.0, 2.0]
     assert list(result.table["depth_m"]) == [0.1, 0.2, 0.3, 0.4]

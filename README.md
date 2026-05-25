@@ -9,7 +9,8 @@
 API surface at v1.0.0 (2026-05-12); v2.0 / v3.0 added per-cell composite
 and a strict-by-default path sandbox respectively; v3.0 → v3.6.1 was
 18 rounds of triple-AI CLI code review that closed ~146 substantive
-findings. **675 tests pass; ruff 0; mypy `--strict` core + Studio clean.**
+findings. **706 default-gated tests pass; 31 optional/external tests are
+deselected by default; ruff 0; mypy `--strict` core + Studio clean.**
 
 > ⚠️ **Stable-major-tag MORATORIUM in effect (2026-05-19)** — per
 > [ADR-0011](./docs/decisions/0011-stable-major-tag-moratorium.md), the
@@ -23,7 +24,8 @@ findings. **675 tests pass; ruff 0; mypy `--strict` core + Studio clean.**
 >
 > ⚠️ **External-action phase (2026-05-20)** — internal-code work is
 > substantively complete (U6 audit gate closed; 4 R-DOC-AUDIT-WIRED
-> passes; 702 tests green). The project is now blocked on **external
+> passes; 706 default-gated tests green; PEST++ real-binary gate green
+> separately). The project is now blocked on **external
 > action only**: maintainer recruitment, regulatory reviewer outreach,
 > real-basin data acquisition, USFWS PHABSIM source license
 > verification. See [`docs/external_action_phase.md`](./docs/external_action_phase.md)
@@ -71,7 +73,12 @@ To prevent scope creep, 1.0 explicitly excludes (see `SPEC.md` §0.3):
 - OpenLimno-native 2D/3D solvers (uses SCHISM externally)
 - GPU acceleration
 - Uncertainty quantification, data assimilation, ML surrogates
-- Individual-based / population dynamics
+- Regulatory-grade individual-based / population dynamics in the 1.0
+  capability boundary; a native non-NetLogo research prototype is available
+  via `openlimno ibm-run-native`, with official inSTREAM 7.4 example-case
+  input crosswalks via `openlimno ibm-benchmark-instream7` and NetLogo
+  `BriefPopOut` summaries via `openlimno ibm-summarize-instream7-brief`,
+  but it is not yet a numerically calibrated inSTREAM replacement
 - Water temperature / quality / sediment / morphodynamics (1.x)
 - Web GUI / cloud / embedded real-time
 - Multi-solver BMI interchange

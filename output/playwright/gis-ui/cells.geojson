@@ -1,0 +1,55 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "cell_id": "ui-riffle-1",
+        "habitat_type": "riffle",
+        "csi": 0.82,
+        "depth_m": 0.42,
+        "velocity_ms": 0.58,
+        "hiding_cover": 0.28,
+        "feeding_cover": 0.62,
+        "spawning_cover": 0.74
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-113.9500, 45.0198],
+            [-113.9494, 45.0200],
+            [-113.9496, 45.0204],
+            [-113.9502, 45.0202],
+            [-113.9500, 45.0198]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "cell_id": "ui-pool-1",
+        "habitat_type": "pool",
+        "csi": 0.91,
+        "depth_m": 0.82,
+        "velocity_ms": 0.18,
+        "hiding_cover": 0.76,
+        "feeding_cover": 0.48,
+        "spawning_cover": 0.22
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-113.9492, 45.0205],
+            [-113.9485, 45.0207],
+            [-113.9488, 45.0211],
+            [-113.9494, 45.0209],
+            [-113.9492, 45.0205]
+          ]
+        ]
+      }
+    }
+  ]
+}

@@ -183,6 +183,16 @@ pixi run openlimno preprocess import-model \
   --out data/instream_population_summary.parquet
 ```
 
+Run OpenLimno's native IBM against the official inSTREAM 7.4 Example A/B input
+package without executing NetLogo:
+
+```bash
+pixi run openlimno ibm-benchmark-instream7 \
+  --fixture InSTREAM-7.4_2026-02-11.zip \
+  --days 7 \
+  --out-dir out/instream7_benchmark
+```
+
 ## 7. Public Fixture Checks
 
 ```bash

@@ -165,3 +165,98 @@ openlimno preprocess import-model --source instream-netlogo \
 
 OpenLimno also reads inSTREAM 7 hydraulic matrix inputs such as `*-Depths.csv`
 and `*-Vels.csv` into long `ibm_hydraulic_lookup` tables.
+
+OpenLimno can also run a native, non-NetLogo inSTREAM-like IBM directly from
+habitat cells. This path is intended for reproducible research and calibration;
+it is not yet a numerically calibrated replacement for regulatory inSTREAM
+population runs:
+
+```bash
+openlimno ibm-run-native \
+  --cells out/hecras_habitat/habitat_cells.csv \
+  --species rainbow_trout \
+  --initial-abundance 100 \
+  --days 365 \
+  --individual-history \
+  --out-dir out/native_ibm
+```
+
+The native engine writes population summary, final individual state, cell-use,
+event, and redd-status tables; `--individual-history` also writes a per-fish
+daily state table for calibration and audit runs. It is designed for
+reproducible OpenLimno workflows and does not edit or execute `.nlogo` files.
+When the habitat-cell table contains `time_index`, the runner advances through
+those slices as daily hydraulic/habitat forcing.
+
+For an inSTREAM/NetLogo-style local browser interface around the same native
+engine, launch IBM Studio:
+
+```bash
+openlimno ibm-studio --port 8770 --out-dir out/ibm_studio
+```
+
+IBM Studio provides scenario setup, species-profile controls, habitat-cell
+editing, an inSTREAM-style river view with habitat cells, fish symbols, flow
+direction, live/dead fish toggles, run/step/reset controls, population charts,
+fish/redd/event tables, CSV output links, and optional inSTREAM 7
+benchmark/BriefPop comparison panels.
+
+To run the native engine against the official inSTREAM 7.4 example package:
+
+```bash
+openlimno ibm-benchmark-instream7 \
+  --fixture InSTREAM-7.4_2026-02-11.zip \
+  --days 7 \
+  --out-dir out/instream7_benchmark
+```
+
+This writes an official input inventory plus native prototype population,
+cell-use, final individual, event, and redd-status tables for Example A and
+Example B. Example B uses the official reach order for bounded adjacent-reach
+migration; treat it as a calibration benchmark, not a final numerical
+equivalence claim.
+
+To generate a version-local NetLogo reference run from the same official package,
+point OpenLimno at a NetLogo 7 `NetLogo_Console` executable. The command copies
+the official case, patches a short end date, forces daily BriefPop output, and
+runs BehaviorSpace headlessly:
+
+```bash
+openlimno ibm-run-instream7-netlogo-reference \
+  --fixture InSTREAM-7.4_2026-02-11.zip \
+  --case-id ExampleA \
+  --days 2 \
+  --seed 11 \
+  --netlogo-console "/path/to/NetLogo 7.0.2/NetLogo_Console" \
+  --out-dir out/instream7_netlogo_reference
+```
+
+The generated `BriefPopOut-*.csv` can be summarized and compared with the native
+benchmark output.
+
+If you generate a NetLogo `BriefPopOut-*.csv` file from the official inSTREAM
+7 model, summarize it to the same reach/species population level before
+comparing it with the native benchmark:
+
+```bash
+openlimno ibm-summarize-instream7-brief \
+  --brief-pop BriefPopOut-r1.csv \
+  --out out/instream7_netlogo_brief_summary.csv
+```
+
+
+Then generate a row-level tolerance report against the native benchmark output:
+
+```bash
+openlimno ibm-compare-instream7-netlogo \
+  --native-summary out/instream7_benchmark/instream7_native_population_summary.csv \
+  --brief-pop BriefPopOut-r1.csv \
+  --out out/native_vs_netlogo_comparison.csv \
+  --abundance-tolerance 0 \
+  --biomass-rel-tolerance 0.05 \
+  --mean-length-tolerance-mm 1.0
+```
+
+The comparison aligns each NetLogo BehaviorSpace run by ordered BriefPop
+snapshot within reach/species and reports abundance, biomass, and mean-length
+deltas plus pass/fail flags for each tolerance.

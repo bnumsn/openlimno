@@ -14,7 +14,17 @@
       "type": "string",
       "description": "Path to schism executable; conda-forge schism preferred"
     },
+    "container_image": {
+      "type": "string",
+      "description": "OCI image used to run SCHISM through docker/podman/apptainer"
+    },
+    "container_runtime": {
+      "type": "string",
+      "enum": ["docker", "podman", "apptainer"],
+      "default": "docker"
+    },
     "n_procs": { "type": "integer", "minimum": 1 },
+    "n_scribes": { "type": "integer", "minimum": 0, "default": 0 },
     "param_overrides": {
       "type": "object",
       "description": "Pass-through overrides for param.nml fields (use sparingly)"

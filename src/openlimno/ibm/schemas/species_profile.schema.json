@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openlimno.org/schemas/ibm/species_profile.schema.json",
+  "title": "OpenLimno IBM species profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["profile_version", "species"],
+  "properties": {
+    "profile_version": {
+      "type": "string",
+      "pattern": "^0\\.2$"
+    },
+    "species": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "scientific_name": {"type": "string"},
+        "common_name": {"type": "string"},
+        "evidence_status": {"type": "string"}
+      }
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/parameterValue"
+      }
+    },
+    "growth": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/parameterValue"
+      }
+    },
+    "habitat_selection": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/parameterValue"
+      }
+    },
+    "mortality": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/parameterValue"
+      }
+    },
+    "movement": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/parameterValue"
+      }
+    },
+    "spawning": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/parameterValue"
+      }
+    },
+    "redds": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/parameterValue"
+      }
+    },
+    "calibration": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "parameterValue": {
+      "oneOf": [
+        {"type": ["string", "number", "integer", "boolean"]},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value"],
+          "properties": {
+            "value": {"type": ["string", "number", "integer", "boolean"]},
+            "prior": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {"type": "number"}
+            },
+            "evidence": {"type": "string"},
+            "source": {"type": "string"},
+            "notes": {"type": "string"}
+          }
+        }
+      ]
+    }
+  }
+}

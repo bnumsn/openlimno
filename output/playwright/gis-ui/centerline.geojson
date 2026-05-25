@@ -1,0 +1,20 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "ui-test-flow-centerline"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-113.9500, 45.0200],
+          [-113.9494, 45.0203],
+          [-113.9488, 45.0208],
+          [-113.9485, 45.0210]
+        ]
+      }
+    }
+  ]
+}

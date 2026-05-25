@@ -49,16 +49,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /src
 RUN git clone --depth 1 --branch ${SCHISM_VERSION} https://github.com/schism-dev/schism.git
 
-# SCHISM CMake build. Flags chosen to match the upstream "default OpenMPI"
-# recipe; they are documented at
-# https://schism-dev.github.io/schism/master/getting-started/installation.html
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python-is-python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# SCHISM v5.11 keeps the top-level CMake project under src/.
 WORKDIR /src/schism/build
-RUN cmake .. \
+RUN cmake ../src \
         -DCMAKE_Fortran_COMPILER=mpif90 \
         -DCMAKE_C_COMPILER=mpicc \
         -DCMAKE_CXX_COMPILER=mpicxx \
         -DCMAKE_BUILD_TYPE=Release \
-        -DUSE_NETCDF=ON \
+        -DC_PREPROCESS_FLAG=-cpp \
+        -DTVD_LIM=VL \
         -DNetCDF_C_DIR=/usr \
         -DNetCDF_FORTRAN_DIR=/usr \
     && make ${MAKEFLAGS}
@@ -79,10 +82,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         openmpi-bin \
-        libopenmpi3 \
-        libhdf5-103-1 \
-        libhdf5-openmpi-103 \
-        libnetcdf19 \
+        libopenmpi3t64 \
+        libhdf5-103-1t64 \
+        libhdf5-openmpi-103-1t64 \
+        libnetcdf19t64 \
         libnetcdff7 \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*

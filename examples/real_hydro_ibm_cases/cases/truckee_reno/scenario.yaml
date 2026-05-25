@@ -1,0 +1,32 @@
+ibm_version: '0.2'
+scenario:
+  id: truckee_reno-real-hydro-ibm
+  description: 'Truckee River at Reno, Nevada: NWIS/NHD real-data hydraulic + IBM
+    smoke case.'
+  reach_id: truckee_reno
+  days: 7
+  start_day: 274
+  start_year: 2025
+  seed: 10348000
+  stochastic: true
+  light_phases:
+  - dawn
+  - day
+  - dusk
+  - night
+profile:
+  uri: profile_rainbow_trout.yaml
+forcing:
+  habitat_cells: data/hydraulics/hydraulic_cells.csv
+  time_index_column: time_index
+population:
+  initial_population: data/initial_population.csv
+  default_species: rainbow_trout
+  initial_abundance: 140
+  initial_length_mm: 115.0
+outputs:
+  dir: out/native
+  formats:
+  - csv
+  individual_history: false
+  manifest: true

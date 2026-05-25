@@ -1,0 +1,634 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: OL
+      - generic [ref=e6]: OpenLimno IBM Studio
+      - generic [ref=e7]: native agent model
+    - generic [ref=e8]: Ready
+  - generic [ref=e9]:
+    - complementary [ref=e10]:
+      - generic [ref=e11]:
+        - heading "Run Setup" [level=2] [ref=e13]
+        - generic [ref=e14]:
+          - generic [ref=e15]:
+            - generic [ref=e16]:
+              - generic [ref=e17]: Scenario
+              - textbox [ref=e18]: lemhi-river-trout-demo
+            - generic [ref=e19]:
+              - generic [ref=e20]: Reach
+              - textbox [ref=e21]: lemhi-hayden-demo
+            - generic [ref=e22]:
+              - generic [ref=e23]: Species
+              - textbox [ref=e24]: rainbow_trout
+            - generic [ref=e25]:
+              - generic [ref=e26]: Initial fish
+              - spinbutton [ref=e27]: "120"
+            - generic [ref=e28]:
+              - generic [ref=e29]: Initial length mm
+              - spinbutton [ref=e30]: "115"
+            - generic [ref=e31]:
+              - generic [ref=e32]: Days
+              - spinbutton [ref=e33]: "45"
+            - generic [ref=e34]:
+              - generic [ref=e35]: Seed
+              - spinbutton [ref=e36]: "20260524"
+            - generic [ref=e37]:
+              - checkbox "Stochastic" [checked] [ref=e38]
+              - generic [ref=e39]: Stochastic
+            - generic [ref=e40]:
+              - checkbox "Fish history" [checked] [ref=e41]
+              - generic [ref=e42]: Fish history
+          - generic [ref=e43]:
+            - button "Run" [disabled] [ref=e44]
+            - button "Validate" [disabled] [ref=e45]
+            - button "Step +1 day" [disabled] [ref=e46]
+            - button "Reset" [ref=e47] [cursor=pointer]
+            - button "Export JSON" [ref=e48] [cursor=pointer]
+            - button "Import JSON" [ref=e49] [cursor=pointer]
+      - generic [ref=e50]:
+        - heading "River" [level=2] [ref=e52]
+        - generic [ref=e54]:
+          - generic [ref=e55]:
+            - generic [ref=e56]: River name
+            - textbox [ref=e57]: Lemhi River
+          - generic [ref=e58]:
+            - generic [ref=e59]: Reach name
+            - textbox [ref=e60]: Hayden Creek demo reach
+          - generic [ref=e61]:
+            - generic [ref=e62]: Length m
+            - spinbutton [ref=e63]: "380"
+          - generic [ref=e64]:
+            - generic [ref=e65]: Flow m3/s
+            - spinbutton [ref=e66]: "5.8"
+      - generic [ref=e67]:
+        - heading "GIS Data" [level=2] [ref=e69]
+        - generic [ref=e70]:
+          - generic [ref=e71]:
+            - generic [ref=e72]:
+              - generic [ref=e73]: Centerline path
+              - textbox "/path/centerline.geojson, .shp, .gpkg" [ref=e74]
+            - generic [ref=e75]:
+              - generic [ref=e76]: Centerline layer
+              - textbox [ref=e77]
+            - generic [ref=e78]:
+              - generic [ref=e79]: River boundary path
+              - textbox "/path/banks_or_channel_polygon.geojson, .shp, .gpkg" [ref=e80]
+            - generic [ref=e81]:
+              - generic [ref=e82]: Boundary layer
+              - textbox [ref=e83]
+            - generic [ref=e84]:
+              - generic [ref=e85]: Habitat cells path
+              - textbox "/path/habitat_cells.geojson, .shp, .gpkg" [ref=e86]
+            - generic [ref=e87]:
+              - generic [ref=e88]: Cells layer
+              - textbox [ref=e89]
+          - button "Import GIS" [disabled] [ref=e91]
+      - generic [ref=e92]:
+        - heading "Species Profile" [level=2] [ref=e94]
+        - generic [ref=e95]:
+          - generic [ref=e96]:
+            - button "Growth" [ref=e97] [cursor=pointer]
+            - button "Survival" [ref=e98] [cursor=pointer]
+            - button "Behavior" [ref=e99] [cursor=pointer]
+            - button "Spawning" [ref=e100] [cursor=pointer]
+            - button "Movement" [ref=e101] [cursor=pointer]
+          - generic [ref=e102]:
+            - generic [ref=e103]:
+              - generic [ref=e104]: thermal_min_c
+              - spinbutton [ref=e105]: "1"
+            - generic [ref=e106]:
+              - generic [ref=e107]: thermal_optimum_c
+              - spinbutton [ref=e108]: "12"
+            - generic [ref=e109]:
+              - generic [ref=e110]: thermal_max_c
+              - spinbutton [ref=e111]: "23"
+            - generic [ref=e112]:
+              - generic [ref=e113]: max_daily_growth_mm
+              - spinbutton [ref=e114]: "0.32"
+            - generic [ref=e115]:
+              - generic [ref=e116]: weight_a_g_per_cm_b
+              - spinbutton [ref=e117]: "0.0115"
+            - generic [ref=e118]:
+              - generic [ref=e119]: weight_b
+              - spinbutton [ref=e120]: "3"
+            - generic [ref=e121]:
+              - generic [ref=e122]: max_consumption_fraction
+              - spinbutton [ref=e123]: "0.018"
+            - generic [ref=e124]:
+              - generic [ref=e125]: respiration_fraction
+              - spinbutton [ref=e126]: "0.004"
+            - generic [ref=e127]:
+              - generic [ref=e128]: activity_respiration_fraction
+              - spinbutton [ref=e129]: "0.006"
+            - generic [ref=e130]:
+              - generic [ref=e131]: respiration_base_multiplier
+              - spinbutton [ref=e132]: "0.45"
+            - generic [ref=e133]:
+              - generic [ref=e134]: respiration_thermal_multiplier
+              - spinbutton [ref=e135]: "0.55"
+      - generic [ref=e136]:
+        - heading "Submodels" [level=2] [ref=e138]
+        - generic [ref=e140]:
+          - generic [ref=e141]:
+            - generic [ref=e142]: growth
+            - combobox [ref=e143]:
+              - option "Native bioenergetic growth" [selected]
+          - generic [ref=e144]:
+            - generic [ref=e145]: habitat_selection
+            - combobox [ref=e146]:
+              - option "Native habitat utility" [selected]
+          - generic [ref=e147]:
+            - generic [ref=e148]: light_cycle
+            - combobox [ref=e149]:
+              - option "Native daily light cycle" [selected]
+          - generic [ref=e150]:
+            - generic [ref=e151]: mortality
+            - combobox [ref=e152]:
+              - option "Native risk survival" [selected]
+          - generic [ref=e153]:
+            - generic [ref=e154]: movement
+            - combobox [ref=e155]:
+              - option "Native adjacent-reach movement" [selected]
+              - option "Native graph reach movement"
+          - generic [ref=e156]:
+            - generic [ref=e157]: spawning
+            - combobox [ref=e158]:
+              - option "Native redd recruitment" [selected]
+              - option "Native calibrated redd placement"
+      - generic [ref=e159]:
+        - heading "Experiments" [level=2] [ref=e161]
+        - generic [ref=e162]:
+          - generic [ref=e163]:
+            - generic [ref=e164]: Ensemble seeds
+            - textbox [ref=e165]: 20260524,20260525,20260526
+          - generic [ref=e166]:
+            - generic [ref=e167]: Ensemble parameters
+            - textbox [ref=e168]: base_daily_survival=0.994,0.997,0.999
+          - button "Run ensemble" [disabled] [ref=e170]
+          - generic [ref=e171]:
+            - generic [ref=e172]:
+              - generic [ref=e173]: Calibration method
+              - combobox [ref=e174]:
+                - option "grid" [selected]
+                - option "abc"
+            - generic [ref=e175]:
+              - generic [ref=e176]: ABC samples
+              - spinbutton [ref=e177]: "8"
+            - generic [ref=e178]:
+              - generic [ref=e179]: Acceptance fraction
+              - spinbutton [ref=e180]: "0.25"
+            - generic [ref=e181]:
+              - generic [ref=e182]: Tolerance
+              - spinbutton [ref=e183]
+          - generic [ref=e184]:
+            - generic [ref=e185]: Observed CSV
+            - textbox "leave blank to use current run" [ref=e186]
+          - generic [ref=e187]:
+            - generic [ref=e188]: Calibration parameters
+            - textbox [ref=e189]: base_daily_survival=0.994,0.997,0.999
+          - button "Calibrate" [disabled] [ref=e191]
+      - generic [ref=e192]:
+        - generic [ref=e193]:
+          - heading "Habitat Cells" [level=2] [ref=e194]
+          - button "Add row" [ref=e195] [cursor=pointer]
+        - table [ref=e198]:
+          - rowgroup [ref=e199]:
+            - row "cell_id habitat_type station_m center_x_m center_y_m length_m width_m reach_id reach_order area_m2 depth_m velocity_ms csi temperature_c turbidity_ntu hiding_cover feeding_cover spawning_cover" [ref=e200]:
+              - columnheader "cell_id" [ref=e201]
+              - columnheader "habitat_type" [ref=e202]
+              - columnheader "station_m" [ref=e203]
+              - columnheader "center_x_m" [ref=e204]
+              - columnheader "center_y_m" [ref=e205]
+              - columnheader "length_m" [ref=e206]
+              - columnheader "width_m" [ref=e207]
+              - columnheader "reach_id" [ref=e208]
+              - columnheader "reach_order" [ref=e209]
+              - columnheader "area_m2" [ref=e210]
+              - columnheader "depth_m" [ref=e211]
+              - columnheader "velocity_ms" [ref=e212]
+              - columnheader "csi" [ref=e213]
+              - columnheader "temperature_c" [ref=e214]
+              - columnheader "turbidity_ntu" [ref=e215]
+              - columnheader "hiding_cover" [ref=e216]
+              - columnheader "feeding_cover" [ref=e217]
+              - columnheader "spawning_cover" [ref=e218]
+              - columnheader [ref=e219]
+          - rowgroup [ref=e220]:
+            - row "upper-riffle riffle 25 25 44 42 12 lemhi-hayden-demo 1 504 0.42 0.74 0.78 11.7 2 0.35 0.72 0.7 Del" [ref=e221]:
+              - cell "upper-riffle" [ref=e222]:
+                - textbox [ref=e223]: upper-riffle
+              - cell "riffle" [ref=e224]:
+                - textbox [ref=e225]: riffle
+              - cell "25" [ref=e226]:
+                - textbox [ref=e227]: "25"
+              - cell "25" [ref=e228]:
+                - textbox [ref=e229]: "25"
+              - cell "44" [ref=e230]:
+                - textbox [ref=e231]: "44"
+              - cell "42" [ref=e232]:
+                - textbox [ref=e233]: "42"
+              - cell "12" [ref=e234]:
+                - textbox [ref=e235]: "12"
+              - cell "lemhi-hayden-demo" [ref=e236]:
+                - textbox [ref=e237]: lemhi-hayden-demo
+              - cell "1" [ref=e238]:
+                - textbox [ref=e239]: "1"
+              - cell "504" [ref=e240]:
+                - textbox [ref=e241]: "504"
+              - cell "0.42" [ref=e242]:
+                - textbox [ref=e243]: "0.42"
+              - cell "0.74" [ref=e244]:
+                - textbox [ref=e245]: "0.74"
+              - cell "0.78" [ref=e246]:
+                - textbox [ref=e247]: "0.78"
+              - cell "11.7" [ref=e248]:
+                - textbox [ref=e249]: "11.7"
+              - cell "2" [ref=e250]:
+                - textbox [ref=e251]: "2"
+              - cell "0.35" [ref=e252]:
+                - textbox [ref=e253]: "0.35"
+              - cell "0.72" [ref=e254]:
+                - textbox [ref=e255]: "0.72"
+              - cell "0.7" [ref=e256]:
+                - textbox [ref=e257]: "0.7"
+              - cell "Del" [ref=e258]:
+                - button "Del" [ref=e259] [cursor=pointer]
+            - row "left-margin margin 62 62 30 44 8 lemhi-hayden-demo 1 352 0.22 0.1 0.42 12 2 0.58 0.28 0.18 Del" [ref=e260]:
+              - cell "left-margin" [ref=e261]:
+                - textbox [ref=e262]: left-margin
+              - cell "margin" [ref=e263]:
+                - textbox [ref=e264]: margin
+              - cell "62" [ref=e265]:
+                - textbox [ref=e266]: "62"
+              - cell "62" [ref=e267]:
+                - textbox [ref=e268]: "62"
+              - cell "30" [ref=e269]:
+                - textbox [ref=e270]: "30"
+              - cell "44" [ref=e271]:
+                - textbox [ref=e272]: "44"
+              - cell "8" [ref=e273]:
+                - textbox [ref=e274]: "8"
+              - cell "lemhi-hayden-demo" [ref=e275]:
+                - textbox [ref=e276]: lemhi-hayden-demo
+              - cell "1" [ref=e277]:
+                - textbox [ref=e278]: "1"
+              - cell "352" [ref=e279]:
+                - textbox [ref=e280]: "352"
+              - cell "0.22" [ref=e281]:
+                - textbox [ref=e282]: "0.22"
+              - cell "0.1" [ref=e283]:
+                - textbox [ref=e284]: "0.1"
+              - cell "0.42" [ref=e285]:
+                - textbox [ref=e286]: "0.42"
+              - cell "12" [ref=e287]:
+                - textbox [ref=e288]: "12"
+              - cell "2" [ref=e289]:
+                - textbox [ref=e290]: "2"
+              - cell "0.58" [ref=e291]:
+                - textbox [ref=e292]: "0.58"
+              - cell "0.28" [ref=e293]:
+                - textbox [ref=e294]: "0.28"
+              - cell "0.18" [ref=e295]:
+                - textbox [ref=e296]: "0.18"
+              - cell "Del" [ref=e297]:
+                - button "Del" [ref=e298] [cursor=pointer]
+            - row "mid-run run 104 104 58 58 14 lemhi-hayden-demo 1 812 0.64 0.38 0.88 11.9 2 0.5 0.62 0.42 Del" [ref=e299]:
+              - cell "mid-run" [ref=e300]:
+                - textbox [ref=e301]: mid-run
+              - cell "run" [ref=e302]:
+                - textbox [ref=e303]: run
+              - cell "104" [ref=e304]:
+                - textbox [ref=e305]: "104"
+              - cell "104" [ref=e306]:
+                - textbox [ref=e307]: "104"
+              - cell "58" [ref=e308]:
+                - textbox [ref=e309]: "58"
+              - cell "58" [ref=e310]:
+                - textbox [ref=e311]: "58"
+              - cell "14" [ref=e312]:
+                - textbox [ref=e313]: "14"
+              - cell "lemhi-hayden-demo" [ref=e314]:
+                - textbox [ref=e315]: lemhi-hayden-demo
+              - cell "1" [ref=e316]:
+                - textbox [ref=e317]: "1"
+              - cell "812" [ref=e318]:
+                - textbox [ref=e319]: "812"
+              - cell "0.64" [ref=e320]:
+                - textbox [ref=e321]: "0.64"
+              - cell "0.38" [ref=e322]:
+                - textbox [ref=e323]: "0.38"
+              - cell "0.88" [ref=e324]:
+                - textbox [ref=e325]: "0.88"
+              - cell "11.9" [ref=e326]:
+                - textbox [ref=e327]: "11.9"
+              - cell "2" [ref=e328]:
+                - textbox [ref=e329]: "2"
+              - cell "0.5" [ref=e330]:
+                - textbox [ref=e331]: "0.5"
+              - cell "0.62" [ref=e332]:
+                - textbox [ref=e333]: "0.62"
+              - cell "0.42" [ref=e334]:
+                - textbox [ref=e335]: "0.42"
+              - cell "Del" [ref=e336]:
+                - button "Del" [ref=e337] [cursor=pointer]
+            - row "cottonwood-pool pool 158 158 76 50 18 lemhi-hayden-demo 1 900 1.18 0.16 0.92 12.1 3 0.86 0.52 0.24 Del" [ref=e338]:
+              - cell "cottonwood-pool" [ref=e339]:
+                - textbox [ref=e340]: cottonwood-pool
+              - cell "pool" [ref=e341]:
+                - textbox [ref=e342]: pool
+              - cell "158" [ref=e343]:
+                - textbox [ref=e344]: "158"
+              - cell "158" [ref=e345]:
+                - textbox [ref=e346]: "158"
+              - cell "76" [ref=e347]:
+                - textbox [ref=e348]: "76"
+              - cell "50" [ref=e349]:
+                - textbox [ref=e350]: "50"
+              - cell "18" [ref=e351]:
+                - textbox [ref=e352]: "18"
+              - cell "lemhi-hayden-demo" [ref=e353]:
+                - textbox [ref=e354]: lemhi-hayden-demo
+              - cell "1" [ref=e355]:
+                - textbox [ref=e356]: "1"
+              - cell "900" [ref=e357]:
+                - textbox [ref=e358]: "900"
+              - cell "1.18" [ref=e359]:
+                - textbox [ref=e360]: "1.18"
+              - cell "0.16" [ref=e361]:
+                - textbox [ref=e362]: "0.16"
+              - cell "0.92" [ref=e363]:
+                - textbox [ref=e364]: "0.92"
+              - cell "12.1" [ref=e365]:
+                - textbox [ref=e366]: "12.1"
+              - cell "3" [ref=e367]:
+                - textbox [ref=e368]: "3"
+              - cell "0.86" [ref=e369]:
+                - textbox [ref=e370]: "0.86"
+              - cell "0.52" [ref=e371]:
+                - textbox [ref=e372]: "0.52"
+              - cell "0.24" [ref=e373]:
+                - textbox [ref=e374]: "0.24"
+              - cell "Del" [ref=e375]:
+                - button "Del" [ref=e376] [cursor=pointer]
+            - row "gravel-tailout tailout 208 208 52 46 11 lemhi-hayden-demo 1 506 0.36 0.58 0.82 12 2 0.3 0.68 0.84 Del" [ref=e377]:
+              - cell "gravel-tailout" [ref=e378]:
+                - textbox [ref=e379]: gravel-tailout
+              - cell "tailout" [ref=e380]:
+                - textbox [ref=e381]: tailout
+              - cell "208" [ref=e382]:
+                - textbox [ref=e383]: "208"
+              - cell "208" [ref=e384]:
+                - textbox [ref=e385]: "208"
+              - cell "52" [ref=e386]:
+                - textbox [ref=e387]: "52"
+              - cell "46" [ref=e388]:
+                - textbox [ref=e389]: "46"
+              - cell "11" [ref=e390]:
+                - textbox [ref=e391]: "11"
+              - cell "lemhi-hayden-demo" [ref=e392]:
+                - textbox [ref=e393]: lemhi-hayden-demo
+              - cell "1" [ref=e394]:
+                - textbox [ref=e395]: "1"
+              - cell "506" [ref=e396]:
+                - textbox [ref=e397]: "506"
+              - cell "0.36" [ref=e398]:
+                - textbox [ref=e399]: "0.36"
+              - cell "0.58" [ref=e400]:
+                - textbox [ref=e401]: "0.58"
+              - cell "0.82" [ref=e402]:
+                - textbox [ref=e403]: "0.82"
+              - cell "12" [ref=e404]:
+                - textbox [ref=e405]: "12"
+              - cell "2" [ref=e406]:
+                - textbox [ref=e407]: "2"
+              - cell "0.3" [ref=e408]:
+                - textbox [ref=e409]: "0.3"
+              - cell "0.68" [ref=e410]:
+                - textbox [ref=e411]: "0.68"
+              - cell "0.84" [ref=e412]:
+                - textbox [ref=e413]: "0.84"
+              - cell "Del" [ref=e414]:
+                - button "Del" [ref=e415] [cursor=pointer]
+            - row "side-channel side-channel 246 246 31 42 7.5 lemhi-hayden-demo 1 315 0.28 0.2 0.66 12.3 2.5 0.72 0.36 0.36 Del" [ref=e416]:
+              - cell "side-channel" [ref=e417]:
+                - textbox [ref=e418]: side-channel
+              - cell "side-channel" [ref=e419]:
+                - textbox [ref=e420]: side-channel
+              - cell "246" [ref=e421]:
+                - textbox [ref=e422]: "246"
+              - cell "246" [ref=e423]:
+                - textbox [ref=e424]: "246"
+              - cell "31" [ref=e425]:
+                - textbox [ref=e426]: "31"
+              - cell "42" [ref=e427]:
+                - textbox [ref=e428]: "42"
+              - cell "7.5" [ref=e429]:
+                - textbox [ref=e430]: "7.5"
+              - cell "lemhi-hayden-demo" [ref=e431]:
+                - textbox [ref=e432]: lemhi-hayden-demo
+              - cell "1" [ref=e433]:
+                - textbox [ref=e434]: "1"
+              - cell "315" [ref=e435]:
+                - textbox [ref=e436]: "315"
+              - cell "0.28" [ref=e437]:
+                - textbox [ref=e438]: "0.28"
+              - cell "0.2" [ref=e439]:
+                - textbox [ref=e440]: "0.2"
+              - cell "0.66" [ref=e441]:
+                - textbox [ref=e442]: "0.66"
+              - cell "12.3" [ref=e443]:
+                - textbox [ref=e444]: "12.3"
+              - cell "2.5" [ref=e445]:
+                - textbox [ref=e446]: "2.5"
+              - cell "0.72" [ref=e447]:
+                - textbox [ref=e448]: "0.72"
+              - cell "0.36" [ref=e449]:
+                - textbox [ref=e450]: "0.36"
+              - cell "0.36" [ref=e451]:
+                - textbox [ref=e452]: "0.36"
+              - cell "Del" [ref=e453]:
+                - button "Del" [ref=e454] [cursor=pointer]
+            - row "lower-glide glide 292 292 64 56 15 lemhi-hayden-demo 1 840 0.78 0.31 0.86 12.2 2 0.62 0.55 0.48 Del" [ref=e455]:
+              - cell "lower-glide" [ref=e456]:
+                - textbox [ref=e457]: lower-glide
+              - cell "glide" [ref=e458]:
+                - textbox [ref=e459]: glide
+              - cell "292" [ref=e460]:
+                - textbox [ref=e461]: "292"
+              - cell "292" [ref=e462]:
+                - textbox [ref=e463]: "292"
+              - cell "64" [ref=e464]:
+                - textbox [ref=e465]: "64"
+              - cell "56" [ref=e466]:
+                - textbox [ref=e467]: "56"
+              - cell "15" [ref=e468]:
+                - textbox [ref=e469]: "15"
+              - cell "lemhi-hayden-demo" [ref=e470]:
+                - textbox [ref=e471]: lemhi-hayden-demo
+              - cell "1" [ref=e472]:
+                - textbox [ref=e473]: "1"
+              - cell "840" [ref=e474]:
+                - textbox [ref=e475]: "840"
+              - cell "0.78" [ref=e476]:
+                - textbox [ref=e477]: "0.78"
+              - cell "0.31" [ref=e478]:
+                - textbox [ref=e479]: "0.31"
+              - cell "0.86" [ref=e480]:
+                - textbox [ref=e481]: "0.86"
+              - cell "12.2" [ref=e482]:
+                - textbox [ref=e483]: "12.2"
+              - cell "2" [ref=e484]:
+                - textbox [ref=e485]: "2"
+              - cell "0.62" [ref=e486]:
+                - textbox [ref=e487]: "0.62"
+              - cell "0.55" [ref=e488]:
+                - textbox [ref=e489]: "0.55"
+              - cell "0.48" [ref=e490]:
+                - textbox [ref=e491]: "0.48"
+              - cell "Del" [ref=e492]:
+                - button "Del" [ref=e493] [cursor=pointer]
+            - row "boulder-chute chute 344 344 42 36 9.5 lemhi-hayden-demo 1 342 0.48 1.18 0.38 12 2 0.18 0.22 0.12 Del" [ref=e494]:
+              - cell "boulder-chute" [ref=e495]:
+                - textbox [ref=e496]: boulder-chute
+              - cell "chute" [ref=e497]:
+                - textbox [ref=e498]: chute
+              - cell "344" [ref=e499]:
+                - textbox [ref=e500]: "344"
+              - cell "344" [ref=e501]:
+                - textbox [ref=e502]: "344"
+              - cell "42" [ref=e503]:
+                - textbox [ref=e504]: "42"
+              - cell "36" [ref=e505]:
+                - textbox [ref=e506]: "36"
+              - cell "9.5" [ref=e507]:
+                - textbox [ref=e508]: "9.5"
+              - cell "lemhi-hayden-demo" [ref=e509]:
+                - textbox [ref=e510]: lemhi-hayden-demo
+              - cell "1" [ref=e511]:
+                - textbox [ref=e512]: "1"
+              - cell "342" [ref=e513]:
+                - textbox [ref=e514]: "342"
+              - cell "0.48" [ref=e515]:
+                - textbox [ref=e516]: "0.48"
+              - cell "1.18" [ref=e517]:
+                - textbox [ref=e518]: "1.18"
+              - cell "0.38" [ref=e519]:
+                - textbox [ref=e520]: "0.38"
+              - cell "12" [ref=e521]:
+                - textbox [ref=e522]: "12"
+              - cell "2" [ref=e523]:
+                - textbox [ref=e524]: "2"
+              - cell "0.18" [ref=e525]:
+                - textbox [ref=e526]: "0.18"
+              - cell "0.22" [ref=e527]:
+                - textbox [ref=e528]: "0.22"
+              - cell "0.12" [ref=e529]:
+                - textbox [ref=e530]: "0.12"
+              - cell "Del" [ref=e531]:
+                - button "Del" [ref=e532] [cursor=pointer]
+      - generic [ref=e533]:
+        - heading "inSTREAM 7" [level=2] [ref=e535]
+        - generic [ref=e536]:
+          - generic [ref=e537]:
+            - generic [ref=e538]:
+              - generic [ref=e539]: Official fixture
+              - textbox "/path/to/InSTREAM-7.4 or zip" [ref=e540]
+            - generic [ref=e541]:
+              - generic [ref=e542]: Case
+              - textbox [ref=e543]: ExampleA
+            - generic [ref=e544]:
+              - generic [ref=e545]: Days
+              - spinbutton [ref=e546]: "2"
+            - generic [ref=e547]:
+              - generic [ref=e548]: Seed
+              - spinbutton [ref=e549]: "11"
+            - generic [ref=e550]:
+              - generic [ref=e551]: Native summary CSV
+              - textbox "instream7_native_population_summary.csv" [ref=e552]
+            - generic [ref=e553]:
+              - generic [ref=e554]: BriefPop CSV
+              - textbox "BriefPopOut-r1.csv" [ref=e555]
+          - generic [ref=e556]:
+            - button "Run benchmark" [disabled] [ref=e557]
+            - button "Compare BriefPop" [disabled] [ref=e558]
+    - main [ref=e559]:
+      - generic [ref=e560]:
+        - generic [ref=e561]:
+          - generic [ref=e562]:
+            - heading "River View" [level=2] [ref=e563]
+            - generic [ref=e564]: No run loaded
+          - generic [ref=e565]:
+            - generic [ref=e566]: Cell color
+            - combobox "Cell color" [ref=e567]:
+              - option "CSI" [selected]
+              - option "Depth"
+              - option "Velocity"
+              - option "Fish use"
+              - option "Habitat"
+            - generic [ref=e568]:
+              - checkbox "Dead fish" [ref=e569]
+              - generic [ref=e570]: Dead fish
+        - img "River reach with habitat cells and fish" [ref=e573]
+      - generic [ref=e577]:
+        - generic [ref=e578]:
+          - heading "Population Trajectory" [level=2] [ref=e579]
+          - combobox [ref=e580]:
+            - option "Abundance" [selected]
+            - option "Biomass"
+            - option "Mean length"
+        - img [ref=e581]
+      - generic [ref=e582]:
+        - generic [ref=e583]:
+          - heading "Uncertainty Bands" [level=2] [ref=e584]
+          - combobox [ref=e585]:
+            - option "Abundance" [selected]
+            - option "Biomass"
+            - option "Mean length"
+        - img [ref=e586]
+      - generic [ref=e587]:
+        - generic [ref=e588]:
+          - heading "Validation" [level=2] [ref=e590]
+          - generic [ref=e592]:
+            - table
+        - generic [ref=e593]:
+          - heading "Run History" [level=2] [ref=e595]
+          - generic [ref=e597]:
+            - table
+        - generic [ref=e598]:
+          - heading "Calibration" [level=2] [ref=e600]
+          - generic [ref=e602]:
+            - table
+      - generic [ref=e603]:
+        - generic [ref=e604]:
+          - heading "Ensemble Summary" [level=2] [ref=e606]
+          - generic [ref=e608]:
+            - table
+        - generic [ref=e609]:
+          - heading "Sensitivity" [level=2] [ref=e611]
+          - generic [ref=e613]:
+            - table
+      - generic [ref=e614]:
+        - generic [ref=e615]:
+          - heading "Habitat Use" [level=2] [ref=e617]
+          - generic [ref=e619]:
+            - table
+        - generic [ref=e620]:
+          - heading "Events" [level=2] [ref=e622]
+          - generic [ref=e624]:
+            - table
+      - generic [ref=e625]:
+        - heading "Fish State" [level=2] [ref=e627]
+        - generic [ref=e629]:
+          - table
+      - generic [ref=e630]:
+        - heading "Redds" [level=2] [ref=e632]
+        - generic [ref=e634]:
+          - table
+      - generic [ref=e635]:
+        - heading "inSTREAM Comparison" [level=2] [ref=e637]
+        - generic [ref=e639]:
+          - table
+      - generic [ref=e640]:
+        - heading "Output" [level=2] [ref=e642]
+        - generic [ref=e643]:
+          - list

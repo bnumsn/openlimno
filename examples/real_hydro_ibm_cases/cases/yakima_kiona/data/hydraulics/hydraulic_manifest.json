@@ -1,0 +1,32 @@
+{
+  "builder": "openlimno.hydro.gis_hydraulics.build_builtin1d_gis_hydraulics",
+  "boundary_path": "/mnt/data/openlimno/examples/real_hydro_ibm_cases/cases/yakima_kiona/data/gis/yakima_kiona_nhd_area_153011766.geojson",
+  "centerline_path": "/mnt/data/openlimno/examples/real_hydro_ibm_cases/cases/yakima_kiona/data/gis/yakima_kiona_nhd_flowline_153011766.geojson",
+  "dem_path": null,
+  "solver": "builtin-1d",
+  "output_format": "csv",
+  "diagnostics": {
+    "crs_projected": "EPSG:32611",
+    "river_area_m2": 2461421.346,
+    "centerline_length_m": 22383.752,
+    "estimated_mean_width_m": 109.965,
+    "n_cells": 10,
+    "n_dem_sections": 0,
+    "slope": 0.001,
+    "manning_n": 0.035
+  },
+  "files": {
+    "hydraulic_cells": "/mnt/data/openlimno/examples/real_hydro_ibm_cases/cases/yakima_kiona/data/hydraulics/hydraulic_cells.csv",
+    "hydraulic_cells_geojson": "/mnt/data/openlimno/examples/real_hydro_ibm_cases/cases/yakima_kiona/data/hydraulics/hydraulic_cells.geojson",
+    "static_cells": "/mnt/data/openlimno/examples/real_hydro_ibm_cases/cases/yakima_kiona/data/hydraulics/hydraulic_cells_static.geojson",
+    "cross_sections": "/mnt/data/openlimno/examples/real_hydro_ibm_cases/cases/yakima_kiona/data/hydraulics/cross_sections.parquet",
+    "calibration_template": "/mnt/data/openlimno/examples/real_hydro_ibm_cases/cases/yakima_kiona/data/hydraulics/calibration_observed_template.csv",
+    "case_fragment": "/mnt/data/openlimno/examples/real_hydro_ibm_cases/cases/yakima_kiona/data/hydraulics/case_fragment.yaml"
+  },
+  "external_solver_import": {
+    "schism_or_delft3d_netcdf": "openlimno preprocess import-model --source delft3d-netcdf --in schout_or_ugrid_result.nc --out hydraulic_cells.csv",
+    "telemac_selafin": "openlimno preprocess import-model --source telemac-slf --in result.slf --out hydraulic_cells.csv",
+    "hecras_hdf": "openlimno preprocess import-model --source hecras-hdf --in plan.hdf --out hydraulic_cells.csv"
+  },
+  "warnings": []
+}

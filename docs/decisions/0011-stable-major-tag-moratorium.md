@@ -39,8 +39,8 @@ The forces:
   correctness emergency forces a tag.
 - **Charter**: the 1.0 charter is explicit and signed off in SPEC v0.5
   on the "what 1.0 means" wording (`SPEC.md` §0.2/§0.3). The DoD doc
-  exists. Re-defining "stable" to mean "passes lint + 675 tests + 18
-  rounds of review" silently rewrites that charter.
+  exists. Re-defining "stable" to mean "passes lint + the internal
+  test suite + 18 rounds of review" silently rewrites that charter.
 - **Regulatory**: a single SL-712 / FERC / WFD reviewer-of-record
   audit, if it finds the public 1.0 tag doesn't match the DoD, is
   reputational damage no further engineering polish can fix.

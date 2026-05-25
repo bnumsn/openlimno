@@ -1,0 +1,8 @@
+time_index,date,discharge_ft3s,discharge_m3s,qualifier,reach_id
+0,2025-10-01,533.0,15.092879233536001,A,boise_glenwood
+1,2025-10-02,508.0,14.384958068736001,A,boise_glenwood
+2,2025-10-03,590.0,16.70693948928,A,boise_glenwood
+3,2025-10-04,486.0,13.761987443712,A,boise_glenwood
+4,2025-10-05,477.0,13.507135824384001,A,boise_glenwood
+5,2025-10-06,463.0,13.110699972096,A,boise_glenwood
+6,2025-10-07,334.0,9.457826761728,A,boise_glenwood

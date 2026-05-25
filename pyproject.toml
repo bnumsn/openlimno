@@ -86,6 +86,7 @@ packages = ["src/openlimno"]
 
 [tool.hatch.build.targets.wheel.shared-data]
 "src/openlimno/wedm/schemas" = "openlimno/wedm/schemas"
+"src/openlimno/ibm/schemas" = "openlimno/ibm/schemas"
 
 # ---------------------------------------------------------------
 # ruff

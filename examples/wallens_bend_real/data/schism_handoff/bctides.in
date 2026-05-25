@@ -1,0 +1,12 @@
+0.0 ! start_time
+0 40.0 ! ntip tip_dp
+0 ! nbfr
+8 ! nope
+3 0 1 0 0 ! open boundary 1 role=upstream_inflow elev_col=None flux_col=1
+3 1 0 0 0 ! open boundary 2 role=downstream_stage elev_col=1 flux_col=None
+3 0 1 0 0 ! open boundary 3 role=upstream_inflow elev_col=None flux_col=2
+3 1 0 0 0 ! open boundary 4 role=downstream_stage elev_col=2 flux_col=None
+3 0 1 0 0 ! open boundary 5 role=upstream_inflow elev_col=None flux_col=3
+3 1 0 0 0 ! open boundary 6 role=downstream_stage elev_col=3 flux_col=None
+3 0 1 0 0 ! open boundary 7 role=upstream_inflow elev_col=None flux_col=4
+3 1 0 0 0 ! open boundary 8 role=downstream_stage elev_col=4 flux_col=None

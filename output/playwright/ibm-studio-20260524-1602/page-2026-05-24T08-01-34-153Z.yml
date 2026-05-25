@@ -1,0 +1,304 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: OL
+      - generic [ref=e6]: OpenLimno IBM Studio
+      - generic [ref=e7]: native agent model
+    - generic [ref=e8]: Ready
+  - generic [ref=e9]:
+    - complementary [ref=e10]:
+      - generic [ref=e11]:
+        - heading "Run Setup" [level=2] [ref=e13]
+        - generic [ref=e14]:
+          - generic [ref=e15]:
+            - generic [ref=e16]:
+              - generic [ref=e17]: Scenario
+              - textbox [ref=e18]: agent-studio-demo
+            - generic [ref=e19]:
+              - generic [ref=e20]: Reach
+              - textbox [ref=e21]: demo-reach
+            - generic [ref=e22]:
+              - generic [ref=e23]: Species
+              - textbox [ref=e24]: rainbow_trout
+            - generic [ref=e25]:
+              - generic [ref=e26]: Initial fish
+              - spinbutton [ref=e27]: "80"
+            - generic [ref=e28]:
+              - generic [ref=e29]: Initial length mm
+              - spinbutton [ref=e30]: "115"
+            - generic [ref=e31]:
+              - generic [ref=e32]: Days
+              - spinbutton [ref=e33]: "45"
+            - generic [ref=e34]:
+              - generic [ref=e35]: Seed
+              - spinbutton [ref=e36]: "20260524"
+            - generic [ref=e37]:
+              - checkbox "Stochastic" [checked] [ref=e38]
+              - generic [ref=e39]: Stochastic
+            - generic [ref=e40]:
+              - checkbox "Fish history" [checked] [ref=e41]
+              - generic [ref=e42]: Fish history
+          - generic [ref=e43]:
+            - button "Run" [disabled] [ref=e44]
+            - button "Step +1 day" [disabled] [ref=e45]
+            - button "Reset" [ref=e46] [cursor=pointer]
+            - button "Export JSON" [ref=e47] [cursor=pointer]
+            - button "Import JSON" [ref=e48] [cursor=pointer]
+      - generic [ref=e49]:
+        - heading "Species Profile" [level=2] [ref=e51]
+        - generic [ref=e52]:
+          - generic [ref=e53]:
+            - button "Growth" [ref=e54] [cursor=pointer]
+            - button "Survival" [ref=e55] [cursor=pointer]
+            - button "Behavior" [ref=e56] [cursor=pointer]
+            - button "Spawning" [ref=e57] [cursor=pointer]
+            - button "Movement" [ref=e58] [cursor=pointer]
+          - generic [ref=e59]:
+            - generic [ref=e60]:
+              - generic [ref=e61]: thermal_min_c
+              - spinbutton [ref=e62]: "1"
+            - generic [ref=e63]:
+              - generic [ref=e64]: thermal_optimum_c
+              - spinbutton [ref=e65]: "12"
+            - generic [ref=e66]:
+              - generic [ref=e67]: thermal_max_c
+              - spinbutton [ref=e68]: "23"
+            - generic [ref=e69]:
+              - generic [ref=e70]: max_daily_growth_mm
+              - spinbutton [ref=e71]: "0.32"
+            - generic [ref=e72]:
+              - generic [ref=e73]: weight_a_g_per_cm_b
+              - spinbutton [ref=e74]: "0.0115"
+            - generic [ref=e75]:
+              - generic [ref=e76]: weight_b
+              - spinbutton [ref=e77]: "3"
+            - generic [ref=e78]:
+              - generic [ref=e79]: max_consumption_fraction
+              - spinbutton [ref=e80]: "0.018"
+            - generic [ref=e81]:
+              - generic [ref=e82]: respiration_fraction
+              - spinbutton [ref=e83]: "0.004"
+            - generic [ref=e84]:
+              - generic [ref=e85]: activity_respiration_fraction
+              - spinbutton [ref=e86]: "0.006"
+            - generic [ref=e87]:
+              - generic [ref=e88]: respiration_base_multiplier
+              - spinbutton [ref=e89]: "0.45"
+            - generic [ref=e90]:
+              - generic [ref=e91]: respiration_thermal_multiplier
+              - spinbutton [ref=e92]: "0.55"
+      - generic [ref=e93]:
+        - generic [ref=e94]:
+          - heading "Habitat Cells" [level=2] [ref=e95]
+          - button "Add row" [ref=e96] [cursor=pointer]
+        - table [ref=e99]:
+          - rowgroup [ref=e100]:
+            - row "cell_id reach_id reach_order area_m2 depth_m velocity_ms csi temperature_c turbidity_ntu hiding_cover feeding_cover spawning_cover" [ref=e101]:
+              - columnheader "cell_id" [ref=e102]
+              - columnheader "reach_id" [ref=e103]
+              - columnheader "reach_order" [ref=e104]
+              - columnheader "area_m2" [ref=e105]
+              - columnheader "depth_m" [ref=e106]
+              - columnheader "velocity_ms" [ref=e107]
+              - columnheader "csi" [ref=e108]
+              - columnheader "temperature_c" [ref=e109]
+              - columnheader "turbidity_ntu" [ref=e110]
+              - columnheader "hiding_cover" [ref=e111]
+              - columnheader "feeding_cover" [ref=e112]
+              - columnheader "spawning_cover" [ref=e113]
+              - columnheader [ref=e114]
+          - rowgroup [ref=e115]:
+            - row "pool-1 demo-reach 1 42 1.05 0.18 0.86 12.5 2 0.82 0.55 0.62 Del" [ref=e116]:
+              - cell "pool-1" [ref=e117]:
+                - textbox [ref=e118]: pool-1
+              - cell "demo-reach" [ref=e119]:
+                - textbox [ref=e120]: demo-reach
+              - cell "1" [ref=e121]:
+                - textbox [ref=e122]: "1"
+              - cell "42" [ref=e123]:
+                - textbox [ref=e124]: "42"
+              - cell "1.05" [ref=e125]:
+                - textbox [ref=e126]: "1.05"
+              - cell "0.18" [ref=e127]:
+                - textbox [ref=e128]: "0.18"
+              - cell "0.86" [ref=e129]:
+                - textbox [ref=e130]: "0.86"
+              - cell "12.5" [ref=e131]:
+                - textbox [ref=e132]: "12.5"
+              - cell "2" [ref=e133]:
+                - textbox [ref=e134]: "2"
+              - cell "0.82" [ref=e135]:
+                - textbox [ref=e136]: "0.82"
+              - cell "0.55" [ref=e137]:
+                - textbox [ref=e138]: "0.55"
+              - cell "0.62" [ref=e139]:
+                - textbox [ref=e140]: "0.62"
+              - cell "Del" [ref=e141]:
+                - button "Del" [ref=e142] [cursor=pointer]
+            - row "riffle-1 demo-reach 1 28 0.45 0.42 0.92 12.6 2 0.45 0.74 0.76 Del" [ref=e143]:
+              - cell "riffle-1" [ref=e144]:
+                - textbox [ref=e145]: riffle-1
+              - cell "demo-reach" [ref=e146]:
+                - textbox [ref=e147]: demo-reach
+              - cell "1" [ref=e148]:
+                - textbox [ref=e149]: "1"
+              - cell "28" [ref=e150]:
+                - textbox [ref=e151]: "28"
+              - cell "0.45" [ref=e152]:
+                - textbox [ref=e153]: "0.45"
+              - cell "0.42" [ref=e154]:
+                - textbox [ref=e155]: "0.42"
+              - cell "0.92" [ref=e156]:
+                - textbox [ref=e157]: "0.92"
+              - cell "12.6" [ref=e158]:
+                - textbox [ref=e159]: "12.6"
+              - cell "2" [ref=e160]:
+                - textbox [ref=e161]: "2"
+              - cell "0.45" [ref=e162]:
+                - textbox [ref=e163]: "0.45"
+              - cell "0.74" [ref=e164]:
+                - textbox [ref=e165]: "0.74"
+              - cell "0.76" [ref=e166]:
+                - textbox [ref=e167]: "0.76"
+              - cell "Del" [ref=e168]:
+                - button "Del" [ref=e169] [cursor=pointer]
+            - row "run-1 demo-reach 1 35 0.7 0.32 0.78 12.5 2 0.55 0.63 0.38 Del" [ref=e170]:
+              - cell "run-1" [ref=e171]:
+                - textbox [ref=e172]: run-1
+              - cell "demo-reach" [ref=e173]:
+                - textbox [ref=e174]: demo-reach
+              - cell "1" [ref=e175]:
+                - textbox [ref=e176]: "1"
+              - cell "35" [ref=e177]:
+                - textbox [ref=e178]: "35"
+              - cell "0.7" [ref=e179]:
+                - textbox [ref=e180]: "0.7"
+              - cell "0.32" [ref=e181]:
+                - textbox [ref=e182]: "0.32"
+              - cell "0.78" [ref=e183]:
+                - textbox [ref=e184]: "0.78"
+              - cell "12.5" [ref=e185]:
+                - textbox [ref=e186]: "12.5"
+              - cell "2" [ref=e187]:
+                - textbox [ref=e188]: "2"
+              - cell "0.55" [ref=e189]:
+                - textbox [ref=e190]: "0.55"
+              - cell "0.63" [ref=e191]:
+                - textbox [ref=e192]: "0.63"
+              - cell "0.38" [ref=e193]:
+                - textbox [ref=e194]: "0.38"
+              - cell "Del" [ref=e195]:
+                - button "Del" [ref=e196] [cursor=pointer]
+            - row "margin-1 demo-reach 1 18 0.18 0.05 0.35 13.1 3 0.25 0.2 0.18 Del" [ref=e197]:
+              - cell "margin-1" [ref=e198]:
+                - textbox [ref=e199]: margin-1
+              - cell "demo-reach" [ref=e200]:
+                - textbox [ref=e201]: demo-reach
+              - cell "1" [ref=e202]:
+                - textbox [ref=e203]: "1"
+              - cell "18" [ref=e204]:
+                - textbox [ref=e205]: "18"
+              - cell "0.18" [ref=e206]:
+                - textbox [ref=e207]: "0.18"
+              - cell "0.05" [ref=e208]:
+                - textbox [ref=e209]: "0.05"
+              - cell "0.35" [ref=e210]:
+                - textbox [ref=e211]: "0.35"
+              - cell "13.1" [ref=e212]:
+                - textbox [ref=e213]: "13.1"
+              - cell "3" [ref=e214]:
+                - textbox [ref=e215]: "3"
+              - cell "0.25" [ref=e216]:
+                - textbox [ref=e217]: "0.25"
+              - cell "0.2" [ref=e218]:
+                - textbox [ref=e219]: "0.2"
+              - cell "0.18" [ref=e220]:
+                - textbox [ref=e221]: "0.18"
+              - cell "Del" [ref=e222]:
+                - button "Del" [ref=e223] [cursor=pointer]
+            - row "chute-1 demo-reach 1 12 0.35 1.15 0.22 12.4 2 0.1 0.18 0.05 Del" [ref=e224]:
+              - cell "chute-1" [ref=e225]:
+                - textbox [ref=e226]: chute-1
+              - cell "demo-reach" [ref=e227]:
+                - textbox [ref=e228]: demo-reach
+              - cell "1" [ref=e229]:
+                - textbox [ref=e230]: "1"
+              - cell "12" [ref=e231]:
+                - textbox [ref=e232]: "12"
+              - cell "0.35" [ref=e233]:
+                - textbox [ref=e234]: "0.35"
+              - cell "1.15" [ref=e235]:
+                - textbox [ref=e236]: "1.15"
+              - cell "0.22" [ref=e237]:
+                - textbox [ref=e238]: "0.22"
+              - cell "12.4" [ref=e239]:
+                - textbox [ref=e240]: "12.4"
+              - cell "2" [ref=e241]:
+                - textbox [ref=e242]: "2"
+              - cell "0.1" [ref=e243]:
+                - textbox [ref=e244]: "0.1"
+              - cell "0.18" [ref=e245]:
+                - textbox [ref=e246]: "0.18"
+              - cell "0.05" [ref=e247]:
+                - textbox [ref=e248]: "0.05"
+              - cell "Del" [ref=e249]:
+                - button "Del" [ref=e250] [cursor=pointer]
+      - generic [ref=e251]:
+        - heading "inSTREAM 7" [level=2] [ref=e253]
+        - generic [ref=e254]:
+          - generic [ref=e255]:
+            - generic [ref=e256]:
+              - generic [ref=e257]: Official fixture
+              - textbox "/path/to/InSTREAM-7.4 or zip" [ref=e258]
+            - generic [ref=e259]:
+              - generic [ref=e260]: Case
+              - textbox [ref=e261]: ExampleA
+            - generic [ref=e262]:
+              - generic [ref=e263]: Days
+              - spinbutton [ref=e264]: "2"
+            - generic [ref=e265]:
+              - generic [ref=e266]: Seed
+              - spinbutton [ref=e267]: "11"
+            - generic [ref=e268]:
+              - generic [ref=e269]: Native summary CSV
+              - textbox "instream7_native_population_summary.csv" [ref=e270]
+            - generic [ref=e271]:
+              - generic [ref=e272]: BriefPop CSV
+              - textbox "BriefPopOut-r1.csv" [ref=e273]
+          - generic [ref=e274]:
+            - button "Run benchmark" [disabled] [ref=e275]
+            - button "Compare BriefPop" [disabled] [ref=e276]
+    - main [ref=e277]:
+      - generic [ref=e278]:
+        - generic [ref=e279]:
+          - heading "Population Trajectory" [level=2] [ref=e280]
+          - combobox [ref=e281]:
+            - option "Abundance" [selected]
+            - option "Biomass"
+            - option "Mean length"
+        - img [ref=e282]
+      - generic [ref=e283]:
+        - generic [ref=e284]:
+          - heading "Habitat Use" [level=2] [ref=e286]
+          - generic [ref=e288]:
+            - table
+        - generic [ref=e289]:
+          - heading "Events" [level=2] [ref=e291]
+          - generic [ref=e293]:
+            - table
+      - generic [ref=e294]:
+        - heading "Fish State" [level=2] [ref=e296]
+        - generic [ref=e298]:
+          - table
+      - generic [ref=e299]:
+        - heading "Redds" [level=2] [ref=e301]
+        - generic [ref=e303]:
+          - table
+      - generic [ref=e304]:
+        - heading "inSTREAM Comparison" [level=2] [ref=e306]
+        - generic [ref=e308]:
+          - table
+      - generic [ref=e309]:
+        - heading "Output" [level=2] [ref=e311]
+        - generic [ref=e312]:
+          - list

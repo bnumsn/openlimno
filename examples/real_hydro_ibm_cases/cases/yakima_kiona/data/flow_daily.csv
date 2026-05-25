@@ -1,0 +1,8 @@
+time_index,date,discharge_ft3s,discharge_m3s,qualifier,reach_id
+0,2025-10-01,1260.0,35.67922670592,A,yakima_kiona
+1,2025-10-02,1130.0,31.99803664896,A,yakima_kiona
+2,2025-10-03,1180.0,33.41387897856,A,yakima_kiona
+3,2025-10-04,1310.0,37.09506903552,A,yakima_kiona
+4,2025-10-05,1080.0,30.58219431936,A,yakima_kiona
+5,2025-10-06,917.0,25.966548324864,A,yakima_kiona
+6,2025-10-07,1310.0,37.09506903552,A,yakima_kiona

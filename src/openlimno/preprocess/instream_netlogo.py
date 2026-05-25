@@ -224,9 +224,8 @@ def _try_read_instream_hydraulic_matrix(path: str | Path) -> pd.DataFrame | None
     for row in rows[marker_idx + 2 :]:
         if not row or row[0].startswith(";"):
             continue
-        try:
-            cell_id = int(float(row[0]))
-        except ValueError:
+        cell_id = str(row[0]).strip()
+        if not cell_id:
             continue
         values: list[float] = []
         for cell in row[1 : len(flows) + 1]:

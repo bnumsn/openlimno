@@ -1,0 +1,32 @@
+ibm_version: '0.2'
+scenario:
+  id: wallens-bend-clinch-real-hecras-ibm
+  description: Wallens Bend Clinch River real HEC-RAS geometry converted to OpenLimno
+    hydraulic cells and native IBM forcing.
+  reach_id: clinch_wallens_bend
+  days: 9
+  start_day: 267
+  start_year: 2019
+  seed: 6323764
+  stochastic: true
+  light_phases:
+  - dawn
+  - day
+  - dusk
+  - night
+profile:
+  uri: profile_rainbow_trout.yaml
+forcing:
+  habitat_cells: data/hydraulic_cells.csv
+  time_index_column: time_index
+population:
+  initial_population: data/initial_population.csv
+  default_species: rainbow_trout
+  initial_abundance: 260
+  initial_length_mm: 112.0
+outputs:
+  dir: out/native
+  formats:
+  - csv
+  individual_history: false
+  manifest: true

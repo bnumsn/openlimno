@@ -16,6 +16,7 @@ HydroSHEDS UP_AREA vs my union area).
 
 Exit code: 0 if all fetchers PASS, 1 if any FAIL.
 """
+
 from __future__ import annotations
 
 import os
@@ -23,7 +24,6 @@ import sys
 import time
 import traceback
 from pathlib import Path
-
 
 # Heihe mid-basin (38.20°N, 100.20°E) — verified in v0.3.3-v0.3.5
 # ship logs. Small but inland-river territory with mixed grassland
@@ -84,8 +84,11 @@ def smoke_openmeteo() -> str:
 
 def smoke_hydrosheds() -> str:
     from openlimno.preprocess.fetch import (
-        fetch_hydrobasins, find_basin_at, upstream_basin_ids,
+        fetch_hydrobasins,
+        find_basin_at,
+        upstream_basin_ids,
     )
+
     layer = fetch_hydrobasins(region="as", level=12)
     pour = find_basin_at(layer.shp_path, LAT, LON)
     assert pour is not None, "no basin found at pour point"
@@ -113,8 +116,10 @@ def smoke_hydrosheds() -> str:
 
 def smoke_worldcover() -> str:
     from openlimno.preprocess.fetch import (
-        WORLDCOVER_CLASSES, fetch_esa_worldcover,
+        WORLDCOVER_CLASSES,
+        fetch_esa_worldcover,
     )
+
     res = fetch_esa_worldcover(*BBOX_TIGHT, year=2021)
     top = max(res.class_km2.items(), key=lambda kv: kv[1])
     return (
@@ -140,8 +145,10 @@ def smoke_soilgrids() -> str:
 
 def smoke_species() -> str:
     from openlimno.preprocess.fetch import (
-        fetch_gbif_occurrences, match_species,
+        fetch_gbif_occurrences,
+        match_species,
     )
+
     m = match_species("Salmo trutta")
     assert m.usage_key, f"GBIF match failed: {m.match_type}"
     # West Europe bbox so we get plenty of records cheaply.
@@ -173,9 +180,11 @@ def smoke_cn_hydro_guard() -> str:
     fetch_china_discharge without a registered adapter MUST raise
     ChinaHydroNotEnabledError, not silently attempt a crawler."""
     from openlimno.preprocess.fetch import (
-        ChinaHydroNotEnabledError, fetch_china_discharge,
+        ChinaHydroNotEnabledError,
+        fetch_china_discharge,
         list_registered_adapters,
     )
+
     assert list_registered_adapters() == [], (
         "REGRESSION: openlimno wheel has a registered ChinaHydroAdapter "
         "— that violates the v0.4 fetch-system charter."
@@ -193,7 +202,7 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
     sys.path.insert(0, str(repo_root / "src"))
     cache_root = os.environ.get("XDG_CACHE_HOME")
-    print(f"openlimno fetch-all smoke")
+    print("openlimno fetch-all smoke")
     print(f"  cache: {cache_root or '~/.cache (default)'}")
     print(f"  point: ({LAT}, {LON})  bbox tight: {BBOX_TIGHT}")
     print()

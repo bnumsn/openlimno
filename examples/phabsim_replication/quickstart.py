@@ -10,8 +10,6 @@ import json
 import sys
 from pathlib import Path
 
-import pandas as pd
-
 HERE = Path(__file__).resolve().parent
 
 

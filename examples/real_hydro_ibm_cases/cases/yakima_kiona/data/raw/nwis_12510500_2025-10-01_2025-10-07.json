@@ -1,0 +1,211 @@
+{
+  "name": "ns1:timeSeriesResponseType",
+  "declaredType": "org.cuahsi.waterml.TimeSeriesResponseType",
+  "scope": "javax.xml.bind.JAXBElement$GlobalScope",
+  "value": {
+    "queryInfo": {
+      "queryURL": "http://waterservices.usgs.gov/nwis/dv/format=json&sites=12510500&startDT=2025-10-01&endDT=2025-10-07&parameterCd=00060&statCd=00003&siteStatus=all",
+      "criteria": {
+        "locationParam": "[ALL:12510500]",
+        "variableParam": "[00060]",
+        "timeParam": {
+          "beginDateTime": "2025-10-01T00:00:00.000",
+          "endDateTime": "2025-10-07T00:00:00.000"
+        },
+        "parameter": []
+      },
+      "note": [
+        {
+          "value": "[ALL:12510500]",
+          "title": "filter:sites"
+        },
+        {
+          "value": "[mode=RANGE, modifiedSince=null] interval={INTERVAL[2025-10-01T00:00:00.000-04:00/2025-10-07T00:00:00.000-04:00]}",
+          "title": "filter:timeRange"
+        },
+        {
+          "value": "methodIds=[ALL]",
+          "title": "filter:methodId"
+        },
+        {
+          "value": "2026-05-25T05:30:39.559Z",
+          "title": "requestDT"
+        },
+        {
+          "value": "dd8c3570-57fa-11f1-aae9-005056beda50",
+          "title": "requestId"
+        },
+        {
+          "value": "Provisional data are subject to revision. Go to http://waterdata.usgs.gov/nwis/help/?provisional for more information.",
+          "title": "disclaimer"
+        },
+        {
+          "value": "caas01",
+          "title": "server"
+        }
+      ]
+    },
+    "timeSeries": [
+      {
+        "sourceInfo": {
+          "siteName": "YAKIMA RIVER AT KIONA, WA",
+          "siteCode": [
+            {
+              "value": "12510500",
+              "network": "NWIS",
+              "agencyCode": "USGS"
+            }
+          ],
+          "timeZoneInfo": {
+            "defaultTimeZone": {
+              "zoneOffset": "-08:00",
+              "zoneAbbreviation": "PST"
+            },
+            "daylightSavingsTimeZone": {
+              "zoneOffset": "-07:00",
+              "zoneAbbreviation": "PDT"
+            },
+            "siteUsesDaylightSavingsTime": true
+          },
+          "geoLocation": {
+            "geogLocation": {
+              "srs": "EPSG:4326",
+              "latitude": 46.25346748,
+              "longitude": -119.4780794
+            },
+            "localSiteXY": []
+          },
+          "note": [],
+          "siteType": [],
+          "siteProperty": [
+            {
+              "value": "ST",
+              "name": "siteTypeCd"
+            },
+            {
+              "value": "17030003",
+              "name": "hucCd"
+            },
+            {
+              "value": "53",
+              "name": "stateCd"
+            },
+            {
+              "value": "53005",
+              "name": "countyCd"
+            }
+          ]
+        },
+        "variable": {
+          "variableCode": [
+            {
+              "value": "00060",
+              "network": "NWIS",
+              "vocabulary": "NWIS:UnitValues",
+              "variableID": 45807197,
+              "default": true
+            }
+          ],
+          "variableName": "Streamflow, ft&#179;/s",
+          "variableDescription": "Discharge, cubic feet per second",
+          "valueType": "Derived Value",
+          "unit": {
+            "unitCode": "ft3/s"
+          },
+          "options": {
+            "option": [
+              {
+                "value": "Mean",
+                "name": "Statistic",
+                "optionCode": "00003"
+              }
+            ]
+          },
+          "note": [],
+          "noDataValue": -999999.0,
+          "variableProperty": [],
+          "oid": "45807197"
+        },
+        "values": [
+          {
+            "value": [
+              {
+                "value": "1260",
+                "qualifiers": [
+                  "A"
+                ],
+                "dateTime": "2025-10-01T00:00:00.000"
+              },
+              {
+                "value": "1130",
+                "qualifiers": [
+                  "A"
+                ],
+                "dateTime": "2025-10-02T00:00:00.000"
+              },
+              {
+                "value": "1180",
+                "qualifiers": [
+                  "A"
+                ],
+                "dateTime": "2025-10-03T00:00:00.000"
+              },
+              {
+                "value": "1310",
+                "qualifiers": [
+                  "A"
+                ],
+                "dateTime": "2025-10-04T00:00:00.000"
+              },
+              {
+                "value": "1080",
+                "qualifiers": [
+                  "A"
+                ],
+                "dateTime": "2025-10-05T00:00:00.000"
+              },
+              {
+                "value": "917",
+                "qualifiers": [
+                  "A"
+                ],
+                "dateTime": "2025-10-06T00:00:00.000"
+              },
+              {
+                "value": "1310",
+                "qualifiers": [
+                  "A"
+                ],
+                "dateTime": "2025-10-07T00:00:00.000"
+              }
+            ],
+            "qualifier": [
+              {
+                "qualifierCode": "A",
+                "qualifierDescription": "Approved for publication -- Processing and review completed.",
+                "qualifierID": 0,
+                "network": "NWIS",
+                "vocabulary": "uv_rmk_cd"
+              }
+            ],
+            "qualityControlLevel": [],
+            "method": [
+              {
+                "methodDescription": "",
+                "methodID": 150108
+              }
+            ],
+            "source": [],
+            "offset": [],
+            "sample": [],
+            "censorCode": []
+          }
+        ],
+        "name": "USGS:12510500:00060:00003"
+      }
+    ]
+  },
+  "nil": false,
+  "globalScope": true,
+  "typeSubstituted": false
+}

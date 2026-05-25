@@ -47,6 +47,7 @@ from .hecras_hdf import (
     inspect_hecras_hdf,
     read_hecras_hdf,
 )
+from .hecras_mesh import HECRASMeshExportResult, write_hecras_gis_ugrid
 from .instream_netlogo import (
     InstreamExchangeInspection,
     InstreamHabitatExportResult,
@@ -106,6 +107,7 @@ __all__ = [
     "HECRASHDFImportResult",
     "HECRASHDFImportSummary",
     "HECRASHDFInspection",
+    "HECRASMeshExportResult",
     "HabitatExchangeImportResult",
     "HabitatExchangeImportSummary",
     "HabitatExchangeInspection",
@@ -158,6 +160,7 @@ __all__ = [
     "validate_biological_table",
     "validate_ugrid_mesh",
     "write_cross_sections_to_parquet",
+    "write_hecras_gis_ugrid",
     "write_instream_exchange",
     "write_river2d_ugrid",
 ]

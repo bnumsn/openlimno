@@ -1,0 +1,32 @@
+ibm_version: '0.2'
+scenario:
+  id: boise-glenwood-rainbow-trout-real-data
+  description: Rainbow trout IBM screening example using USGS NWIS discharge and NHD
+    river boundary/flowline at Boise River Glenwood Bridge.
+  reach_id: boise-glenwood-nhd-120008049
+  days: 14
+  start_day: 274
+  start_year: 2025
+  seed: 13206000
+  stochastic: true
+  light_phases:
+  - dawn
+  - day
+  - dusk
+  - night
+profile:
+  uri: profile_rainbow_trout.yaml
+forcing:
+  habitat_cells: data/hydraulics/hydraulic_cells.csv
+  time_index_column: time_index
+population:
+  initial_population: data/initial_population.csv
+  default_species: rainbow_trout
+  initial_abundance: 180
+  initial_length_mm: 115.0
+outputs:
+  dir: out/native
+  formats:
+  - csv
+  individual_history: true
+  manifest: true

@@ -66,6 +66,12 @@ scipy = ">=1.12"
 # QGIS plugin runs in QGIS's own Python; this feature is for development testing only.
 qgis = ">=3.34"
 
+[feature.osgeo.dependencies]
+# GDAL's Python bindings expose the ``osgeo`` package used by HydroSHEDS
+# and parquet OGR fallback tests. Keep them out of the default env because
+# rasterio/fiona cover normal runtime paths without importing ``osgeo``.
+gdal = ">=3.8"
+
 # ---------------------------------------------------------------
 # Development / test / docs
 # ---------------------------------------------------------------
@@ -122,6 +128,7 @@ default = { features = ["dev"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "default" }
 schism = { features = ["dev", "schism"], solve-group = "schism" }
 qgis = { features = ["dev", "qgis"], solve-group = "qgis" }
+osgeo = { features = ["dev", "osgeo"], solve-group = "osgeo" }
 workflow = { features = ["dev", "workflow"], solve-group = "workflow" }
 pestpp = { features = ["dev", "pestpp"], solve-group = "pestpp" }
 mike = { features = ["dev", "mike"], solve-group = "mike" }
