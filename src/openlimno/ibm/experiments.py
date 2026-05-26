@@ -178,7 +178,16 @@ def _sensitivity_ranking(summary: pd.DataFrame, target: str = "final_abundance")
         values = pd.to_numeric(summary[column], errors="coerce")
         valid = values.notna() & target_values.notna()
         n = int(valid.sum())
-        if n < 2 or float(values[valid].nunique()) < 2:
+        # Also guard the target's variance: when target is constant across
+        # runs (e.g. tiny demo where every seed yields the same final
+        # abundance), np.corrcoef divides by stddev=0 and emits a
+        # ``RuntimeWarning: invalid value encountered in divide``.
+        # (2026-05-26 software-test minor N1, Codex + Gemini.)
+        if (
+            n < 2
+            or float(values[valid].nunique()) < 2
+            or float(target_values[valid].nunique()) < 2
+        ):
             corr = math.nan
         else:
             corr = float(values[valid].corr(target_values[valid]))

@@ -72,6 +72,18 @@ from .submodels import default_submodel_selection, list_ibm_submodels, validate_
 
 _LOG = logging.getLogger(__name__)
 
+# Interactive Studio guard-rails (2026-05-26 software-test M1/M2):
+# - MAX_STUDIO_DAYS caps a single Run at ~10 years so a stray `days=10000`
+#   cannot hang the request thread for an hour. Headless workflow runs
+#   are not capped.
+# - MAX_STUDIO_INITIAL_ABUNDANCE caps initial fish count so a runaway
+#   browser POST cannot allocate a 10-million-row DataFrame.
+# - MAX_STUDIO_RUN_DIRS bounds the on-disk cache of past run outputs;
+#   _run_dir prunes oldest dirs above this watermark.
+MAX_STUDIO_DAYS = 3650
+MAX_STUDIO_INITIAL_ABUNDANCE = 100_000
+MAX_STUDIO_RUN_DIRS = 50
+
 _DEMO_REACH_LENGTH_M = 1500.0
 _DEMO_REACH_CENTERLINE_Y = 60.0
 _DEMO_MEANDER_WAVELENGTH_M = 300.0
@@ -396,7 +408,10 @@ def default_studio_scenario_resolved() -> dict[str, object]:
             "studio_instream7_default import failed (%s).",
             exc,
         )
-        return default_studio_scenario()
+        return _with_fallback_banner(
+            default_studio_scenario(),
+            f"studio_instream7_default import failed: {exc}",
+        )
 
     root = find_instream7_archive_root()
     if root is None:
@@ -418,8 +433,26 @@ def default_studio_scenario_resolved() -> dict[str, object]:
             "falling back to synthetic Studio default.",
             root, type(exc).__name__, exc,
         )
-        return fallback
+        return _with_fallback_banner(
+            fallback,
+            f"inSTREAM 7 archive at {root} failed to load "
+            f"({type(exc).__name__}: {exc})",
+        )
     return real
+
+
+def _with_fallback_banner(payload: dict[str, object], reason: str) -> dict[str, object]:
+    """Annotate a synthetic-fallback payload so the UI can surface to the
+    user that the real archive was supposed to load but didn't.
+    Pinned by 2026-05-26 software-test N2 (Codex)."""
+    payload["_fallback_reason"] = reason
+    river = payload.get("river")
+    if isinstance(river, dict):
+        note = str(river.get("display_note") or "")
+        marker = "⚠ Synthetic demo — "
+        if marker not in note:
+            river["display_note"] = f"{marker}{reason}. {note}".strip()
+    return payload
 
 
 def _merged(default: Mapping[str, object], override: object) -> dict[str, object]:
@@ -441,13 +474,21 @@ def _as_bool(value: object, default: bool) -> bool:
     return default
 
 
-def _as_int(value: object, default: int, *, min_value: int | None = None) -> int:
+def _as_int(
+    value: object,
+    default: int,
+    *,
+    min_value: int | None = None,
+    max_value: int | None = None,
+) -> int:
     try:
         parsed = int(cast(Any, value))
     except (TypeError, ValueError):
         parsed = default
     if min_value is not None:
         parsed = max(parsed, min_value)
+    if max_value is not None:
+        parsed = min(parsed, max_value)
     return parsed
 
 
@@ -1144,7 +1185,34 @@ def _profile_from_payload(value: object, *, species: str) -> SpeciesProfile:
     return SpeciesProfile(**kwargs)
 
 
+_PHYSICAL_BOUNDS: tuple[tuple[str, float, float], ...] = (
+    # (column, min_inclusive, max_inclusive)
+    ("depth_m", 0.0, 50.0),
+    ("velocity_ms", 0.0, 10.0),
+    ("area_m2", 0.0, 1e6),
+    ("length_m", 0.0, 1e4),
+    ("width_m", 0.0, 1e4),
+    ("temperature_c", -2.0, 45.0),
+    ("turbidity_ntu", 0.0, 5000.0),
+    ("hiding_cover", 0.0, 1.0),
+    ("feeding_cover", 0.0, 1.0),
+    ("spawning_cover", 0.0, 1.0),
+    ("csi", 0.0, 1.0),
+)
+
+
 def _cells_from_payload(value: object) -> pd.DataFrame:
+    """Coerce a JSON cell list into a DataFrame and reject physically
+    impossible hydraulic / cover values up-front.
+
+    Pinned by 2026-05-26 software-test S3 (Codex + Gemini): the previous
+    version silently accepted ``depth_m=-1`` (replaced by ``.fillna(0.0)``
+    downstream) and ``velocity_ms="NaN"`` (converted to null) so the IBM
+    ran on bogus inputs and returned an ``ok: true`` response that hid
+    the corruption. Now negative depths, out-of-range velocities, NaN
+    values, or coverages outside [0, 1] raise a ``ValueError`` that the
+    HTTP layer surfaces as a 400.
+    """
     rows: list[dict[str, object]] = []
     if isinstance(value, list):
         for row in value:
@@ -1152,7 +1220,44 @@ def _cells_from_payload(value: object) -> pd.DataFrame:
                 rows.append({str(key): cast(object, item) for key, item in row.items()})
     if not rows:
         rows = _demo_cells()
-    return pd.DataFrame(rows)
+    frame = pd.DataFrame(rows)
+
+    errors: list[str] = []
+    for column, lo, hi in _PHYSICAL_BOUNDS:
+        if column not in frame.columns:
+            continue
+        series = pd.to_numeric(frame[column], errors="coerce")
+        nan_mask = series.isna()
+        if nan_mask.any():
+            errors.append(
+                f"{column}: {int(nan_mask.sum())} cell(s) have NaN/non-numeric values "
+                f"(first offending cell_id={_first_offending_cell_id(frame, nan_mask)!r})"
+            )
+            continue
+        out_of_range = (series < lo) | (series > hi)
+        if out_of_range.any():
+            bad = series[out_of_range]
+            errors.append(
+                f"{column}: {int(out_of_range.sum())} cell(s) outside [{lo}, {hi}] "
+                f"(range observed [{float(bad.min())}, {float(bad.max())}], "
+                f"first offending cell_id={_first_offending_cell_id(frame, out_of_range)!r})"
+            )
+    if errors:
+        raise ValueError(
+            "Habitat cells failed physical-range validation:\n  - "
+            + "\n  - ".join(errors)
+        )
+    return frame
+
+
+def _first_offending_cell_id(frame: pd.DataFrame, mask: pd.Series) -> str:
+    """Return a printable cell_id (or row index) for the first masked row."""
+    if "cell_id" in frame.columns:
+        first = frame.loc[mask, "cell_id"].head(1)
+        if not first.empty:
+            return str(first.iloc[0])
+    first_idx = mask[mask].index
+    return f"row#{int(first_idx[0])}" if len(first_idx) else "?"
 
 
 def _int_list(value: object, default: tuple[int, ...]) -> tuple[int, ...]:
@@ -1462,11 +1567,58 @@ def _json_default(value: object) -> object:
     return str(value)
 
 
+def _sanitize_for_json(value: object) -> object:
+    """Recursively replace NaN / +Inf / -Inf with ``None`` so the result
+    round-trips through ``json.dumps(..., allow_nan=False)`` (and through
+    browsers' ``response.json()``). Catches the case where an empty IBM
+    population produces ``final_mean_length_mm = NaN`` and Python's
+    default ``allow_nan=True`` writes the non-standard ``NaN`` token.
+
+    Pinned by 2026-05-26 software-test S2 (Codex).
+    """
+    if isinstance(value, float):
+        if value != value or value in (math.inf, -math.inf):  # noqa: PLR0124 — NaN!=NaN trick
+            return None
+        return value
+    if isinstance(value, Mapping):
+        return {str(k): _sanitize_for_json(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_sanitize_for_json(v) for v in value]
+    return value
+
+
 def _run_dir(output_dir: str | Path, prefix: str) -> Path:
+    """Reserve a unique run directory under ``output_dir`` and prune the
+    oldest historical run dirs above ``MAX_STUDIO_RUN_DIRS`` so the on-disk
+    cache cannot grow forever (2026-05-26 software-test M1, Codex + Gemini).
+    Headless workflow runners that need permanent history should pass a
+    separate ``output_dir`` per case.
+    """
     root = Path(output_dir)
     root.mkdir(parents=True, exist_ok=True)
+    _prune_oldest_run_dirs(root, prefix, keep=MAX_STUDIO_RUN_DIRS)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     return root / f"{prefix}-{stamp}-{uuid.uuid4().hex[:8]}"
+
+
+def _prune_oldest_run_dirs(root: Path, prefix: str, *, keep: int) -> None:
+    """Remove oldest matching ``{prefix}-*`` subdirectories until at most
+    ``keep`` remain. Quietly skips dirs whose names don't match the
+    naming convention (so unrelated co-located files survive).
+    """
+    try:
+        entries = [p for p in root.iterdir() if p.is_dir() and p.name.startswith(f"{prefix}-")]
+    except OSError:  # pragma: no cover - directory race
+        return
+    if len(entries) <= keep:
+        return
+    entries.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0.0)
+    import shutil  # noqa: PLC0415  — kept lazy: cleanup is rare
+    for victim in entries[: len(entries) - keep]:
+        try:
+            shutil.rmtree(victim, ignore_errors=True)
+        except OSError:  # pragma: no cover - permission race
+            _LOG.warning("Could not prune old run dir %s", victim)
 
 
 def _write_studio_scenario_files(
@@ -2011,9 +2163,15 @@ def run_studio_scenario(
     config = _merged(cast(Mapping[str, object], default["config"]), payload.get("config"))
     species = _as_str(config.get("species"), "rainbow_trout")
     reach_id = _as_str(config.get("reach_id"), "reach-1")
-    days = _as_int(config.get("days"), 45, min_value=0)
+    # MAX_STUDIO_DAYS caps interactive runs at 10 years so a stray
+    # `days=10000` POST cannot hang the request thread indefinitely
+    # (2026-05-26 software-test M2, Codex). Long simulations should
+    # use the workflow runner, not the interactive Studio API.
+    days = _as_int(config.get("days"), 45, min_value=0, max_value=MAX_STUDIO_DAYS)
     seed = _as_int(config.get("seed"), 42)
-    initial_abundance = _as_int(config.get("initial_abundance"), 80, min_value=0)
+    initial_abundance = _as_int(
+        config.get("initial_abundance"), 80, min_value=0, max_value=MAX_STUDIO_INITIAL_ABUNDANCE,
+    )
     initial_length_mm = _as_float(config.get("initial_length_mm"), 115.0, min_value=1.0)
     scenario_id = _as_str(config.get("scenario_id"), "agent-studio-demo")
     stochastic = _as_bool(config.get("stochastic"), True)

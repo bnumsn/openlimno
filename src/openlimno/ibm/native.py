@@ -189,14 +189,24 @@ def build_initial_population(
     length_mm: float = 110.0,
     mass_g: float | None = None,
     age_days: int = 365,
+    profile: SpeciesProfile | None = None,
 ) -> pd.DataFrame:
-    """Create an initial individual table for :func:`run_native_ibm`."""
+    """Create an initial individual table for :func:`run_native_ibm`.
+
+    If ``profile`` is supplied its ``weight_a``/``weight_b`` are used for
+    length→mass; otherwise a default ``SpeciesProfile(species=species)``
+    is constructed (which is what callers got before the 2026-05-26
+    triple-AI software test caught a silent day-0/day-1 mass jump caused
+    by initial-mass using default weight_a/b and the runtime later
+    recomputing mass from length using the loaded archive's weight_a/b).
+    """
 
     if n < 0:
         raise ValueError("initial population size must be non-negative")
     lengths = np.full(n, float(length_mm))
     if mass_g is None:
-        masses = _length_to_mass_g(lengths, SpeciesProfile(species=species))
+        mass_profile = profile if profile is not None else SpeciesProfile(species=species)
+        masses = _length_to_mass_g(lengths, mass_profile)
     else:
         masses = np.full(n, float(mass_g))
     return pd.DataFrame(

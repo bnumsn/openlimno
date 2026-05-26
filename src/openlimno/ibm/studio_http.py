@@ -36,6 +36,7 @@ from openlimno.ibm.studio import (
     _INDEX_HTML,
     _as_int,
     _json_default,
+    _sanitize_for_json,
     compare_instream7_for_studio,
     default_studio_scenario_resolved,
     import_gis_for_studio,
@@ -105,7 +106,16 @@ class _IBMStudioHandler(BaseHTTPRequestHandler):
     def _send_json(
         self, payload: Mapping[str, object], *, status: HTTPStatus = HTTPStatus.OK
     ) -> None:
-        body = json.dumps(payload, default=_json_default).encode("utf-8")
+        # Strict JSON: emit ``null`` for NaN / +Inf / -Inf instead of the
+        # non-standard ``NaN`` / ``Infinity`` tokens that Python's
+        # ``allow_nan=True`` default produces (browsers' ``response.json()``
+        # rejects those — 2026-05-26 software-test S2, Codex caught when
+        # ``initial_abundance=0`` made ``final_mean_length_mm = NaN``).
+        body = json.dumps(
+            _sanitize_for_json(payload),
+            default=_json_default,
+            allow_nan=False,
+        ).encode("utf-8")
         self._send_bytes(body, content_type="application/json; charset=utf-8", status=status)
 
     def _read_json(self) -> Mapping[str, object]:
