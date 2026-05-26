@@ -9,8 +9,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import platform
+import socket
+import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -1068,6 +1072,74 @@ def write_native_ibm_result(
         encoding="utf-8",
     )
     paths["ibm_run_manifest"] = str(manifest_path)
+
+    # 2026-05-26 R-IBM-PROVENANCE (ADR-0016 cleanup track; round-22
+    # codex A5 / gemini A4 HIGH): bridge the IBM-specific manifest
+    # to a Case-compatible ``provenance.json`` schema.
+    manifest_sha = _sha256_file(manifest_path)
+    # Best-effort git SHA (matches Case._emit_provenance pattern).
+    git_sha: str | None = None
+    try:
+        import subprocess as _subprocess
+        _git_result = _subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        if _git_result.returncode == 0:
+            git_sha = _git_result.stdout.strip() or None
+    except Exception:  # noqa: BLE001
+        git_sha = None
+    # Fingerprint over STABLE INPUT identifiers only. Excludes
+    # ``outputs`` (whose values carry absolute filesystem paths) and
+    # any time-sensitive fields. This keeps the fingerprint
+    # reproducible across reruns of the same seed even when the
+    # output dir differs (e.g. /tmp/test-a vs /tmp/test-b).
+    _fp_payload = {
+        "openlimno_version": __version__,
+        "ibm_result_version": "0.2",
+        "output_formats": list(output_formats),
+        "input_manifest": dict(manifest) if manifest is not None else {},
+    }
+    fingerprint = hashlib.sha256(
+        json.dumps(_fp_payload, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+    case_compat_provenance: dict[str, object] = {
+        "openlimno_version": __version__,
+        "schema": "openlimno-provenance/0.1+ibm",
+        "run_at": datetime.now(UTC).isoformat(),
+        "git_sha": git_sha,
+        "machine": {
+            "host": socket.gethostname(),
+            "platform": platform.platform(),
+            "python": sys.version,
+        },
+        "parameter_fingerprint": fingerprint,
+        "inputs": {
+            # We don't have direct access to a Case here, so the
+            # input identifiers are the IBM-config snapshot in
+            # manifest_payload (if provided) + the fingerprint.
+            "ibm_config_fingerprint": fingerprint,
+        },
+        "outputs": manifest_outputs,
+        "dependencies": {
+            "pixi_lock_sha256": None,  # not in scope of standalone IBM run
+            "container_image_sha": None,
+        },
+        "ibm": {
+            "ibm_result_version": "0.2",
+            "manifest_path": str(manifest_path.name),
+            "manifest_sha256": manifest_sha,
+            "output_formats": list(output_formats),
+        },
+        "warnings": [],
+        "studyplan_present": False,
+    }
+    provenance_path = out / "provenance.json"
+    provenance_path.write_text(
+        json.dumps(case_compat_provenance, indent=2, sort_keys=True, default=str) + "\n",
+        encoding="utf-8",
+    )
+    paths["provenance"] = str(provenance_path)
     return paths
 
 

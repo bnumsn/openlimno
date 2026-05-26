@@ -628,6 +628,10 @@ def test_write_native_ibm_result_writes_tables(tmp_path) -> None:
         "native_ibm_event_summary",
         "native_ibm_redds",
         "ibm_run_manifest",
+        # 2026-05-26 R-IBM-PROVENANCE: write_native_ibm_result now
+        # also emits a Case-compatible provenance.json alongside the
+        # IBM-specific manifest (ADR-0016 cleanup track).
+        "provenance",
     }
     assert pd.read_csv(tmp_path / "native_ibm_population_summary.csv").shape[0] == 2
     assert (tmp_path / "native_ibm_redds.csv").exists()
