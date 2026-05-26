@@ -37,7 +37,7 @@ from openlimno.ibm.studio import (
     _as_int,
     _json_default,
     compare_instream7_for_studio,
-    default_studio_scenario,
+    default_studio_scenario_resolved,
     import_gis_for_studio,
     run_instream7_benchmark_for_studio,
     run_studio_calibration,
@@ -125,7 +125,7 @@ class _IBMStudioHandler(BaseHTTPRequestHandler):
             self._send_bytes(_INDEX_HTML.encode("utf-8"), content_type="text/html; charset=utf-8")
             return
         if route == "default":
-            self._send_json(default_studio_scenario())
+            self._send_json(default_studio_scenario_resolved())
             return
         if route == "favicon":
             self._send_bytes(b"", content_type="image/x-icon")

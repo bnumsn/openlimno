@@ -107,6 +107,52 @@ The comparison FUNCTIONS work end-to-end. The parity report writer
 also runs (`write_instream7_parity_report` produces comparison +
 summary CSVs).
 
+### E.1. IBM Studio default = real inSTREAM 7.4 ExampleA (2026-05-26 later)
+
+The Studio's runtime ``/api/default`` route now serves the **real
+Cal Poly Humboldt ExampleA case** when the GPL-3.0 archive is on
+the local filesystem (env var / XDG cache / repo dev dir). When
+absent, it transparently falls back to the synthetic Lemhi-Hayden
+demo. Test-facing ``default_studio_scenario()`` still returns the
+synthetic — only the live ``default_studio_scenario_resolved()``
+prefers ExampleA.
+
+Live state after the switch:
+
+```
+scenario_id      = instream7-example-a-real-archive
+river.name       = inSTREAM 7.4 Example Project A
+reach            = ExampleA (Cal Poly Humboldt official archive)
+cells            = 1373 surveyed polygons
+reach length     = 379.03 m (CRS EPSG:2225, ft→m)
+time series      = 4384 days @ daily (Oct 1999 – Sep 2011)
+median Q         = 6.06 m³/s
+median T         = 12.0 °C
+median NTU       = 2.0
+initial pop      = 360 rainbow trout (300 age-0, 50 age-1, 10 age-2)
+license          = GPL-3.0 (not bundled in this Apache-2.0 repo)
+```
+
+10-day IBM smoke result on the real cells:
+
+```
+day  abundance  biomass_g  mean_length_mm
+  0       360       6.6           11.7    ← official tri-cohort init
+  1       359      95.7           28.0
+  5       352      93.9           28.0
+ 10       343      91.5           28.0
+survival_rate = 0.953, events = 17, redds = 0
+```
+
+45-day Studio run from the UI: 360 → 304 (survival 0.844). Plan-view
+correctly renders the real reach geometry (distinctive meander
+curve from the surveyed shapefile, not a synthetic sinusoid).
+
+Provenance auto-embedded in the scenario JSON under ``_provenance``:
+``Cal Poly Humboldt inSTREAM 7.4 ExampleA``, archive filename,
+license, CRS, real-cell count, time-series length, medians, and
+``loaded_from`` filesystem path.
+
 ### F. inSTREAM 7 input parsing (real fixtures)
 
 From `tests/unit/test_instream7_benchmark.py` (real fixture parsing):

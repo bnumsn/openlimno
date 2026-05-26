@@ -329,7 +329,12 @@ def _submodel_catalog() -> list[dict[str, object]]:
 
 
 def default_studio_scenario() -> dict[str, object]:
-    """Return the default browser-studio scenario payload."""
+    """Return the synthetic-demo browser-studio scenario payload.
+
+    Kept stable for tests + offline use. The running Studio HTTP server
+    prefers ``default_studio_scenario_resolved()``, which loads the real
+    inSTREAM 7.4 ExampleA archive when present and falls back here.
+    """
 
     return {
         "config": {
@@ -362,6 +367,42 @@ def default_studio_scenario() -> dict[str, object]:
             "mean_length_tolerance_mm": 1.0,
         },
     }
+
+
+def default_studio_scenario_resolved() -> dict[str, object]:
+    """Resolve the runtime default scenario.
+
+    Prefers the real inSTREAM 7.4 ExampleA archive when one is present on
+    the local filesystem (env var, XDG cache, or repo dev dir); silently
+    falls back to ``default_studio_scenario()`` if the archive is absent
+    or fails to load. The fallback always keeps the running server
+    functional.
+    """
+    # Imported here to avoid a hard dep on heavy GIS stack at module load.
+    try:
+        from .studio_instream7_default import (
+            build_studio_scenario_from_instream7_archive,
+            find_instream7_archive_root,
+        )
+    except Exception:  # pragma: no cover - import guard for stripped envs
+        return default_studio_scenario()
+
+    root = find_instream7_archive_root()
+    if root is None:
+        return default_studio_scenario()
+
+    fallback = default_studio_scenario()
+    try:
+        real = build_studio_scenario_from_instream7_archive(
+            root,
+            submodels=cast(Mapping[str, object], fallback["submodels"]),
+            submodel_catalog=cast(list[dict[str, object]], fallback["submodel_catalog"]),
+            experiments=cast(Mapping[str, object], fallback["experiments"]),
+            instream_panel_defaults=cast(Mapping[str, object], fallback["instream"]),
+        )
+    except Exception:
+        return fallback
+    return real
 
 
 def _merged(default: Mapping[str, object], override: object) -> dict[str, object]:
@@ -2476,6 +2517,7 @@ def compare_instream7_for_studio(
 __all__ = [
     "compare_instream7_for_studio",
     "default_studio_scenario",
+    "default_studio_scenario_resolved",
     "run_ibm_studio",
     "run_instream7_benchmark_for_studio",
     "run_studio_calibration",

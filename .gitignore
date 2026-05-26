@@ -79,3 +79,9 @@ tmp/
 /reviews/
 !docs/reviews/
 .claude/
+
+# inSTREAM 7.4 official archive — Cal Poly Humboldt distribution
+# (GPL-3.0). Cannot be redistributed under OpenLimno's Apache-2.0;
+# users provide their own copy via $OPENLIMNO_INSTREAM7_ARCHIVE or
+# ~/.cache/openlimno/instream7_official/. Dev fetch dumps it here.
+/output/instream7_official/
