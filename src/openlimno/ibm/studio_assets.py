@@ -170,6 +170,18 @@ svg { width: 100%; height: 280px; display: block; }
 .gis-dot { width: 9px; height: 9px; border-radius: 999px; background: #cbd5e1; }
 .gis-dot.ok { background: #16a34a; }
 .gis-dot.warn { background: #d97706; }
+.workspace-tabs { display: flex; gap: 2px; margin: 6px 0 14px; border-bottom: 2px solid var(--line); flex-wrap: wrap; }
+.workspace-tabs button { padding: 9px 18px; border: none; background: transparent; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; font: inherit; font-weight: 600; font-size: 13px; }
+.workspace-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+.workspace-tabs button:hover:not(.active) { color: var(--ink); background: #f6f8fb; }
+.tabpane { display: none; }
+.tabpane.active { display: block; }
+.collapsible { border: 1px solid var(--line); border-radius: 9px; margin-bottom: 12px; background: var(--card); }
+.collapsible summary { padding: 9px 12px; cursor: pointer; font-weight: 650; font-size: 13px; list-style: none; display: flex; align-items: center; justify-content: space-between; }
+.collapsible summary::-webkit-details-marker { display: none; }
+.collapsible summary::after { content: '▸'; transition: transform .12s; color: var(--muted); }
+.collapsible[open] summary::after { transform: rotate(90deg); }
+.collapsible .collapsible-body { padding: 0 12px 12px; }
   @media (max-width: 1100px) { .shell { grid-template-columns: minmax(0, 1fr); } .sidebar { border-right: 0; border-bottom: 1px solid var(--line); } .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .acceptance-grid, .official-workflow, .workflow-detail-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .split, .triptych { grid-template-columns: minmax(0, 1fr); } .river-stage { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 640px) { .app { grid-template-rows: auto 1fr; } .topbar { align-items: flex-start; flex-direction: column; padding: 10px 12px; gap: 6px; } .brand { flex-wrap: wrap; } .status { width: 100%; white-space: normal; } .sidebar, .workspace { padding: 10px; } .grid2, .profile-grid { grid-template-columns: minmax(0, 1fr); } .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } .actions .btn { width: 100%; } .kpis, .acceptance-grid, .official-workflow, .workflow-detail-grid { grid-template-columns: minmax(0, 1fr); } .official-result-head, .river-head, .chart-head { align-items: flex-start; flex-direction: column; } .river-controls { width: 100%; } .river-controls select { width: 100%; } #riverView { height: 280px; } }
 </style>
@@ -208,55 +220,77 @@ svg { width: 100%; height: 280px; display: block; }
         <div id="gisChecks" class="gis-checks"></div>
         <div class="actions" style="margin-top: 12px;"><button id="gisImportBtn" class="btn primary">Import GIS</button></div>
       </div></section>
-      <section class="panel"><header><h2>Species Profile</h2></header><div class="panel-body"><div class="tabs" id="profileTabs"></div><div class="profile-grid" id="profileFields"></div></div></section>
-      <section class="panel"><header><h2>Submodels</h2></header><div class="panel-body"><div class="profile-grid" id="submodelFields"></div></div></section>
-      <section class="panel"><header><h2>Experiments</h2></header><div class="panel-body">
-        <div class="field"><label>Ensemble seeds</label><input id="ensemble_seeds"></div>
-        <div class="field" style="margin-top: 10px;"><label>Ensemble parameters</label><textarea id="ensemble_params"></textarea></div>
-        <div class="actions" style="margin-top: 12px;"><button id="ensembleBtn" class="btn">Run ensemble</button></div>
-        <div class="grid2" style="margin-top: 12px;">
-          <div class="field"><label>Calibration method</label><select id="calibration_method"><option value="grid">grid</option><option value="abc">abc</option></select></div>
-          <div class="field"><label>ABC samples</label><input id="calibration_samples" type="number" min="1"></div>
-          <div class="field"><label>Acceptance fraction</label><input id="acceptance_fraction" type="number" min="0.001" max="1" step="0.01"></div>
-          <div class="field"><label>Tolerance</label><input id="calibration_tolerance" type="number" min="0" step="0.1"></div>
-        </div>
-        <div class="field" style="margin-top: 10px;"><label>Observed CSV</label><input id="observed_path" placeholder="leave blank to use current run"></div>
-        <div class="field" style="margin-top: 10px;"><label>Calibration parameters</label><textarea id="calibration_params"></textarea></div>
-        <div class="actions" style="margin-top: 12px;"><button id="calibrateBtn" class="btn">Calibrate</button></div>
-      </div></section>
-      <section class="panel"><header><h2>Habitat Cells</h2><button id="addCellBtn" class="btn">Add row</button></header><div class="panel-body"><div class="table-wrap"><table id="cellsTable"></table></div></div></section>
-      <section class="panel"><header><h2>Official IBM Workflow</h2><span class="badge">inSTREAM / InSALMO</span></header><div class="panel-body">
-        <div class="official-setup-steps">
-          <div class="official-setup-block"><div class="official-setup-title">1. Official case source</div><div class="grid2"><div class="field"><label>Official fixture</label><input id="instream_fixture" placeholder="/path/to/InSTREAM-7.4 or InSALMO-7.4 zip"></div><div class="field"><label>Case</label><input id="instream_case_id"></div></div></div>
-          <div class="official-setup-block"><div class="official-setup-title">2. Native IBM run</div><div class="grid2"><div class="field"><label>Days</label><input id="instream_days" type="number" min="1"></div><div class="field"><label>Seed</label><input id="instream_seed" type="number"></div></div></div>
-          <div class="official-setup-block"><div class="official-setup-title">3. NetLogo comparison</div><div class="grid2"><div class="field"><label>Native summary CSV</label><input id="native_summary" placeholder="instream7_native_population_summary.csv"></div><div class="field"><label>BriefPop CSV</label><input id="brief_pop" placeholder="BriefPopOut-r1.csv"></div></div></div>
-        </div>
-        <div class="actions" style="margin-top: 12px;"><button id="benchBtn" class="btn primary">Run workflow</button><button id="compareBtn" class="btn">Compare BriefPop</button></div>
-      </div></section>
+      <details class="collapsible"><summary>Species Profile</summary><div class="collapsible-body"><div class="tabs" id="profileTabs"></div><div class="profile-grid" id="profileFields"></div></div></details>
+      <details class="collapsible"><summary>Submodels</summary><div class="collapsible-body"><div class="profile-grid" id="submodelFields"></div></div></details>
     </aside>
     <main class="workspace">
       <div class="kpis" id="kpis"></div>
-      <section id="officialResult" class="official-result">
-        <div class="official-result-head"><div><h2>Official Acceptance Result</h2><div id="officialSubtitle" class="official-subtitle">Run an official inSTREAM or InSALMO fixture to populate this capture panel.</div></div><span id="officialStatus" class="status-pill warning">no run</span></div>
-        <div id="officialWorkflow" class="official-workflow"></div>
-        <div id="officialWorkflowDetails" class="workflow-detail-grid"></div>
-        <div id="officialSummary" class="acceptance-grid"></div>
-        <div class="split result-split">
-          <div><div class="result-table-title">Final Population</div><div class="table-wrap"><table id="officialFinalTable"></table></div></div>
-          <div><div class="result-table-title">Official Inventory</div><div class="table-wrap"><table id="officialInventoryTable"></table></div></div>
-        </div>
-        <div class="official-events"><div class="result-table-title">Acceptance Events</div><div class="table-wrap"><table id="officialEventsTable"></table></div></div>
-      </section>
-      <section id="riverCard" class="river-card"><div class="river-head"><div><h2>River View</h2><div id="riverTitle" class="river-title">No run loaded</div></div><div class="river-controls"><label for="cellColorMetric">Cell color</label><select id="cellColorMetric"><option value="csi">CSI</option><option value="depth_m">Depth</option><option value="velocity_ms">Velocity</option><option value="total_fish_use">Fish use</option><option value="habitat_type">Habitat</option></select><div class="map-toolbar"><button id="zoomInBtn" class="icon-btn" title="Zoom in">+</button><button id="zoomOutBtn" class="icon-btn" title="Zoom out">-</button><button id="fitMapBtn" class="icon-btn" title="Fit map">Fit</button><button id="inspectMapBtn" class="icon-btn" title="Inspect features">Inspect</button><button id="fullMapBtn" class="icon-btn" title="Fullscreen map">Full</button></div></div></div><div id="qualityStrip" class="quality-strip"></div><div class="map-layers"><div class="check"><input id="showBoundary" type="checkbox" checked><label for="showBoundary">Boundary</label></div><div class="check"><input id="showCenterline" type="checkbox" checked><label for="showCenterline">Centerline</label></div><div class="check"><input id="showCells" type="checkbox" checked><label for="showCells">Cells</label></div><div class="check"><input id="showFish" type="checkbox" checked><label for="showFish">Fish</label></div><div class="check"><input id="showDeadFish" type="checkbox"><label for="showDeadFish">Dead fish</label></div><div class="check"><input id="showRedds" type="checkbox" checked><label for="showRedds">Redds</label></div></div><div class="river-stage"><div class="river-svg-wrap"><svg id="riverView" viewBox="0 0 900 360" role="img" aria-label="River reach with habitat cells and fish"></svg><div id="mapCoords" class="map-coordinates">x -, y -</div></div><div class="river-side"><div id="riverMeta" class="river-meta"></div><div id="riverLegend" class="river-legend"></div></div></div></section>
-      <section class="chart-card"><div class="chart-head"><h2>Population Trajectory</h2><select id="metricSelect"><option value="abundance">Abundance</option><option value="biomass_g">Biomass</option><option value="mean_length_mm">Mean length</option></select></div><svg id="chart" viewBox="0 0 900 280"></svg></section>
-      <section class="chart-card"><div class="chart-head"><h2>Uncertainty Bands</h2><select id="bandMetricSelect"><option value="abundance">Abundance</option><option value="biomass_g">Biomass</option><option value="mean_length_mm">Mean length</option></select></div><svg id="bandChart" viewBox="0 0 900 280"></svg></section>
-      <div class="triptych"><section class="panel"><header><h2>Validation</h2></header><div class="panel-body"><div class="table-wrap"><table id="validationTable"></table></div></div></section><section class="panel"><header><h2>Run History</h2></header><div class="panel-body"><div class="table-wrap"><table id="historyTable"></table></div></div></section><section class="panel"><header><h2>Calibration</h2></header><div class="panel-body"><div id="bestParams" class="mini-note"></div><div class="table-wrap" style="margin-top: 8px;"><table id="calibrationTable"></table></div></div></section></div>
-      <div class="split"><section class="panel"><header><h2>Ensemble Summary</h2></header><div class="panel-body"><div class="table-wrap"><table id="ensembleTable"></table></div></div></section><section class="panel"><header><h2>Sensitivity</h2></header><div class="panel-body"><div class="table-wrap"><table id="sensitivityTable"></table></div></div></section></div>
-      <div class="split"><section class="panel"><header><h2>Habitat Use</h2></header><div class="panel-body"><div class="table-wrap"><table id="cellUseTable"></table></div></div></section><section class="panel"><header><h2>Events</h2></header><div class="panel-body"><div class="table-wrap"><table id="eventsTable"></table></div></div></section></div>
-      <section class="panel"><header><h2>Fish State</h2></header><div class="panel-body"><div class="table-wrap"><table id="fishTable"></table></div></div></section>
-      <section class="panel"><header><h2>Redds</h2></header><div class="panel-body"><div class="table-wrap"><table id="reddsTable"></table></div></div></section>
-      <section class="panel"><header><h2>inSTREAM Comparison</h2></header><div class="panel-body"><div class="table-wrap"><table id="compareTable"></table></div></div></section>
-      <section class="panel"><header><h2>Output</h2></header><div class="panel-body"><ul id="paths" class="path-list"></ul><div id="log" class="log"></div></div></section>
+      <nav class="workspace-tabs" id="workspaceTabs">
+        <button class="active" data-pane="overview">Overview</button>
+        <button data-pane="cells">Habitat Cells</button>
+        <button data-pane="workflow">Workflow &amp; Compare</button>
+        <button data-pane="results">Results</button>
+        <button data-pane="logs">Experiments &amp; Output</button>
+      </nav>
+
+      <div class="tabpane active" data-pane="overview">
+        <section id="riverCard" class="river-card"><div class="river-head"><div><h2>River View</h2><div id="riverTitle" class="river-title">No run loaded</div></div><div class="river-controls"><label for="cellColorMetric">Cell color</label><select id="cellColorMetric"><option value="csi">CSI</option><option value="depth_m">Depth</option><option value="velocity_ms">Velocity</option><option value="total_fish_use">Fish use</option><option value="habitat_type">Habitat</option></select><div class="map-toolbar"><button id="zoomInBtn" class="icon-btn" title="Zoom in">+</button><button id="zoomOutBtn" class="icon-btn" title="Zoom out">-</button><button id="fitMapBtn" class="icon-btn" title="Fit map">Fit</button><button id="inspectMapBtn" class="icon-btn" title="Inspect features">Inspect</button><button id="fullMapBtn" class="icon-btn" title="Fullscreen map">Full</button></div></div></div><div id="qualityStrip" class="quality-strip"></div><div class="map-layers"><div class="check"><input id="showBoundary" type="checkbox" checked><label for="showBoundary">Boundary</label></div><div class="check"><input id="showCenterline" type="checkbox" checked><label for="showCenterline">Centerline</label></div><div class="check"><input id="showCells" type="checkbox" checked><label for="showCells">Cells</label></div><div class="check"><input id="showFish" type="checkbox" checked><label for="showFish">Fish</label></div><div class="check"><input id="showDeadFish" type="checkbox"><label for="showDeadFish">Dead fish</label></div><div class="check"><input id="showRedds" type="checkbox" checked><label for="showRedds">Redds</label></div></div><div class="river-stage"><div class="river-svg-wrap"><svg id="riverView" viewBox="0 0 900 360" role="img" aria-label="River reach with habitat cells and fish"></svg><div id="mapCoords" class="map-coordinates">x -, y -</div></div><div class="river-side"><div id="riverMeta" class="river-meta"></div><div id="riverLegend" class="river-legend"></div></div></div></section>
+        <section class="chart-card"><div class="chart-head"><h2>Population Trajectory</h2><select id="metricSelect"><option value="abundance">Abundance</option><option value="biomass_g">Biomass</option><option value="mean_length_mm">Mean length</option></select></div><svg id="chart" viewBox="0 0 900 280"></svg></section>
+        <section class="chart-card"><div class="chart-head"><h2>Uncertainty Bands</h2><select id="bandMetricSelect"><option value="abundance">Abundance</option><option value="biomass_g">Biomass</option><option value="mean_length_mm">Mean length</option></select></div><svg id="bandChart" viewBox="0 0 900 280"></svg></section>
+      </div>
+
+      <div class="tabpane" data-pane="cells">
+        <section class="panel"><header><h2>Habitat Cells</h2><button id="addCellBtn" class="btn">Add row</button></header><div class="panel-body"><div class="table-wrap"><table id="cellsTable"></table></div></div></section>
+      </div>
+
+      <div class="tabpane" data-pane="workflow">
+        <section id="officialResult" class="official-result" style="display:none">
+          <div class="official-result-head"><div><h2>Official Acceptance Result</h2><div id="officialSubtitle" class="official-subtitle">Run an official inSTREAM or InSALMO fixture to populate this capture panel.</div></div><span id="officialStatus" class="status-pill warning">no run</span></div>
+          <div id="officialWorkflow" class="official-workflow"></div>
+          <div id="officialWorkflowDetails" class="workflow-detail-grid"></div>
+          <div id="officialSummary" class="acceptance-grid"></div>
+          <div class="split result-split">
+            <div><div class="result-table-title">Final Population</div><div class="table-wrap"><table id="officialFinalTable"></table></div></div>
+            <div><div class="result-table-title">Official Inventory</div><div class="table-wrap"><table id="officialInventoryTable"></table></div></div>
+          </div>
+          <div class="official-events"><div class="result-table-title">Acceptance Events</div><div class="table-wrap"><table id="officialEventsTable"></table></div></div>
+        </section>
+        <section class="panel"><header><h2>Official IBM Workflow</h2><span class="badge">inSTREAM / InSALMO</span></header><div class="panel-body">
+          <div class="official-setup-steps">
+            <div class="official-setup-block"><div class="official-setup-title">1. Official case source</div><div class="grid2"><div class="field"><label>Official fixture</label><input id="instream_fixture" placeholder="/path/to/InSTREAM-7.4 or InSALMO-7.4 zip"></div><div class="field"><label>Case</label><input id="instream_case_id"></div></div></div>
+            <div class="official-setup-block"><div class="official-setup-title">2. Native IBM run</div><div class="grid2"><div class="field"><label>Days</label><input id="instream_days" type="number" min="1"></div><div class="field"><label>Seed</label><input id="instream_seed" type="number"></div></div></div>
+            <div class="official-setup-block"><div class="official-setup-title">3. NetLogo comparison</div><div class="grid2"><div class="field"><label>Native summary CSV</label><input id="native_summary" placeholder="instream7_native_population_summary.csv"></div><div class="field"><label>BriefPop CSV</label><input id="brief_pop" placeholder="BriefPopOut-r1.csv"></div></div></div>
+          </div>
+          <div class="actions" style="margin-top: 12px;"><button id="benchBtn" class="btn primary">Run workflow</button><button id="compareBtn" class="btn">Compare BriefPop</button></div>
+        </div></section>
+        <section class="panel"><header><h2>inSTREAM Comparison</h2></header><div class="panel-body"><div class="table-wrap"><table id="compareTable"></table></div></div></section>
+      </div>
+
+      <div class="tabpane" data-pane="results">
+        <div class="triptych"><section class="panel"><header><h2>Validation</h2></header><div class="panel-body"><div class="table-wrap"><table id="validationTable"></table></div></div></section><section class="panel"><header><h2>Run History</h2></header><div class="panel-body"><div class="table-wrap"><table id="historyTable"></table></div></div></section><section class="panel"><header><h2>Calibration</h2></header><div class="panel-body"><div id="bestParams" class="mini-note"></div><div class="table-wrap" style="margin-top: 8px;"><table id="calibrationTable"></table></div></div></section></div>
+        <div class="split"><section class="panel"><header><h2>Ensemble Summary</h2></header><div class="panel-body"><div class="table-wrap"><table id="ensembleTable"></table></div></div></section><section class="panel"><header><h2>Sensitivity</h2></header><div class="panel-body"><div class="table-wrap"><table id="sensitivityTable"></table></div></div></section></div>
+        <div class="split"><section class="panel"><header><h2>Habitat Use</h2></header><div class="panel-body"><div class="table-wrap"><table id="cellUseTable"></table></div></div></section><section class="panel"><header><h2>Events</h2></header><div class="panel-body"><div class="table-wrap"><table id="eventsTable"></table></div></div></section></div>
+        <section class="panel"><header><h2>Fish State</h2></header><div class="panel-body"><div class="table-wrap"><table id="fishTable"></table></div></div></section>
+        <section class="panel"><header><h2>Redds</h2></header><div class="panel-body"><div class="table-wrap"><table id="reddsTable"></table></div></div></section>
+      </div>
+
+      <div class="tabpane" data-pane="logs">
+        <section class="panel"><header><h2>Experiments</h2></header><div class="panel-body">
+          <div class="field"><label>Ensemble seeds</label><input id="ensemble_seeds"></div>
+          <div class="field" style="margin-top: 10px;"><label>Ensemble parameters</label><textarea id="ensemble_params"></textarea></div>
+          <div class="actions" style="margin-top: 12px;"><button id="ensembleBtn" class="btn">Run ensemble</button></div>
+          <div class="grid2" style="margin-top: 12px;">
+            <div class="field"><label>Calibration method</label><select id="calibration_method"><option value="grid">grid</option><option value="abc">abc</option></select></div>
+            <div class="field"><label>ABC samples</label><input id="calibration_samples" type="number" min="1"></div>
+            <div class="field"><label>Acceptance fraction</label><input id="acceptance_fraction" type="number" min="0.001" max="1" step="0.01"></div>
+            <div class="field"><label>Tolerance</label><input id="calibration_tolerance" type="number" min="0" step="0.1"></div>
+          </div>
+          <div class="field" style="margin-top: 10px;"><label>Observed CSV</label><input id="observed_path" placeholder="leave blank to use current run"></div>
+          <div class="field" style="margin-top: 10px;"><label>Calibration parameters</label><textarea id="calibration_params"></textarea></div>
+          <div class="actions" style="margin-top: 12px;"><button id="calibrateBtn" class="btn">Calibrate</button></div>
+        </div></section>
+        <section class="panel"><header><h2>Output</h2></header><div class="panel-body"><ul id="paths" class="path-list"></ul><div id="log" class="log"></div></div></section>
+      </div>
     </main>
   </div>
 </div>
@@ -438,6 +472,9 @@ function renderOfficialBenchmark(result){
   const m=result.metrics||{};
   const events=m.event_counts||{};
   const eventSummary=Object.entries(events).map(([k,v])=>`${k}:${v}`).join(', ') || 'none';
+  /* Reveal the official-result panel on first real capture (it starts
+     display:none on page load so the workflow tab opens clean). */
+  $('officialResult').style.display='';
   $('officialStatus').textContent='passed';
   $('officialStatus').className='status-pill pass';
   $('officialSubtitle').textContent=`${m.suite||'official'} ${result.run_id||''} · ${result.run_dir||''}`;
@@ -742,6 +779,15 @@ $('metricSelect').addEventListener('change',()=>{if(lastResult) drawChart(lastRe
 $('bandMetricSelect').addEventListener('change',()=>{if(lastEnsemble) drawBandChart(lastEnsemble.daily_bands);});
 $('cellColorMetric').addEventListener('change',rerenderRiverView);
 $('showDeadFish').addEventListener('change',rerenderRiverView);
+/* Workspace tab switching: hidden panes use display:none so a long
+   results tab never extends the page. */
+document.querySelectorAll('.workspace-tabs button').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    const pane=btn.dataset.pane;
+    document.querySelectorAll('.workspace-tabs button').forEach(b=>b.classList.toggle('active',b===btn));
+    document.querySelectorAll('.tabpane').forEach(p=>p.classList.toggle('active',p.dataset.pane===pane));
+  });
+});
 loadDefault();
 </script>
 </body>
