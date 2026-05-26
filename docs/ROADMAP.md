@@ -63,7 +63,30 @@ the maintainer who owns the docs tree if you find a contradiction.
 
 ---
 
-## Active moratorium — what is FROZEN as of 2026-05-19
+## 2026-05-26 update — IBM merge + R-IBM-* cleanup landed
+
+The moratorium described below applies LITERALLY to non-IBM work
+only. Native IBM work was merged to main on 2026-05-26 via
+[ADR-0016 author override](decisions/0016-author-override-direct-merge.md)
+despite the round-21/22/23 triple-AI review recommendation to
+quarantine it. The override is documented honestly, and 8 R-IBM-*
+cleanup tracks landed the same day:
+
+| Track | Status (2026-05-26) |
+|---|---|
+| R-IBM-API-SHRINK | ✅ `ibm/__init__.py` `__all__` 68 → 10 |
+| R-IBM-VALIDATION | ✅ seed→identical reproducibility test (+ different-seed counterpart) |
+| R-IBM-CLI-GRAMMAR | ✅ 8 flat `ibm-*` commands marked `deprecated=True` |
+| R-IBM-PROVENANCE | ✅ Case-compatible `provenance.json` emitted alongside `ibm_run_manifest.json` (SHA-linked) |
+| R-IBM-STUDIO-CONSOLIDATE | ✅ Browser Studio gated behind `--i-understand-this-is-experimental` |
+| R-IBM-SCHEMA-UNIFY | ✅ Boundary documented in `ibm/schemas/README.md` |
+| R-IBM-HYDROSOLVER | ✅ Module docstrings on `hydro/{__init__,calibration,gis_hydraulics}.py` document the workflow-helper vs solver-protocol boundary |
+| R-IBM-GOD-OBJECT | 🟡 PARTIAL: `studio.py` split into `studio.py` (2458 LOC business) + `studio_http.py` (207 LOC) + `studio_assets.py` (734 LOC HTML); `instream7.py` 1830 LOC + studio.py business chunk still un-split |
+| R-SPEC-AMEND | ❌ Awaits PSC vote on [SCP-0001](governance/spec-change-proposals/0001-native-ibm-pivot.md) — blocked on U1+U2 |
+
+The non-IBM moratorium (next section) remains in force.
+
+## Active moratorium — what is FROZEN as of 2026-05-19 (non-IBM)
 
 Per [ADR-0011](decisions/0011-stable-major-tag-moratorium.md):
 
