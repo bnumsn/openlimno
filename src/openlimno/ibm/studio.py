@@ -69,170 +69,128 @@ from .scenario import (
 )
 from .submodels import default_submodel_selection, list_ibm_submodels, validate_submodel_selection
 
+_DEMO_REACH_LENGTH_M = 1500.0
+_DEMO_REACH_CENTERLINE_Y = 60.0
+_DEMO_MEANDER_WAVELENGTH_M = 300.0
+_DEMO_MEANDER_AMPLITUDE_M = 42.0   # gives sinuosity ≈ 1.20 (Lemhi-like)
+_DEMO_BASE_HALF_WIDTH_M = 7.0      # 14 m channel default
+# Pool / margin / side-channel stations along the reach. Each tuple is
+# (station_m, side, half_width_extension_m, sigma_m) — sigma controls
+# how localised the bulge is in the channel polygon.
+_DEMO_BULGES: tuple[tuple[float, str, float, float], ...] = (
+    (220.0, "north", 18.0, 35.0),   # cottonwood-pool-1
+    (300.0, "north", 4.0, 25.0),    # left-margin-1
+    (360.0, "south", 18.0, 32.0),   # side-channel-1
+    (660.0, "north", 16.0, 38.0),   # boulder-pool
+    (800.0, "south", 4.0, 28.0),    # right-margin
+    (960.0, "north", 22.0, 40.0),   # meander-pool (deepest)
+    (1110.0, "south", 14.0, 30.0),  # side-channel-2
+    (1390.0, "south", 12.0, 35.0),  # final-pool (alternating bank)
+)
+
+
+def _centerline_y(x: float) -> float:
+    """Demo centerline elevation y at station x along the reach."""
+    import math
+    return _DEMO_REACH_CENTERLINE_Y + _DEMO_MEANDER_AMPLITUDE_M * math.sin(
+        2 * math.pi * x / _DEMO_MEANDER_WAVELENGTH_M
+    )
+
 
 def _demo_cells() -> list[dict[str, object]]:
-    return [
+    """20 cells across the 1500m reach forming 4 pool-riffle sequences
+    + 2 side-channels + 2 margins + 1 boulder chute.
+
+    Spacing: ~5-7 × bankfull width pool spacing (Leopold 1964 / Knighton
+    1998) → ~300-350m between pools across 1500m reach. Each cell's y-
+    position follows the meandering centerline at its station, with
+    explicit off-channel offsets for pools / margins / side-channels.
+    """
+    base = [
         {
-            "cell_id": "upper-riffle",
+            "cell_id": "upper-riffle-1",
             "reach_id": "lemhi-hayden-demo",
             "reach_order": 1,
             "habitat_type": "riffle",
-            "station_m": 25.0,
-            "center_x_m": 25.0,
-            "center_y_m": 44.0,
-            "length_m": 42.0,
-            "width_m": 12.0,
-            "area_m2": 504.0,
-            "depth_m": 0.42,
-            "velocity_ms": 0.74,
+            "station_m": 40.0,
+            "center_x_m": 40.0,
+            "center_y_m": _centerline_y(40.0),
+            "length_m": 60.0,
+            "width_m": 13.0,
+            "area_m2": 780.0,
+            "depth_m": 0.40,
+            "velocity_ms": 0.78,
             "csi": 0.78,
-            "temperature_c": 11.7,
+            "temperature_c": 11.6,
             "turbidity_ntu": 2.0,
-            "hiding_cover": 0.35,
-            "feeding_cover": 0.72,
-            "spawning_cover": 0.70,
-        },
-        {
-            "cell_id": "left-margin",
-            "reach_id": "lemhi-hayden-demo",
-            "reach_order": 1,
-            "habitat_type": "margin",
-            "station_m": 62.0,
-            "center_x_m": 62.0,
-            "center_y_m": 30.0,
-            "length_m": 44.0,
-            "width_m": 8.0,
-            "area_m2": 352.0,
-            "depth_m": 0.22,
-            "velocity_ms": 0.10,
-            "csi": 0.42,
-            "temperature_c": 12.0,
-            "turbidity_ntu": 2.0,
-            "hiding_cover": 0.58,
-            "feeding_cover": 0.28,
-            "spawning_cover": 0.18,
-        },
-        {
-            "cell_id": "mid-run",
-            "reach_id": "lemhi-hayden-demo",
-            "reach_order": 1,
-            "habitat_type": "run",
-            "station_m": 104.0,
-            "center_x_m": 104.0,
-            "center_y_m": 58.0,
-            "length_m": 58.0,
-            "width_m": 14.0,
-            "area_m2": 812.0,
-            "depth_m": 0.64,
-            "velocity_ms": 0.38,
-            "csi": 0.88,
-            "temperature_c": 11.9,
-            "turbidity_ntu": 2.0,
-            "hiding_cover": 0.50,
-            "feeding_cover": 0.62,
-            "spawning_cover": 0.42,
-        },
-        {
-            "cell_id": "cottonwood-pool",
-            "reach_id": "lemhi-hayden-demo",
-            "reach_order": 1,
-            "habitat_type": "pool",
-            "station_m": 158.0,
-            "center_x_m": 158.0,
-            "center_y_m": 76.0,
-            "length_m": 50.0,
-            "width_m": 18.0,
-            "area_m2": 900.0,
-            "depth_m": 1.18,
-            "velocity_ms": 0.16,
-            "csi": 0.92,
-            "temperature_c": 12.1,
-            "turbidity_ntu": 3.0,
-            "hiding_cover": 0.86,
-            "feeding_cover": 0.52,
-            "spawning_cover": 0.24,
-        },
-        {
-            "cell_id": "gravel-tailout",
-            "reach_id": "lemhi-hayden-demo",
-            "reach_order": 1,
-            "habitat_type": "tailout",
-            "station_m": 208.0,
-            "center_x_m": 208.0,
-            "center_y_m": 52.0,
-            "length_m": 46.0,
-            "width_m": 11.0,
-            "area_m2": 506.0,
-            "depth_m": 0.36,
-            "velocity_ms": 0.58,
-            "csi": 0.82,
-            "temperature_c": 12.0,
-            "turbidity_ntu": 2.0,
-            "hiding_cover": 0.30,
-            "feeding_cover": 0.68,
-            "spawning_cover": 0.84,
-        },
-        {
-            "cell_id": "side-channel",
-            "reach_id": "lemhi-hayden-demo",
-            "reach_order": 1,
-            "habitat_type": "side-channel",
-            "station_m": 246.0,
-            "center_x_m": 246.0,
-            "center_y_m": 31.0,
-            "length_m": 42.0,
-            "width_m": 7.5,
-            "area_m2": 315.0,
-            "depth_m": 0.28,
-            "velocity_ms": 0.20,
-            "csi": 0.66,
-            "temperature_c": 12.3,
-            "turbidity_ntu": 2.5,
-            "hiding_cover": 0.72,
-            "feeding_cover": 0.36,
-            "spawning_cover": 0.36,
-        },
-        {
-            "cell_id": "lower-glide",
-            "reach_id": "lemhi-hayden-demo",
-            "reach_order": 1,
-            "habitat_type": "glide",
-            "station_m": 292.0,
-            "center_x_m": 292.0,
-            "center_y_m": 64.0,
-            "length_m": 56.0,
-            "width_m": 15.0,
-            "area_m2": 840.0,
-            "depth_m": 0.78,
-            "velocity_ms": 0.31,
-            "csi": 0.86,
-            "temperature_c": 12.2,
-            "turbidity_ntu": 2.0,
-            "hiding_cover": 0.62,
-            "feeding_cover": 0.55,
-            "spawning_cover": 0.48,
-        },
-        {
-            "cell_id": "boulder-chute",
-            "reach_id": "lemhi-hayden-demo",
-            "reach_order": 1,
-            "habitat_type": "chute",
-            "station_m": 344.0,
-            "center_x_m": 344.0,
-            "center_y_m": 42.0,
-            "length_m": 36.0,
-            "width_m": 9.5,
-            "area_m2": 342.0,
-            "depth_m": 0.48,
-            "velocity_ms": 1.18,
-            "csi": 0.38,
-            "temperature_c": 12.0,
-            "turbidity_ntu": 2.0,
-            "hiding_cover": 0.18,
-            "feeding_cover": 0.22,
-            "spawning_cover": 0.12,
+            "hiding_cover": 0.32,
+            "feeding_cover": 0.74,
+            "spawning_cover": 0.72,
         },
     ]
+    # Specs for the remaining 19 cells along the 1500m reach.
+    # Tuple: (cell_id, habitat_type, station, length, width, depth,
+    #         velocity, csi, hiding, feeding, spawning, y_offset, temp_c)
+    # y_offset: perpendicular offset from centerline (north +, south -)
+    # for pool / margin / side-channel cells; main-line cells = 0.
+    cell_specs = [
+        # --- Sequence 1 (0-430m): riffle-run-pool-tailout + margin/side-ch ---
+        ("left-margin-1",     "margin",       100.0,  50.0,  7.0,  0.22, 0.10, 0.45,  0.55, 0.28, 0.18,  4.0,  12.0),
+        ("mid-run-1",         "run",          160.0,  60.0, 14.0,  0.65, 0.36, 0.86,  0.48, 0.62, 0.42,  0.0,  11.9),
+        ("cottonwood-pool-1", "pool",         220.0,  80.0, 18.0,  1.20, 0.14, 0.92,  0.84, 0.50, 0.22,  9.0,  12.1),
+        ("gravel-tailout-1",  "tailout",      300.0,  50.0, 11.0,  0.34, 0.55, 0.80,  0.30, 0.65, 0.82,  0.0,  12.0),
+        ("side-channel-1",    "side-channel", 360.0,  40.0,  7.0,  0.25, 0.18, 0.65, 0.70, 0.34, 0.30, -10.0, 12.3),
+        ("lower-glide-1",     "glide",        430.0,  60.0, 14.0,  0.75, 0.30, 0.85,  0.60, 0.55, 0.45,  0.0,  12.2),
+        # --- Sequence 2 (430-800m) ---
+        ("upper-riffle-2",    "riffle",       500.0,  50.0, 12.0,  0.38, 0.74, 0.76,  0.30, 0.72, 0.68,  0.0,  11.7),
+        ("mid-run-2",         "run",          580.0,  65.0, 13.0,  0.62, 0.40, 0.84,  0.48, 0.60, 0.42,  0.0,  11.9),
+        ("boulder-pool",      "pool",         660.0,  70.0, 17.0,  1.10, 0.16, 0.90,  0.78, 0.48, 0.20,  8.0,  12.0),
+        ("gravel-tailout-2",  "tailout",      740.0,  50.0, 11.0,  0.32, 0.55, 0.80,  0.30, 0.65, 0.82,  0.0,  12.1),
+        ("right-margin",      "margin",       800.0,  45.0,  7.0,  0.20, 0.10, 0.42, -4.0,  0.28, 0.18, -4.0,  11.9),
+        # --- Sequence 3 (800-1150m) — deepest meander-pool ---
+        ("mid-run-3",         "run",          870.0,  70.0, 14.0,  0.66, 0.38, 0.85,  0.50, 0.60, 0.42,  0.0,  11.9),
+        ("meander-pool",      "pool",         960.0,  90.0, 19.0,  1.30, 0.12, 0.94,  0.88, 0.50, 0.24, 11.0, 12.0),
+        ("gravel-tailout-3",  "tailout",     1050.0,  55.0, 12.0,  0.34, 0.55, 0.82,  0.32, 0.66, 0.82,  0.0,  12.0),
+        ("side-channel-2",    "side-channel",1110.0,  45.0,  8.0,  0.26, 0.20, 0.68, 0.72, 0.36, 0.30,  -8.0, 12.3),
+        # --- Sequence 4 (1150-1500m) — boulder-chute + final-pool ---
+        ("upper-riffle-3",    "riffle",      1180.0,  50.0, 12.0,  0.40, 0.72, 0.76,  0.30, 0.72, 0.70,  0.0,  11.6),
+        ("boulder-chute",     "chute",       1250.0,  50.0,  9.0,  0.50, 1.15, 0.40,  0.18, 0.22, 0.12,  0.0,  11.8),
+        ("lower-glide-2",     "glide",       1310.0,  60.0, 14.0,  0.70, 0.32, 0.84,  0.60, 0.55, 0.46,  0.0,  12.0),
+        ("final-pool",        "pool",        1390.0,  70.0, 16.0,  1.00, 0.18, 0.88,  0.80, 0.50, 0.30, -6.0,  12.0),
+    ]
+    # Note: 'right-margin' had a typo in the original tuple (hiding=-4.0).
+    # Fix that — hiding should be ~0.55 (same as left-margin).
+    fixed = []
+    for c in cell_specs:
+        cid, hmu, station, L, W, d, v, csi, hide, feed, spawn, dy, t = c
+        if cid == "right-margin":
+            hide = 0.55
+        area = round(L * W, 1)
+        center_y = round(_centerline_y(station) + dy, 2)
+        fixed.append({
+            "cell_id": cid,
+            "reach_id": "lemhi-hayden-demo",
+            "reach_order": 1,
+            "habitat_type": hmu,
+            "station_m": station,
+            "center_x_m": station,
+            "center_y_m": center_y,
+            "length_m": L,
+            "width_m": W,
+            "area_m2": area,
+            "depth_m": d,
+            "velocity_ms": v,
+            "csi": csi,
+            "temperature_c": t,
+            "turbidity_ntu": 2.0,
+            "hiding_cover": hide,
+            "feeding_cover": feed,
+            "spawning_cover": spawn,
+        })
+    # Patch the first hand-written cell's center_y so it follows the
+    # new centerline too.
+    base[0]["center_y_m"] = round(_centerline_y(base[0]["station_m"]), 2)
+    return base + fixed
 
 
 def _demo_river_geometry() -> dict[str, object]:
@@ -257,38 +215,24 @@ def _demo_river_geometry() -> dict[str, object]:
     """
     import math
 
-    length_m = 380.0
-    centerline_y = 50.0      # mainline runs near y=50
-    base_half_width = 7.0    # 14 m channel width default
-    sway_amplitude = 4.0     # mild meander
-    n_centerline = 40
+    length_m = _DEMO_REACH_LENGTH_M
+    base_half_width = _DEMO_BASE_HALF_WIDTH_M
+    n_centerline = 120  # finer resolution for the longer 1500m reach
 
-    # 1) Centerline: gentle sinusoidal sway around y=50
+    # 1) Centerline: sinusoidal meander, amplitude tuned for ~1.20
+    #    sinuosity (real Lemhi 1.15-1.40 range).
     centerline = [
-        [
-            x,
-            centerline_y + sway_amplitude * math.sin(2 * math.pi * x / 220.0),
-        ]
+        [x, _centerline_y(x)]
         for x in [i * (length_m / (n_centerline - 1)) for i in range(n_centerline)]
     ]
 
     # 2) Banks: offset ±half_width perpendicular to centerline tangent,
-    #    widening where pool / margin / side-channel sit.
+    #    widening at each bulge location in _DEMO_BULGES.
     def _local_half_width(x: float, side: str) -> float:
-        # Side ∈ {"north", "south"}. Bulges extend the polygon to cover
-        # off-channel cells:
-        #   margin (x≈62)         → north bulge ~ small
-        #   cottonwood-pool (x≈158) → north bulge ~ large (cell y=76)
-        #   side-channel (x≈246)   → south bulge ~ large (cell y=31)
         half = base_half_width
-        if side == "north":
-            # left-margin bulge
-            half += 8.0 * math.exp(-((x - 62) / 25) ** 2)
-            # cottonwood-pool bulge (covers y up to ~88)
-            half += 30.0 * math.exp(-((x - 158) / 28) ** 2)
-        elif side == "south":
-            # side-channel bulge (covers y down to ~15)
-            half += 25.0 * math.exp(-((x - 246) / 28) ** 2)
+        for b_x, b_side, b_ext, b_sigma in _DEMO_BULGES:
+            if b_side == side:
+                half += b_ext * math.exp(-((x - b_x) / b_sigma) ** 2)
         return half
 
     north_bank = []
@@ -331,12 +275,13 @@ def _demo_river() -> dict[str, object]:
     return {
         "name": "Lemhi River",
         "reach_name": "Hayden Creek demo reach",
-        "length_m": 380.0,
+        "length_m": _DEMO_REACH_LENGTH_M,
         "flow_m3s": 5.8,
         "display_note": (
-            "Demo bundled with a synthetic river outline so the 8 habitat "
-            "cells render as a coherent reach. For the real Lemhi shape "
-            "use ``Import GIS`` with a surveyed boundary polygon."
+            "Demo bundled with a synthetic 1500m meandering reach + 20 "
+            "habitat cells across 4 pool-riffle sequences (sinuosity ~1.20, "
+            "Lemhi-typical). For real basin data use ``Import GIS`` with a "
+            "surveyed boundary polygon."
         ),
         "geometry": _demo_river_geometry(),
     }
