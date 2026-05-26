@@ -185,10 +185,30 @@ class _IBMStudioHandler(BaseHTTPRequestHandler):
                 return
             self._send_json({"ok": False, "error": "not found"}, status=HTTPStatus.NOT_FOUND)
         except Exception as exc:  # pragma: no cover - exercised through browser/server smoke
+            # Surface a user-readable error category instead of the raw
+            # Python exception class name so a stack-trace-shaped leak
+            # (e.g. ``JSONDecodeError: Expecting property name…``) can't
+            # ship to the browser body (2026-05-26 pass-2 N5', Codex).
             self._send_json(
-                {"ok": False, "error": f"{type(exc).__name__}: {exc}"},
+                {"ok": False, "error": _user_error_message(exc)},
                 status=HTTPStatus.BAD_REQUEST,
             )
+
+
+def _user_error_message(exc: BaseException) -> str:
+    """Map a Python exception to a user-friendly error string for the
+    Studio's 400 responses, without leaking the exception class name.
+    Order matters: ``JSONDecodeError`` is a ``ValueError`` subclass and
+    must be matched first.
+    """
+    text = str(exc) or exc.__class__.__name__
+    if isinstance(exc, json.JSONDecodeError):
+        return f"request body is not valid JSON: {exc.msg}"
+    if isinstance(exc, KeyError):
+        return f"missing required field: {text}"
+    if isinstance(exc, ValueError):
+        return text
+    return text
 
 
 def run_ibm_studio(

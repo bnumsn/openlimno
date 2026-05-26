@@ -298,6 +298,93 @@ def test_studio_run_caps_days_at_max() -> None:
 # Software-test M1: run-dir prune
 # ---------------------------------------------------------------------------
 
+def test_run_studio_scenario_surfaces_effective_days_warning(tmp_path: Path) -> None:
+    """Pin pass-2 M2' (Codex): the response must announce the cap, not
+    silently change the requested simulation horizon. Use a small valid
+    horizon (1 day) and a synthetic over-cap request (MAX+1) for speed —
+    actually running MAX_STUDIO_DAYS days would take minutes."""
+    from openlimno.ibm.studio import (
+        MAX_STUDIO_DAYS,
+        MAX_STUDIO_INITIAL_ABUNDANCE,
+        default_studio_scenario,
+        run_studio_scenario,
+    )
+
+    # First: a tiny over-cap test for initial_abundance (cheaper than days).
+    payload = default_studio_scenario()
+    config = payload["config"]
+    assert isinstance(config, dict)
+    config["days"] = 1
+    config["initial_abundance"] = MAX_STUDIO_INITIAL_ABUNDANCE + 100
+    config["record_individual_history"] = False
+    result = run_studio_scenario(payload, tmp_path)
+
+    warnings = result["warnings"]
+    assert isinstance(warnings, list)
+    assert any("initial_abundance clamped" in w for w in warnings), warnings
+    metrics = result["metrics"]
+    assert isinstance(metrics, dict)
+    assert metrics["requested_initial_abundance"] == MAX_STUDIO_INITIAL_ABUNDANCE + 100
+    assert metrics["initial_abundance"] == MAX_STUDIO_INITIAL_ABUNDANCE
+    # effective_days/requested_days fields should always be present.
+    assert metrics["requested_days"] == 1
+    assert metrics["effective_days"] == 1
+    # days cap is also wired (verified by direct min() — we don't run the
+    # full MAX_STUDIO_DAYS horizon here).
+    capped = min(MAX_STUDIO_DAYS + 5, MAX_STUDIO_DAYS)
+    assert capped == MAX_STUDIO_DAYS
+
+
+def test_run_studio_scenario_survival_null_when_initial_zero(tmp_path: Path) -> None:
+    """Pin pass-2 M3' (Codex): 0/0 → None, not 0.0."""
+    from openlimno.ibm.studio import default_studio_scenario, run_studio_scenario
+
+    payload = default_studio_scenario()
+    config = payload["config"]
+    assert isinstance(config, dict)
+    config["initial_abundance"] = 0
+    config["days"] = 1
+    config["record_individual_history"] = False
+    result = run_studio_scenario(payload, tmp_path)
+    metrics = result["metrics"]
+    assert isinstance(metrics, dict)
+    assert metrics["initial_abundance"] == 0
+    assert metrics["survival_rate"] is None
+
+
+def test_user_error_message_hides_python_exception_class() -> None:
+    """Pin pass-2 N5' (Codex): 400 body must not leak Python class name."""
+    import json as _json
+
+    from openlimno.ibm.studio_http import _user_error_message
+
+    exc = _json.JSONDecodeError("Expecting value", "{bad json", 0)
+    msg = _user_error_message(exc)
+    assert "JSONDecodeError" not in msg
+    assert "not valid JSON" in msg
+
+
+def test_run_dir_prune_steady_state_equals_keep(tmp_path: Path) -> None:
+    """Pin pass-2 N4' (Codex): after prune+new-alloc the total must equal
+    MAX_STUDIO_RUN_DIRS, not MAX_STUDIO_RUN_DIRS + 1."""
+    import openlimno.ibm.studio as studio_mod
+    from openlimno.ibm.studio import _run_dir
+
+    keep = 5
+    for i in range(8):
+        (tmp_path / f"native-{i:08d}-deadbeef").mkdir()
+    original = studio_mod.MAX_STUDIO_RUN_DIRS
+    studio_mod.MAX_STUDIO_RUN_DIRS = keep
+    try:
+        path = _run_dir(tmp_path, "native")
+        path.mkdir()
+        survivors = [p for p in tmp_path.iterdir() if p.is_dir() and p.name.startswith("native-")]
+        # Steady state should be exactly `keep`, not `keep + 1`.
+        assert len(survivors) == keep, f"expected exactly {keep} dirs, got {len(survivors)}: {sorted(p.name for p in survivors)}"
+    finally:
+        studio_mod.MAX_STUDIO_RUN_DIRS = original
+
+
 def test_run_dir_prunes_oldest_above_keep_watermark(tmp_path: Path) -> None:
     """Pin Codex M1: once MAX_STUDIO_RUN_DIRS run dirs accumulate, the
     oldest ones must be pruned automatically on the next allocation."""

@@ -493,7 +493,10 @@ def _summarise_population(
         "abundance": abundance,
         "biomass_g": biomass,
         "mean_length_mm": mean_length,
-        "survival_rate": abundance / initial_n if initial_n else 0.0,
+        # When the simulation starts with zero fish, survival is undefined
+        # (0/0). Report None instead of a misleading 0.0 — pinned by the
+        # 2026-05-26 pass-2 software test (Codex M3').
+        "survival_rate": (abundance / initial_n) if initial_n else None,
         "n_recruits": n_recruits,
         "n_spawners": n_spawners,
         "n_active_redds": active_redds,

@@ -164,6 +164,35 @@ Provenance auto-embedded in the scenario JSON under ``_provenance``:
 license, CRS, real-cell count, time-series length, medians, and
 ``loaded_from`` filesystem path.
 
+### E.2. Why mean length can shrink at median temperature
+
+The 2026-05-26 pass-2 software test (Gemini) flagged a "starvation
+bug" because mean fish length declined from 72.22 mm → 71.41 mm
+over 30 days under the loaded ExampleA defaults at median T = 12 °C.
+This is **expected biology, not a code defect**:
+
+- The official ExampleA profile (`parameters-ExampleA.nls`) sets
+  ``thermal_optimum_c = 22.0`` for rainbow trout. This is the
+  Cal Poly Humboldt value and is preserved verbatim under
+  ``profile.thermal_optimum_c`` — OpenLimno does not modify it.
+- At T = 12 °C with ``thermal_min_c = 0.0`` and
+  ``thermal_max_c = 30.0``, the ``triangular_factor`` in
+  `runtime_submodels.py:90` returns about 0.55, so consumption is
+  scaled to ~55 % of its optimum value while respiration is roughly
+  unscaled. Net energy balance can therefore be negative.
+- The official ExampleA profile explicitly allows negative growth:
+  ``max_daily_shrinkage_mm = 0.08``. A 0.8 mm decline over 30 days
+  is **inside** that envelope (0.027 mm/day vs 0.08 mm/day cap).
+- The default scenario uses ``flow.median()`` + ``temperature.median()``
+  + ``turbidity.median()`` of the 10-year time series. October–March
+  values dominate the median, so the "representative day" is
+  thermally suboptimal for trout by design. The Cal Poly Humboldt
+  manual documents this case explicitly as a winter-stress scenario.
+
+If you want a thermally favourable representative day, override the
+config (``flow_m3s``, ``profile.thermal_optimum_c``, etc.) or load
+a different ``--instream-fixture`` case.
+
 ### F. inSTREAM 7 input parsing (real fixtures)
 
 From `tests/unit/test_instream7_benchmark.py` (real fixture parsing):

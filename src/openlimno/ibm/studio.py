@@ -81,7 +81,12 @@ _LOG = logging.getLogger(__name__)
 # - MAX_STUDIO_RUN_DIRS bounds the on-disk cache of past run outputs;
 #   _run_dir prunes oldest dirs above this watermark.
 MAX_STUDIO_DAYS = 3650
-MAX_STUDIO_INITIAL_ABUNDANCE = 100_000
+# 10k fish × 45 days is roughly the largest interactive load the stdlib
+# threaded HTTP server can answer in under a minute. Headless workflow
+# runs (workflows.calibrate, ensemble, etc.) are not capped — they
+# accept the longer runtime in exchange for unbounded population sizes.
+# (2026-05-26 pass-2 software-test G1, Gemini.)
+MAX_STUDIO_INITIAL_ABUNDANCE = 10_000
 MAX_STUDIO_RUN_DIRS = 50
 
 _DEMO_REACH_LENGTH_M = 1500.0
@@ -1567,6 +1572,20 @@ def _json_default(value: object) -> object:
     return str(value)
 
 
+def _is_nan(value: object) -> bool:
+    """True iff value is a float NaN. Robust to numpy scalars."""
+    if isinstance(value, float):
+        return value != value  # noqa: PLR0124 — NaN!=NaN trick
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            v = item()
+        except Exception:  # pragma: no cover
+            return False
+        return isinstance(v, float) and v != v  # noqa: PLR0124
+    return False
+
+
 def _sanitize_for_json(value: object) -> object:
     """Recursively replace NaN / +Inf / -Inf with ``None`` so the result
     round-trips through ``json.dumps(..., allow_nan=False)`` (and through
@@ -1596,7 +1615,10 @@ def _run_dir(output_dir: str | Path, prefix: str) -> Path:
     """
     root = Path(output_dir)
     root.mkdir(parents=True, exist_ok=True)
-    _prune_oldest_run_dirs(root, prefix, keep=MAX_STUDIO_RUN_DIRS)
+    # Prune to ``keep - 1`` so that after we create the next run dir the
+    # steady-state total is exactly MAX_STUDIO_RUN_DIRS, not +1
+    # (2026-05-26 pass-2 software-test N4', Codex off-by-one).
+    _prune_oldest_run_dirs(root, prefix, keep=max(MAX_STUDIO_RUN_DIRS - 1, 0))
     stamp = time.strftime("%Y%m%d-%H%M%S")
     return root / f"{prefix}-{stamp}-{uuid.uuid4().hex[:8]}"
 
@@ -2167,11 +2189,13 @@ def run_studio_scenario(
     # `days=10000` POST cannot hang the request thread indefinitely
     # (2026-05-26 software-test M2, Codex). Long simulations should
     # use the workflow runner, not the interactive Studio API.
-    days = _as_int(config.get("days"), 45, min_value=0, max_value=MAX_STUDIO_DAYS)
-    seed = _as_int(config.get("seed"), 42)
-    initial_abundance = _as_int(
-        config.get("initial_abundance"), 80, min_value=0, max_value=MAX_STUDIO_INITIAL_ABUNDANCE,
+    requested_days = _as_int(config.get("days"), 45, min_value=0)
+    days = min(requested_days, MAX_STUDIO_DAYS)
+    requested_initial_abundance = _as_int(config.get("initial_abundance"), 80, min_value=0)
+    initial_abundance = min(
+        requested_initial_abundance, MAX_STUDIO_INITIAL_ABUNDANCE,
     )
+    seed = _as_int(config.get("seed"), 42)
     initial_length_mm = _as_float(config.get("initial_length_mm"), 115.0, min_value=1.0)
     scenario_id = _as_str(config.get("scenario_id"), "agent-studio-demo")
     stochastic = _as_bool(config.get("stochastic"), True)
@@ -2224,17 +2248,44 @@ def run_studio_scenario(
         else result.redds
     )
 
+    # Surface any quietly-applied caps so the response body answers the
+    # question "did I actually get what I asked for?" (2026-05-26 pass-2
+    # software-test M2', Codex).
+    cap_warnings: list[str] = []
+    if requested_days != days:
+        cap_warnings.append(
+            f"days clamped from requested {requested_days} to MAX_STUDIO_DAYS={MAX_STUDIO_DAYS}; "
+            "use the headless workflow runner for longer horizons."
+        )
+    if requested_initial_abundance != initial_abundance:
+        cap_warnings.append(
+            f"initial_abundance clamped from requested {requested_initial_abundance} "
+            f"to MAX_STUDIO_INITIAL_ABUNDANCE={MAX_STUDIO_INITIAL_ABUNDANCE} for "
+            "interactive responsiveness."
+        )
+
+    # survival_rate is None when initial_abundance=0 (undefined ratio);
+    # native.py:496 already returns None in that case (pass-2 M3', Codex).
+    raw_survival = final["survival_rate"]
+    metric_survival = (
+        float(raw_survival) if raw_survival is not None and not _is_nan(raw_survival) else None
+    )
+
     return {
         "ok": True,
         "run_id": run_root.name,
         "run_dir": str(run_root),
         "paths": paths,
+        "warnings": cap_warnings,
         "metrics": {
             "initial_abundance": initial_abundance,
+            "requested_initial_abundance": requested_initial_abundance,
             "final_abundance": int(final["abundance"]),
             "final_biomass_g": float(final["biomass_g"]),
             "final_mean_length_mm": float(final["mean_length_mm"]),
-            "survival_rate": float(final["survival_rate"]),
+            "survival_rate": metric_survival,
+            "requested_days": requested_days,
+            "effective_days": days,
             "event_count": int(result.events["n"].sum()) if not result.events.empty else 0,
             "redd_count": int(len(result.redds)),
             "history_rows": int(len(result.individual_history)),

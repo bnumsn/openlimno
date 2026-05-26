@@ -359,7 +359,20 @@ def ibm_export(
         console.print(f"  {name}: {path}")
 
 
-@main.command("ibm-studio", deprecated=True)
+@main.command(
+    "ibm-studio",
+    # ``deprecated`` accepts a string in Click ≥8.2: shown verbatim
+    # instead of the generic "is deprecated" warning. The IBM Studio
+    # is a developer/research preview, not soon-to-be-removed —
+    # phrase the banner accordingly (2026-05-26 pass-2 software-test
+    # G2, Gemini caught the "deprecated yet primary entry point"
+    # contradiction). The ``--i-understand-this-is-experimental``
+    # flag below is what actually gates the command.
+    deprecated=(
+        "developer/research preview — pin to a release before relying on it; "
+        "long-term home is `openlimno studio` (PyQt6) per ADR-0016"
+    ),
+)
 @click.option("--host", default="127.0.0.1", show_default=True)
 @click.option("--port", type=int, default=8770, show_default=True)
 @click.option(
