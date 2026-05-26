@@ -1,15 +1,17 @@
 {
   "wedm_version": "0.1",
   "openlimno_version": "0.1.0-dev",
-  "generator": "tools/build_lemhi_dataset.py",
+  "generator": "tools/build_lemhi_dataset.py + tools/lemhi_real_data_fetch.py",
   "files": {
     "Q_2024.csv": {
       "real": true,
       "source": "USGS gauge 13305000"
     },
     "rating_curve.parquet": {
-      "real": false,
-      "note": "synthetic"
+      "real": true,
+      "source": "USGS Water Data OGC field-measurements API",
+      "sha256": "555b559dee4b7f7b899a401f41a8a838b3e9f43abcf6b4930b070f9548bec70d",
+      "note": "645 field measurements"
     },
     "species.parquet": {
       "real": true,
@@ -36,7 +38,7 @@
     },
     "drifting_egg_params.parquet": {
       "real": true,
-      "source": "\u6613\u4f2f\u9c81 1988; \u6bb5\u4e2d\u534e; \u66f9\u6587\u5ba3 (Yangtze endemic)"
+      "source": "易伯鲁 1988; 段中华; 曹文宣 (Yangtze endemic)"
     },
     "survey_campaign.parquet": {
       "real": false,
@@ -53,6 +55,11 @@
     "mesh.ugrid.nc": {
       "real": false,
       "note": "synthetic 1D mesh"
+    },
+    "real_fetch_provenance.json": {
+      "real": true,
+      "source": "OpenLimno fetch script",
+      "sha256": "0e4a632e4c17624b6d1c1160a79aa7a65aa9ee87d9eeb8b1e716d9c6c0824a09"
     }
   },
   "license": "CC-BY-4.0 (synthetic) / public-domain (USGS) / public-literature (HSI)"

@@ -1,0 +1,12 @@
+{
+  "bbox": [
+    -113.75,
+    44.82,
+    -113.5,
+    45.05
+  ],
+  "site_id": "13305000",
+  "outputs": {
+    "rating_curve.parquet": "USGS Water Data OGC field-measurements API"
+  }
+}
