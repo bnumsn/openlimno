@@ -19,6 +19,9 @@ ADRs document significant architectural / technical decisions. Format: [MADR 4.0
 | [0011](0011-stable-major-tag-moratorium.md) | Moratorium on stable major-version tags until D1+D2+(D5∨D6∨D7) close | **Accepted (interim)** |
 | [0012](0012-phabsim-real-fortran-validation.md) | PHABSIM Fortran real-run validation harness (R-PHABSIM-REAL) | Proposed |
 | [0013](0013-gui-dependency-direction.md) | GUI dependency direction: `gui_core` / `studio` / `qgis` cleanup (doc-only, refactor blocked by moratorium) | Proposed |
+| [0014](0014-charter-pivot-native-ibm.md) | Charter pivot — native IBM as inSTREAM successor (v4 target) | Merged via ADR-0016; PSC ratification pending |
+| [0015](0015-ibm-moratorium-exception.md) | Moratorium relationship for native IBM experiment | Superseded by ADR-0016 |
+| [0016](0016-author-override-direct-merge.md) | Author override — direct merge of IBM pivot to main | **Accepted (BDFL decision)** |
 
 ## Template
 

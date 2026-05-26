@@ -1,6 +1,15 @@
 # Native IBM Pivot — Quarantined to `experiment/native-ibm-pivot`
 
-> **Posted on `main` 2026-05-26.** This is a short notice. The
+> **⚠️ SUPERSEDED 2026-05-26 by [ADR-0016](../decisions/0016-author-override-direct-merge.md)
+> (author override).** This notice was committed at `e15df96` recording
+> Option Z (quarantine to experiment branch, hold for PSC vote). Approximately
+> one minute later, the author overrode that decision and merged
+> `experiment/native-ibm-pivot` into main at `cfb4960`. The text below is
+> preserved verbatim as historical record of the Option Z decision the
+> author chose AGAINST. Read [ADR-0016](../decisions/0016-author-override-direct-merge.md)
+> for the override rationale and accepted costs.
+
+> **Posted on `main` 2026-05-26 (now superseded).** This is a short notice. The
 > substantive review chain lives on the `experiment/native-ibm-pivot`
 > branch at
 > `docs/reviews/round_21_22_23_native_ibm_pivot_audit.md`.

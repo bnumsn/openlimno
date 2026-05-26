@@ -1,9 +1,10 @@
 # ADR-0014: Charter pivot — native IBM as potential inSTREAM successor (v4 target)
 
-- **Status**: DRAFT on `experiment/native-ibm-pivot` (NOT ratified;
-  awaiting SCP-0001 + PSC vote)
+- **Status**: Merged to main 2026-05-26 via [ADR-0016](0016-author-override-direct-merge.md)
+  author override; strategic content stands by BDFL decision; PSC
+  ratification still pending (single-author project until U1+U2 close)
 - **Date**: 2026-05-26
-- **Deciders**: acrochen (proposed); PSC quorum required to ratify
+- **Deciders**: acrochen (proposed AND merged via BDFL override; PSC quorum still required for formal ratification)
 - **SPEC sections**: SPEC.md §0.3 (1.0 non-goals); proposed §13.x
 - **Tags**: [strategy, charter-expansion, ibm, post-1.0]
 

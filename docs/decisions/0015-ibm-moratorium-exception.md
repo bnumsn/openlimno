@@ -1,9 +1,13 @@
 # ADR-0015: Moratorium relationship for the native IBM experiment
 
-- **Status**: DRAFT on `experiment/native-ibm-pivot` (paired with
-  ADR-0014; ratification requires PSC vote on SCP-0001)
+- **Status**: Effectively superseded 2026-05-26 by [ADR-0016](0016-author-override-direct-merge.md)
+  (author override). The narrowly-bounded experiment-branch exception
+  this ADR drafted is moot because the experiment branch was merged
+  directly into main. The "5 conditions" + "90-day deadline" listed
+  in this ADR did NOT take effect. ADR-0016 documents what actually
+  happened. This ADR is retained for historical record.
 - **Date**: 2026-05-26
-- **Deciders**: acrochen (proposed)
+- **Deciders**: acrochen (proposed; superseded same day by ADR-0016)
 - **SPEC sections**: SPEC.md §0.3; ADR-0011; external_action_phase.md
 - **Tags**: [moratorium, governance, ibm, scope-discipline]
 
