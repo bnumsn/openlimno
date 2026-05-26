@@ -20,8 +20,27 @@ from .builtin_1d import (
     MANSQResult,
     load_sections_from_parquet,
 )
+from .calibration import (
+    Builtin1DCalibrationResult,
+    Builtin1DCalibrationScore,
+    calibrate_builtin1d_normal_depth,
+    predict_builtin1d_normal_depth,
+)
+from .gis_hydraulics import (
+    DEFAULT_DISCHARGES_M3S,
+    GISHydraulicResult,
+    build_builtin1d_gis_hydraulics,
+)
 from .schism import LTS_VERSION as SCHISM_LTS_VERSION
-from .schism import SCHISMAdapter, SCHISMRunReport
+from .schism import (
+    SCHISMAdapter,
+    SCHISMBoundaryForcingPackage,
+    SCHISMHydraulicResults,
+    SCHISMRunReport,
+    read_schism_hydraulic_results,
+    write_schism_hydraulic_cells_csv,
+    write_schism_type1_boundary_forcing,
+)
 
 
 class RunResult(Protocol):
@@ -41,13 +60,25 @@ class HydroSolver(Protocol):
 
 
 __all__ = [
+    "DEFAULT_DISCHARGES_M3S",
     "SCHISM_LTS_VERSION",
     "Builtin1D",
+    "Builtin1DCalibrationResult",
+    "Builtin1DCalibrationScore",
     "CrossSection",
+    "GISHydraulicResult",
     "HydroSolver",
     "MANSQResult",
     "RunResult",
     "SCHISMAdapter",
+    "SCHISMBoundaryForcingPackage",
+    "SCHISMHydraulicResults",
     "SCHISMRunReport",
+    "build_builtin1d_gis_hydraulics",
+    "calibrate_builtin1d_normal_depth",
     "load_sections_from_parquet",
+    "predict_builtin1d_normal_depth",
+    "read_schism_hydraulic_results",
+    "write_schism_hydraulic_cells_csv",
+    "write_schism_type1_boundary_forcing",
 ]

@@ -258,7 +258,7 @@ substrate inputs, so the real exported-table test uses the local/URL fixture
 hook until a small official WUA export is published.
 
 For inSTREAM / InSALMO / NetLogo population workflows, OpenLimno provides a CSV
-exchange bridge instead of a native IBM runtime. Export evaluated habitat cells
+exchange bridge and a native research IBM runner. Export evaluated habitat cells
 from OpenLimno:
 
 ```bash
@@ -300,6 +300,104 @@ and `*-Vels.csv`, expanding the flow columns into a long
 `depth_m` or `velocity_ms`.
 It does not edit `.nlogo` model files; users should map the CSV package into
 their inSTREAM/InSALMO project deliberately.
+
+OpenLimno also includes a native non-NetLogo IBM runner for users who want to
+keep the population-response model inside the OpenLimno runtime:
+
+```bash
+openlimno ibm-run-native \
+    --cells out/hecras_habitat/habitat_cells.csv \
+    --species rainbow_trout \
+    --initial-abundance 100 \
+    --days 365 \
+    --individual-history \
+    --out-dir out/native_ibm
+```
+
+This writes:
+
+- `native_ibm_population_summary.csv`
+- `native_ibm_final_individuals.csv`
+- `native_ibm_cell_use.csv`
+- `native_ibm_events.csv`
+- `native_ibm_redds.csv`
+- `native_ibm_individual_history.csv` when `--individual-history` is enabled
+
+The native engine implements daily light phases, habitat selection, simplified
+bioenergetic growth, mortality, redd/egg incubation, fry emergence, and density
+competition against OpenLimno habitat-cell tables. It is separate from the
+exchange bridge and does not execute NetLogo.
+The behavior weights used for calibration, including light-phase feeding,
+predation exposure, density competition, mortality stress, spawner female
+fraction, spawning-cell preference, and redd survival, live on
+`openlimno.ibm.SpeciesProfile`.
+
+If the habitat-cell table contains `time_index`, `ibm-run-native` treats each
+unique time index as the next daily habitat slice and reuses the final slice
+when `--days` exceeds the number of supplied slices.
+
+The same native IBM can be driven from a local browser interface:
+
+```bash
+openlimno ibm-studio --port 8770 --out-dir out/ibm_studio
+```
+
+Use this for interactive parameter tuning, habitat-cell edits, an
+inSTREAM-style river view with fish symbols and flow direction, run/step/reset
+workflows, output-table inspection, and optional inSTREAM 7 native-vs-NetLogo
+comparison setup.
+
+For official inSTREAM 7.4 example-case benchmarking, use:
+
+```bash
+openlimno ibm-benchmark-instream7 \
+    --fixture InSTREAM-7.4_2026-02-11.zip \
+    --days 7 \
+    --out-dir out/instream7_benchmark
+```
+
+This reads Example A and Example B from the official archive, aligns the
+forcing series to each parameter file's `start-date`, imports the GIS cell
+attributes plus depth/velocity lookup matrices, expands the official initial
+population strata, and runs the native IBM as a multi-day time-indexed run so
+individual state, spawning history, and redd/egg status persist across daily
+forcing slices. It writes:
+
+- `instream7_official_inventory.csv`
+- `instream7_native_population_summary.csv`
+- `instream7_native_final_individuals.csv`
+- `instream7_native_cell_use.csv`
+- `instream7_native_events.csv`
+- `instream7_native_redds.csv`
+
+The official archive does not include NetLogo population-output CSVs. To create
+a local NetLogo reference run from the same official package, point OpenLimno at
+a NetLogo 7 `NetLogo_Console` executable:
+
+```bash
+openlimno ibm-run-instream7-netlogo-reference \
+    --fixture InSTREAM-7.4_2026-02-11.zip \
+    --case-id ExampleA \
+    --days 2 \
+    --seed 11 \
+    --netlogo-console "/path/to/NetLogo 7.0.2/NetLogo_Console" \
+    --out-dir out/instream7_netlogo_reference
+```
+
+The command copies the official case, patches a short end date, forces daily
+BriefPop output, and runs BehaviorSpace headlessly. Then summarize and compare
+the generated `BriefPopOut-*.csv` file:
+
+```bash
+openlimno ibm-summarize-instream7-brief \
+    --brief-pop out/instream7_netlogo_reference/BriefPopOut-r1.csv \
+    --out out/instream7_netlogo_reference/brief_summary.csv
+
+openlimno ibm-compare-instream7-netlogo \
+    --native-summary out/instream7_benchmark/instream7_native_population_summary.csv \
+    --brief-pop out/instream7_netlogo_reference/BriefPopOut-r1.csv \
+    --out out/instream7_benchmark/native_vs_netlogo_comparison.csv
+```
 
 To validate the adapter against DHI's public sample files, install the optional
 MIKE readers and opt into the networked integration test:
@@ -352,9 +450,10 @@ pytest tests/integration/test_instream_real_fixtures.py
 ```
 
 The test downloads the Cal Poly Humboldt / Lang Railsback inSTREAM 7.4 example
-archive, verifies its SHA-256 hash, and imports the Example A depth and velocity
-matrices into `ibm_hydraulic_lookup`. Set `OPENLIMNO_INSTREAM_FIXTURE_DIR` to
-reuse a local fixture cache.
+archive, verifies its SHA-256 hash, imports Example A and Example B depth and
+velocity matrices into `ibm_hydraulic_lookup`, and runs a one-day native IBM
+smoke benchmark across both official examples. Set
+`OPENLIMNO_INSTREAM_FIXTURE_DIR` to reuse a local fixture cache.
 
 For HABBY/CASiMiR exported tables, the integration hook is ready for local or
 future public fixtures:

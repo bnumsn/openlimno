@@ -1,0 +1,55 @@
+time_index,profile,date,flow_file,river,reach,upstream_station_m,discharge_m3s
+0,20190924,2019-09-24,WBmod1D.f01,Clinch River,Upper Reach,4893.771,3.49
+0,20190924,2019-09-24,WBmod1D.f01,Clinch River,Main Stem,4648.18,2.62
+0,20190924,2019-09-24,WBmod1D.f01,Clinch River,Middle Reach,4279.376,3.49
+0,20190924,2019-09-24,WBmod1D.f01,Clinch River,Lower Reach,3803.314,3.69
+0,20190924,2019-09-24,WBmod1D.f01,North Fork,Tributary,98.29333,0.2
+0,20190924,2019-09-24,WBmod1D.f01,Side Channel,Side Reach,406.5545,0.87
+1,20190925,2019-09-25,WBmod1D.f02,Clinch River,Upper Reach,4893.771,3.45
+1,20190925,2019-09-25,WBmod1D.f02,Clinch River,Main Stem,4648.18,2.58
+1,20190925,2019-09-25,WBmod1D.f02,Clinch River,Middle Reach,4279.376,3.45
+1,20190925,2019-09-25,WBmod1D.f02,Clinch River,Lower Reach,3803.314,3.65
+1,20190925,2019-09-25,WBmod1D.f02,North Fork,Tributary,98.29333,0.2
+1,20190925,2019-09-25,WBmod1D.f02,Side Channel,Side Reach,406.5545,0.86
+2,20200825,2020-08-25,WBmod1D.f03,Clinch River,Upper Reach,4893.771,20.56
+2,20200825,2020-08-25,WBmod1D.f03,Clinch River,Main Stem,4648.18,15.42
+2,20200825,2020-08-25,WBmod1D.f03,Clinch River,Middle Reach,4279.376,20.56
+2,20200825,2020-08-25,WBmod1D.f03,Clinch River,Lower Reach,3803.314,21.76
+2,20200825,2020-08-25,WBmod1D.f03,North Fork,Tributary,98.29333,1.2
+2,20200825,2020-08-25,WBmod1D.f03,Side Channel,Side Reach,406.5545,5.14
+3,20200914,2020-09-14,WBmod1D.f04,Clinch River,Upper Reach,4893.771,15.5
+3,20200914,2020-09-14,WBmod1D.f04,Clinch River,Main Stem,4648.18,11.63
+3,20200914,2020-09-14,WBmod1D.f04,Clinch River,Middle Reach,4279.376,15.5
+3,20200914,2020-09-14,WBmod1D.f04,Clinch River,Lower Reach,3803.314,16.41
+3,20200914,2020-09-14,WBmod1D.f04,North Fork,Tributary,98.29333,0.9
+3,20200914,2020-09-14,WBmod1D.f04,Side Channel,Side Reach,406.5545,3.88
+4,20210513,2021-05-13,WBmod1D.f05,Clinch River,Upper Reach,4893.771,28.01
+4,20210513,2021-05-13,WBmod1D.f05,Clinch River,Main Stem,4648.18,21.01
+4,20210513,2021-05-13,WBmod1D.f05,Clinch River,Middle Reach,4279.376,28.01
+4,20210513,2021-05-13,WBmod1D.f05,Clinch River,Lower Reach,3803.314,29.64
+4,20210513,2021-05-13,WBmod1D.f05,North Fork,Tributary,98.29333,1.63
+4,20210513,2021-05-13,WBmod1D.f05,Side Channel,Side Reach,406.5545,7.0
+5,20210601,2021-06-01,WBmod1D.f06,Clinch River,Upper Reach,4893.771,14.81
+5,20210601,2021-06-01,WBmod1D.f06,Clinch River,Main Stem,4648.18,11.11
+5,20210601,2021-06-01,WBmod1D.f06,Clinch River,Middle Reach,4279.376,14.81
+5,20210601,2021-06-01,WBmod1D.f06,Clinch River,Lower Reach,3803.314,15.67
+5,20210601,2021-06-01,WBmod1D.f06,North Fork,Tributary,98.29333,0.86
+5,20210601,2021-06-01,WBmod1D.f06,Side Channel,Side Reach,406.5545,3.7
+6,20210810,2021-08-10,WBmod1D.f07,Clinch River,Upper Reach,4893.771,6.91
+6,20210810,2021-08-10,WBmod1D.f07,Clinch River,Main Stem,4648.18,5.18
+6,20210810,2021-08-10,WBmod1D.f07,Clinch River,Middle Reach,4279.376,6.91
+6,20210810,2021-08-10,WBmod1D.f07,Clinch River,Lower Reach,3803.314,7.31
+6,20210810,2021-08-10,WBmod1D.f07,North Fork,Tributary,98.29333,0.4
+6,20210810,2021-08-10,WBmod1D.f07,Side Channel,Side Reach,406.5545,1.73
+7,20210908,2021-09-08,WBmod1D.f08,Clinch River,Upper Reach,4893.771,14.32
+7,20210908,2021-09-08,WBmod1D.f08,Clinch River,Main Stem,4648.18,10.74
+7,20210908,2021-09-08,WBmod1D.f08,Clinch River,Middle Reach,4279.376,14.32
+7,20210908,2021-09-08,WBmod1D.f08,Clinch River,Lower Reach,3803.314,15.16
+7,20210908,2021-09-08,WBmod1D.f08,North Fork,Tributary,98.29333,0.83
+7,20210908,2021-09-08,WBmod1D.f08,Side Channel,Side Reach,406.5545,3.58
+8,20211215,2021-12-15,WBmod1D.f09,Clinch River,Upper Reach,4893.771,18.7
+8,20211215,2021-12-15,WBmod1D.f09,Clinch River,Main Stem,4648.18,14.03
+8,20211215,2021-12-15,WBmod1D.f09,Clinch River,Middle Reach,4279.376,18.7
+8,20211215,2021-12-15,WBmod1D.f09,Clinch River,Lower Reach,3803.314,19.79
+8,20211215,2021-12-15,WBmod1D.f09,North Fork,Tributary,98.29333,1.09
+8,20211215,2021-12-15,WBmod1D.f09,Side Channel,Side Reach,406.5545,4.68

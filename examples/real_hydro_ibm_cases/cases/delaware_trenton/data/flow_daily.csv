@@ -1,0 +1,8 @@
+time_index,date,discharge_ft3s,discharge_m3s,qualifier,reach_id
+0,2025-10-01,2820.0,79.85350738944,"P,e",delaware_trenton
+1,2025-10-02,2770.0,78.43766505984,"P,e",delaware_trenton
+2,2025-10-03,2810.0,79.57033892352,"P,e",delaware_trenton
+3,2025-10-04,2810.0,79.57033892352,P,delaware_trenton
+4,2025-10-05,3170.0,89.76440369664,P,delaware_trenton
+5,2025-10-06,3080.0,87.21588750336001,P,delaware_trenton
+6,2025-10-07,3120.0,88.34856136704,P,delaware_trenton

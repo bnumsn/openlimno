@@ -1,0 +1,25 @@
+profile_version: '0.2'
+species:
+  id: rainbow_trout
+  scientific_name: Oncorhynchus mykiss
+  common_name: Rainbow trout
+  evidence_status: screening profile for software validation
+parameters:
+  thermal_min_c:
+    value: 1.0
+    source: OpenLimno native IBM default
+  thermal_optimum_c:
+    value: 12.0
+    source: OpenLimno native IBM default
+  thermal_max_c:
+    value: 23.0
+    source: OpenLimno native IBM default
+  base_daily_survival:
+    value: 0.997
+    source: OpenLimno native IBM default
+  carrying_density_per_m2:
+    value: 0.08
+    source: OpenLimno native IBM default
+calibration:
+  accepted: false
+  notes: Hydraulics are based on real HEC-RAS geometry; IBM profile is not site-calibrated.

@@ -40,6 +40,8 @@ _X1_RE = re.compile(r"^X1\s*=\s*(.*)")
 _GR_RE = re.compile(r"^GR\s*=\s*(.*)")
 _RIVER_RE = re.compile(r"^River Reach=([^,]+),\s*([^\n]+)")
 _TYPE_RE = re.compile(r"^Type RM Length L Ch R\s*=\s*1\s*,\s*([0-9.\-]+)")
+_STA_ELEV_RE = re.compile(r"^\s*#Sta/Elev\s*=\s*(\d+)\s*(.*)$", re.IGNORECASE)
+_XS_GIS_CUT_RE = re.compile(r"^\s*XS GIS Cut Line\s*=\s*(\d+)\s*(.*)$", re.IGNORECASE)
 
 
 def _parse_numeric_body(line: str) -> list[float]:
@@ -62,6 +64,17 @@ def _parse_numeric_body(line: str) -> list[float]:
                 except ValueError:
                     pass
         return out
+    tokens = s.split()
+    if len(tokens) > 1:
+        parsed: list[float] = []
+        for tok in tokens:
+            try:
+                parsed.append(float(tok))
+            except ValueError:
+                parsed = []
+                break
+        if parsed:
+            return parsed
     for i in range(0, len(s), 8):
         chunk = s[i : i + 8].strip()
         if chunk:
@@ -70,6 +83,26 @@ def _parse_numeric_body(line: str) -> list[float]:
             except ValueError:
                 pass
     return out
+
+
+def _interpolate_cutline_points(
+    distances_m: list[float],
+    cutline_xy: list[tuple[float, float]],
+) -> list[tuple[float | None, float | None]]:
+    if len(cutline_xy) < 2 or not distances_m:
+        return [(None, None) for _ in distances_m]
+    xy = np.asarray(cutline_xy, dtype=float)
+    seg = np.hypot(np.diff(xy[:, 0]), np.diff(xy[:, 1]))
+    along = np.concatenate([[0.0], np.cumsum(seg)])
+    total = float(along[-1])
+    if total <= 0.0:
+        return [(None, None) for _ in distances_m]
+    max_distance = max(float(v) for v in distances_m)
+    scale = total / max(max_distance, 1e-9)
+    targets = np.clip(np.asarray(distances_m, dtype=float) * scale, 0.0, total)
+    x = np.interp(targets, along, xy[:, 0])
+    y = np.interp(targets, along, xy[:, 1])
+    return [(float(xi), float(yi)) for xi, yi in zip(x, y, strict=True)]
 
 
 def read_hecras_geometry(path: str | Path) -> pd.DataFrame:
@@ -147,6 +180,9 @@ def read_hecras_geometry(path: str | Path) -> pd.DataFrame:
     flush()
 
     if not rows:
+        rows.extend(_parse_hecras_sta_elev_geometry(lines))
+
+    if not rows:
         raise ValueError(
             f"No cross-sections found in HEC-RAS file {p}. "
             "File may be empty or use an unsupported format."
@@ -157,6 +193,123 @@ def read_hecras_geometry(path: str | Path) -> pd.DataFrame:
         len({r["station_m"] for r in rows}),
     )
     return pd.DataFrame(rows)
+
+
+def _parse_hecras_sta_elev_geometry(lines: list[str]) -> list[dict[str, object]]:
+    """Parse HEC-RAS 5/6 text geometry blocks using ``#Sta/Elev`` pairs."""
+
+    rows: list[dict[str, object]] = []
+    river = ""
+    reach = ""
+    cur_station: float | None = None
+    cur_npts = 0
+    cur_pts: list[float] = []
+    cur_cutline: list[tuple[float, float]] = []
+    cutline_npts = 0
+    in_sta_elev = False
+    in_cutline = False
+
+    def flush() -> None:
+        nonlocal cur_station, cur_npts, cur_pts, cur_cutline, cutline_npts, in_sta_elev, in_cutline
+        if cur_station is None or not cur_pts:
+            cur_station = None
+            cur_npts = 0
+            cur_pts = []
+            cur_cutline = []
+            cutline_npts = 0
+            in_sta_elev = False
+            in_cutline = False
+            return
+        n_values = cur_npts * 2 if cur_npts > 0 else len(cur_pts)
+        nums = cur_pts[:n_values]
+        distances = [float(nums[i]) for i in range(0, len(nums), 2) if i + 1 < len(nums)]
+        xy_points = _interpolate_cutline_points(distances, cur_cutline)
+        for i in range(0, len(nums), 2):
+            if i + 1 >= len(nums):
+                break
+            dist, elev = nums[i], nums[i + 1]
+            x_m, y_m = xy_points[i // 2]
+            rows.append(
+                {
+                    "river": river,
+                    "reach": reach,
+                    "station_m": float(cur_station),
+                    "point_index": i // 2,
+                    "distance_m": float(dist),
+                    "elevation_m": float(elev),
+                    "x_m": x_m,
+                    "y_m": y_m,
+                }
+            )
+        cur_station = None
+        cur_npts = 0
+        cur_pts = []
+        cur_cutline = []
+        cutline_npts = 0
+        in_sta_elev = False
+        in_cutline = False
+
+    def extend_cutline(values: list[float]) -> None:
+        nonlocal cur_cutline, in_cutline
+        for i in range(0, len(values), 2):
+            if i + 1 >= len(values):
+                break
+            cur_cutline.append((float(values[i]), float(values[i + 1])))
+        if cutline_npts > 0 and len(cur_cutline) >= cutline_npts:
+            in_cutline = False
+
+    for raw in lines:
+        m = _RIVER_RE.match(raw)
+        if m:
+            if in_sta_elev or in_cutline:
+                flush()
+            river, reach = m.group(1).strip(), m.group(2).strip()
+            continue
+
+        m = _TYPE_RE.match(raw)
+        if m:
+            flush()
+            try:
+                cur_station = float(m.group(1).strip())
+            except ValueError:
+                cur_station = None
+            continue
+
+        m = _XS_GIS_CUT_RE.match(raw)
+        if m and cur_station is not None:
+            cutline_npts = int(m.group(1))
+            cur_cutline = []
+            in_cutline = True
+            extend_cutline(_parse_numeric_body(m.group(2)))
+            continue
+
+        if in_cutline:
+            stripped = raw.strip()
+            if stripped and not re.match(r"^[A-Za-z#]", stripped):
+                extend_cutline(_parse_numeric_body(raw))
+                continue
+            in_cutline = False
+
+        m = _STA_ELEV_RE.match(raw)
+        if m and cur_station is not None:
+            cur_npts = int(m.group(1))
+            cur_pts = _parse_numeric_body(m.group(2))
+            in_sta_elev = True
+            if cur_npts > 0 and len(cur_pts) >= cur_npts * 2:
+                flush()
+            continue
+
+        if in_sta_elev:
+            stripped = raw.strip()
+            if stripped and not stripped.startswith("#") and not re.match(r"^[A-Za-z]", stripped):
+                cur_pts.extend(_parse_numeric_body(raw))
+                if cur_npts > 0 and len(cur_pts) >= cur_npts * 2:
+                    flush()
+                continue
+            flush()
+
+    flush()
+    return rows
 
 
 # ---------------------------------------------------------------------------

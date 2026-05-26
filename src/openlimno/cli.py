@@ -182,6 +182,7 @@ def wua(case_yaml: str, species: str, stage: str, plot: bool, n_q: int) -> None:
         # so the CLI's --plot output inherits the same atomic+umask
         # contract as the rest of the OpenLimno output suite.
         from openlimno.case import Case
+
         # v2.3.0: matplotlib's savefig infers format from the file
         # extension, and ``_atomic_write``'s publish tempfile ends in
         # ``.tmp`` — pass ``format="png"`` explicitly or savefig will
@@ -189,7 +190,8 @@ def wua(case_yaml: str, species: str, stage: str, plot: bool, n_q: int) -> None:
         # v1.9.2's R5-3 ship that the existing test suite missed
         # because no integration test ran ``--plot`` end-to-end.
         Case._atomic_write(
-            png, lambda p: fig.savefig(p, dpi=120, format="png"),
+            png,
+            lambda p: fig.savefig(p, dpi=120, format="png"),
         )
         console.print(f"[green]✓[/] plot saved: {png}")
 
@@ -330,6 +332,535 @@ def ibm_export(
         f"{len(result.habitat_cells)} cells, {len(result.flow_summary)} summary rows"
     )
     for name, path in (result.paths or {}).items():
+        console.print(f"  {name}: {path}")
+
+
+@main.command("ibm-studio")
+@click.option("--host", default="127.0.0.1", show_default=True)
+@click.option("--port", type=int, default=8770, show_default=True)
+@click.option(
+    "--out-dir", type=click.Path(), default="/tmp/openlimno_ibm_studio", show_default=True
+)
+@click.option("--open-browser/--no-open-browser", default=True, show_default=True)
+def ibm_studio(host: str, port: int, out_dir: str, open_browser: bool) -> None:
+    """Launch the local browser UI for the native inSTREAM-like IBM."""
+    from openlimno.ibm import run_ibm_studio
+
+    console.print(f"[green]✓[/] starting OpenLimno IBM Studio on http://{host}:{port}/")
+    run_ibm_studio(host=host, port=port, output_dir=out_dir, open_browser=open_browser)
+
+
+@main.command("ibm-run-native")
+@click.option(
+    "--cells",
+    "cells_path",
+    type=click.Path(exists=True),
+    required=True,
+    help="OpenLimno hydraulic/habitat cell table (.csv/.parquet).",
+)
+@click.option("--species", default="rainbow_trout", show_default=True)
+@click.option("--initial-abundance", type=int, default=100, show_default=True)
+@click.option("--initial-length-mm", type=float, default=110.0, show_default=True)
+@click.option("--days", type=int, default=365, show_default=True)
+@click.option("--seed", type=int, default=42, show_default=True)
+@click.option("--scenario-id", default="baseline", show_default=True)
+@click.option("--reach-id", default="reach-1", show_default=True)
+@click.option(
+    "--individual-history/--no-individual-history",
+    default=False,
+    show_default=True,
+    help="Write per-fish daily state history for calibration/audit runs.",
+)
+@click.option("--out-dir", type=click.Path(), required=True)
+def ibm_run_native(
+    cells_path: str,
+    species: str,
+    initial_abundance: int,
+    initial_length_mm: float,
+    days: int,
+    seed: int,
+    scenario_id: str,
+    reach_id: str,
+    individual_history: bool,
+    out_dir: str,
+) -> None:
+    """Run OpenLimno's native non-NetLogo individual-based model."""
+    import pandas as pd
+
+    from openlimno.ibm import (
+        NativeIBMConfig,
+        SpeciesProfile,
+        build_initial_population,
+        run_native_ibm,
+        write_native_ibm_result,
+    )
+
+    src = Path(cells_path)
+    if src.suffix.lower() == ".parquet":
+        cells = pd.read_parquet(src)
+    else:
+        cells = pd.read_csv(src, comment="#")
+    population = build_initial_population(
+        n=initial_abundance,
+        species=species,
+        length_mm=initial_length_mm,
+    )
+    result = run_native_ibm(
+        cells,
+        population,
+        profile=SpeciesProfile(species=species),
+        config=NativeIBMConfig(
+            days=days,
+            seed=seed,
+            scenario_id=scenario_id,
+            reach_id=reach_id,
+            record_individual_history=individual_history,
+        ),
+    )
+    paths = write_native_ibm_result(result, out_dir)
+    final = result.population_summary.iloc[-1]
+    console.print(
+        f"[green]✓[/] native IBM run complete: "
+        f"abundance={int(final['abundance'])}, "
+        f"biomass={float(final['biomass_g']):.2f} g"
+    )
+    for name, path in paths.items():
+        console.print(f"  {name}: {path}")
+
+
+@main.command("ibm-benchmark-instream7")
+@click.option(
+    "--fixture",
+    "fixture_path",
+    type=click.Path(exists=True),
+    required=True,
+    help="Official inSTREAM 7 zip archive or extracted directory.",
+)
+@click.option("--case-id", "case_ids", multiple=True, help="Case ID to run, e.g. ExampleA.")
+@click.option("--days", type=int, default=7, show_default=True)
+@click.option("--seed", type=int, default=42, show_default=True)
+@click.option("--stochastic/--deterministic", default=True, show_default=True)
+@click.option("--out-dir", type=click.Path(), required=True)
+def ibm_benchmark_instream7(
+    fixture_path: str,
+    case_ids: tuple[str, ...],
+    days: int,
+    seed: int,
+    stochastic: bool,
+    out_dir: str,
+) -> None:
+    """Benchmark the native IBM against official inSTREAM 7 example inputs."""
+    from openlimno.ibm import extract_instream7_archive, run_instream7_official_benchmark
+
+    fixture = Path(fixture_path)
+    out = Path(out_dir)
+    if fixture.suffix.lower() == ".zip":
+        root = extract_instream7_archive(fixture, out / "_official_instream7")
+    else:
+        root = fixture
+
+    result = run_instream7_official_benchmark(
+        root,
+        out,
+        case_ids=case_ids or None,
+        days=days,
+        seed=seed,
+        stochastic=stochastic,
+    )
+    console.print(
+        f"[green]✓[/] inSTREAM 7 official benchmark complete: "
+        f"{len(result.inventory)} reach rows, "
+        f"{len(result.population_summary)} population rows"
+    )
+    for name, path in result.paths.items():
+        console.print(f"  {name}: {path}")
+
+
+@main.command("ibm-run-instream7-netlogo-reference")
+@click.option(
+    "--fixture",
+    "fixture_path",
+    type=click.Path(exists=True),
+    required=True,
+    help="Official inSTREAM 7 zip archive or extracted directory.",
+)
+@click.option("--case-id", required=True, help="Case ID to run, e.g. ExampleA or ExampleB.")
+@click.option("--days", type=int, default=2, show_default=True)
+@click.option("--seed", type=int, default=11, show_default=True)
+@click.option(
+    "--netlogo-console",
+    type=click.Path(exists=True),
+    required=True,
+    help="Path to NetLogo_Console from a local NetLogo installation.",
+)
+@click.option("--out-dir", type=click.Path(), required=True)
+def ibm_run_instream7_netlogo_reference(
+    fixture_path: str,
+    case_id: str,
+    days: int,
+    seed: int,
+    netlogo_console: str,
+    out_dir: str,
+) -> None:
+    """Run optional NetLogo headless reference output for an official case."""
+    from openlimno.ibm import extract_instream7_archive, run_instream7_netlogo_reference
+
+    fixture = Path(fixture_path)
+    out = Path(out_dir)
+    if fixture.suffix.lower() == ".zip":
+        root = extract_instream7_archive(fixture, out / "_official_instream7_source")
+    else:
+        root = fixture
+    result = run_instream7_netlogo_reference(
+        root,
+        out,
+        case_id=case_id,
+        netlogo_console=netlogo_console,
+        days=days,
+        seed=seed,
+    )
+    console.print(
+        f"[green]✓[/] NetLogo reference run complete: "
+        f"{case_id}, {len(result.brief_population_files)} BriefPop file(s)"
+    )
+    console.print(f"  setup: {result.setup_file}")
+    console.print(f"  table: {result.table_path}")
+    console.print(f"  spreadsheet: {result.spreadsheet_path}")
+    for path in result.brief_population_files:
+        console.print(f"  brief_pop: {path}")
+
+
+@main.command("ibm-summarize-instream7-brief")
+@click.option(
+    "--brief-pop",
+    "brief_pop_path",
+    type=click.Path(exists=True),
+    required=True,
+    help="Official inSTREAM 7 BriefPopOut CSV generated by NetLogo.",
+)
+@click.option("--out", "out_path", type=click.Path(), required=True)
+@click.option("--aggregate/--raw", default=True, show_default=True)
+def ibm_summarize_instream7_brief(
+    brief_pop_path: str,
+    out_path: str,
+    aggregate: bool,
+) -> None:
+    """Summarize official inSTREAM 7 NetLogo BriefPop output."""
+    from openlimno.ibm import (
+        read_instream7_brief_population,
+        summarize_instream7_brief_population,
+    )
+
+    raw = read_instream7_brief_population(brief_pop_path)
+    table = summarize_instream7_brief_population(raw) if aggregate else raw
+    out = Path(out_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    table.to_csv(out, index=False)
+    console.print(f"[green]✓[/] inSTREAM 7 BriefPop summary written: {len(table)} rows -> {out}")
+
+
+@main.command("ibm-compare-instream7-netlogo")
+@click.option(
+    "--native-summary",
+    "native_summary_path",
+    type=click.Path(exists=True),
+    required=True,
+    help="OpenLimno native IBM population summary CSV.",
+)
+@click.option(
+    "--brief-pop",
+    "brief_pop_path",
+    type=click.Path(exists=True),
+    required=True,
+    help="Official inSTREAM 7 BriefPopOut CSV generated by NetLogo.",
+)
+@click.option("--out", "out_path", type=click.Path(), required=True)
+@click.option("--abundance-tolerance", type=int, default=0, show_default=True)
+@click.option("--biomass-rel-tolerance", type=float, default=0.05, show_default=True)
+@click.option("--mean-length-tolerance-mm", type=float, default=1.0, show_default=True)
+@click.option("--fail-on-exceed/--no-fail-on-exceed", default=False, show_default=True)
+def ibm_compare_instream7_netlogo(
+    native_summary_path: str,
+    brief_pop_path: str,
+    out_path: str,
+    abundance_tolerance: int,
+    biomass_rel_tolerance: float,
+    mean_length_tolerance_mm: float,
+    fail_on_exceed: bool,
+) -> None:
+    # Generate a tolerance report between native IBM and NetLogo BriefPop output.
+    import pandas as pd
+
+    from openlimno.ibm import (
+        compare_instream7_native_to_brief,
+        read_instream7_brief_population,
+        summarize_instream7_brief_population,
+        write_instream7_parity_report,
+    )
+
+    native_summary = pd.read_csv(native_summary_path)
+    brief_raw = read_instream7_brief_population(brief_pop_path)
+    brief_summary = summarize_instream7_brief_population(brief_raw)
+    comparison = compare_instream7_native_to_brief(
+        native_summary,
+        brief_summary,
+        abundance_tolerance=abundance_tolerance,
+        biomass_relative_tolerance=biomass_rel_tolerance,
+        mean_length_tolerance_mm=mean_length_tolerance_mm,
+    )
+    out = Path(out_path)
+    paths = write_instream7_parity_report(comparison, out)
+    passed = comparison["passed"].fillna(False).astype(bool)
+    failures = int((~passed).sum())
+    status = "[green]✓[/]" if failures == 0 else "[yellow]![/]"
+    console.print(
+        f"{status} native-vs-NetLogo comparison written: "
+        f"{len(comparison)} rows, {failures} outside tolerance -> {out}"
+    )
+    console.print(f"  summary: {paths['instream7_parity_summary']}")
+    if failures and fail_on_exceed:
+        sys.exit(1)
+
+
+@main.command("ibm-acceptance-report")
+@click.option(
+    "--official-fixture",
+    type=click.Path(exists=True),
+    multiple=True,
+    help="Official inSTREAM/InSALMO zip archive or extracted directory; repeat for both suites.",
+)
+@click.option(
+    "--wallens-manifest",
+    type=click.Path(exists=True),
+    default=None,
+    help="Wallens Bend source_manifest.json with SCHISM acceptance evidence.",
+)
+@click.option("--out-dir", type=click.Path(), required=True)
+@click.option("--strict-official/--no-strict-official", default=False, show_default=True)
+def ibm_acceptance_report(
+    official_fixture: tuple[str, ...],
+    wallens_manifest: str | None,
+    out_dir: str,
+    strict_official: bool,
+) -> None:
+    """Write an inSTREAM/InSALMO parity and OpenLimno-extension acceptance report."""
+    from openlimno.ibm import build_ibm_acceptance_report, write_ibm_acceptance_report
+
+    report = build_ibm_acceptance_report(
+        official_fixture=official_fixture or None,
+        wallens_manifest=wallens_manifest,
+        strict_official=strict_official,
+    )
+    paths = write_ibm_acceptance_report(report, out_dir)
+    summary = report["summary"]
+    status = "[green]✓[/]" if summary["failed"] == 0 else "[red]✗[/]"
+    console.print(
+        f"{status} IBM acceptance report: "
+        f"{summary['passed']} passed, {summary['warning']} warning, {summary['failed']} failed"
+    )
+    for name, path in paths.items():
+        console.print(f"  {name}: {path}")
+    if summary["failed"]:
+        sys.exit(1)
+
+
+@main.group("ibm")
+def ibm_cli() -> None:
+    """Native IBM profile, scenario, and run helpers."""
+
+
+@ibm_cli.command("submodels")
+@click.option("--slot", default=None, help="Filter registered submodels by slot.")
+def ibm_submodels(slot: str | None) -> None:
+    """List registered native IBM submodel contracts."""
+    from rich.table import Table
+
+    from openlimno.ibm import default_submodel_selection, list_ibm_submodels
+
+    defaults = default_submodel_selection()
+    models = list_ibm_submodels(slot=slot)
+    table = Table()
+    table.add_column("slot", no_wrap=True)
+    table.add_column("id", no_wrap=True)
+    table.add_column("default", no_wrap=True)
+    table.add_column("profile parameters", overflow="fold")
+    for model in models:
+        table.add_row(
+            model.slot,
+            model.id,
+            "yes" if defaults.get(model.slot) == model.id else "",
+            ", ".join(model.profile_parameters),
+        )
+    console.print(table)
+
+
+@ibm_cli.group("profile")
+def ibm_profile_cli() -> None:
+    """Versioned IBM species-profile helpers."""
+
+
+@ibm_profile_cli.command("validate")
+@click.argument("profile_yaml", type=click.Path(exists=True))
+def ibm_profile_validate(profile_yaml: str) -> None:
+    """Validate an IBM species profile YAML/JSON document."""
+    from openlimno.ibm import validate_species_profile
+
+    errors = validate_species_profile(profile_yaml)
+    if errors:
+        for err in errors:
+            console.print(f"[red]✗[/] {err}")
+        sys.exit(1)
+    console.print(f"[green]✓[/] {profile_yaml} validates against IBM profile schema")
+
+
+@ibm_profile_cli.command("inspect")
+@click.argument("profile_yaml", type=click.Path(exists=True))
+def ibm_profile_inspect(profile_yaml: str) -> None:
+    """Print key native-IBM species-profile parameters."""
+    from openlimno.ibm import load_species_profile
+
+    profile = load_species_profile(profile_yaml)
+    console.print(f"species: {profile.species}")
+    console.print(f"thermal: {profile.thermal_min_c:g}..{profile.thermal_max_c:g} °C")
+    console.print(f"max_daily_growth_mm: {profile.max_daily_growth_mm:g}")
+    console.print(f"base_daily_survival: {profile.base_daily_survival:g}")
+    console.print(f"spawn_window_day: {profile.spawn_start_day}..{profile.spawn_end_day}")
+
+
+@ibm_cli.group("scenario")
+def ibm_scenario_cli() -> None:
+    """Versioned IBM scenario helpers."""
+
+
+@ibm_scenario_cli.command("validate")
+@click.argument("scenario_yaml", type=click.Path(exists=True))
+def ibm_scenario_validate(scenario_yaml: str) -> None:
+    """Validate an IBM scenario YAML/JSON document."""
+    from openlimno.ibm import validate_ibm_scenario
+
+    errors = validate_ibm_scenario(scenario_yaml)
+    if errors:
+        for err in errors:
+            console.print(f"[red]✗[/] {err}")
+        sys.exit(1)
+    console.print(f"[green]✓[/] {scenario_yaml} validates against IBM scenario schema")
+
+
+@ibm_cli.command("ensemble")
+@click.argument("scenario_yaml", type=click.Path(exists=True))
+@click.option("--seed", "seeds", type=int, multiple=True, help="Seed to run; repeatable.")
+@click.option("--out-dir", type=click.Path(), default=None, help="Override ensemble output directory.")
+def ibm_ensemble(scenario_yaml: str, seeds: tuple[int, ...], out_dir: str | None) -> None:
+    """Run a scenario ensemble across seeds."""
+    from openlimno.ibm import run_ibm_ensemble
+
+    try:
+        result = run_ibm_ensemble(
+            scenario_yaml,
+            seeds=seeds or None,
+            output_dir=out_dir,
+        )
+    except ValueError as exc:
+        console.print(f"[red]✗[/] {exc}")
+        sys.exit(1)
+    final_mean = float(result.summary["final_abundance"].mean()) if not result.summary.empty else 0.0
+    console.print(
+        f"[green]✓[/] IBM ensemble complete: "
+        f"{len(result.summary)} runs, mean final abundance={final_mean:.2f}"
+    )
+    for name, path in result.paths.items():
+        console.print(f"  {name}: {path}")
+
+
+@ibm_cli.command("calibrate")
+@click.argument("scenario_yaml", type=click.Path(exists=True))
+@click.option(
+    "--observed",
+    "observed_path",
+    type=click.Path(exists=True),
+    default=None,
+    help="Observed CSV/Parquet with day and abundance columns.",
+)
+@click.option(
+    "--param",
+    "parameter_specs",
+    multiple=True,
+    help="Grid entry NAME=VALUE[,VALUE...], e.g. base_daily_survival=0.99,1.0.",
+)
+@click.option(
+    "--method",
+    type=click.Choice(["grid", "abc"]),
+    default="grid",
+    show_default=True,
+    help="Calibration method. For abc, each --param must be NAME=LOW,HIGH.",
+)
+@click.option("--samples", type=int, default=64, show_default=True, help="ABC prior samples.")
+@click.option(
+    "--acceptance-fraction",
+    type=float,
+    default=0.10,
+    show_default=True,
+    help="ABC accepted fraction when --method abc.",
+)
+@click.option("--tolerance", type=float, default=None, help="ABC objective tolerance.")
+@click.option("--out-dir", type=click.Path(), default=None, help="Override calibration output directory.")
+def ibm_calibrate(
+    scenario_yaml: str,
+    observed_path: str | None,
+    parameter_specs: tuple[str, ...],
+    method: str,
+    samples: int,
+    acceptance_fraction: float,
+    tolerance: float | None,
+    out_dir: str | None,
+) -> None:
+    """Run grid-search or ABC calibration against observed abundance."""
+    from openlimno.ibm import parse_parameter_grid, run_ibm_calibration
+
+    try:
+        parameter_grid = parse_parameter_grid(parameter_specs) if parameter_specs else None
+        result = run_ibm_calibration(
+            scenario_yaml,
+            observed_path=observed_path,
+            parameter_grid=parameter_grid,
+            output_dir=out_dir,
+            method=method,
+            samples=samples,
+            acceptance_fraction=acceptance_fraction,
+            tolerance=tolerance,
+        )
+    except ValueError as exc:
+        console.print(f"[red]✗[/] {exc}")
+        sys.exit(1)
+    best = ", ".join(f"{name}={value:g}" for name, value in result.best_parameters.items())
+    score = float(result.summary.iloc[0]["score"]) if not result.summary.empty else 0.0
+    console.print(f"[green]✓[/] IBM calibration complete: best score={score:.4g}, {best}")
+    for name, path in result.paths.items():
+        console.print(f"  {name}: {path}")
+
+
+@ibm_cli.command("run")
+@click.argument("scenario_yaml", type=click.Path(exists=True))
+def ibm_run_scenario(scenario_yaml: str) -> None:
+    """Run a versioned IBM scenario document."""
+    from openlimno.ibm import run_ibm_scenario
+
+    result, paths = run_ibm_scenario(scenario_yaml)
+    summary = result.population_summary
+    if summary.empty:
+        final_day = 0
+        abundance = 0
+        biomass_g = 0.0
+    else:
+        final_day = int(summary["day"].max())
+        final_rows = summary[summary["day"] == final_day]
+        abundance = int(final_rows["abundance"].sum())
+        biomass_g = float(final_rows["biomass_g"].sum())
+    console.print(
+        f"[green]✓[/] IBM scenario run complete: "
+        f"day={final_day}, abundance={abundance}, biomass={biomass_g:.2f} g"
+    )
+    for name, path in paths.items():
         console.print(f"  {name}: {path}")
 
 
@@ -496,9 +1027,7 @@ def calibrate(
                     f"(underlying error: {e})"
                 ) from e
             except RuntimeError as e:
-                raise click.ClickException(
-                    f"pestpp-glm exited with a non-zero status: {e}"
-                ) from e
+                raise click.ClickException(f"pestpp-glm exited with a non-zero status: {e}") from e
             console.print("[green]✓[/] pestpp-glm completed")
             console.print(f"  command: {' '.join(run_result.command)}")
             console.print(f"  returncode: {run_result.returncode}")
@@ -587,9 +1116,7 @@ def reproduce(provenance_json: str, check_only: bool) -> None:
             expected_sha = rec.get("produced_sha256", "")
             file_path = case_yaml.parent / produced
             if not file_path.exists():
-                console.print(
-                    f"  [yellow]?[/] {label} ({stype}): file missing {produced}"
-                )
+                console.print(f"  [yellow]?[/] {label} ({stype}): file missing {produced}")
                 continue
             actual_sha = hashlib.sha256(file_path.read_bytes()).hexdigest()
             if actual_sha != expected_sha:
@@ -818,6 +1345,146 @@ def preprocess_dem_info(dem_path: str) -> None:
     console.print(f"  elev range: {dem.elevation.min():.2f} – {dem.elevation.max():.2f}")
 
 
+def _parse_discharge_list(value: str | None) -> list[float] | None:
+    if value is None or not value.strip():
+        return None
+    discharges: list[float] = []
+    for item in value.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        discharges.append(float(item))
+    return discharges or None
+
+
+@preprocess.command("gis-hydraulics")
+@click.option("--boundary", type=click.Path(exists=True), required=True)
+@click.option("--centerline", type=click.Path(exists=True), required=True)
+@click.option("--out-dir", type=click.Path(), required=True)
+@click.option("--dem", "dem_path", type=click.Path(exists=True), default=None)
+@click.option(
+    "--discharges",
+    default=None,
+    help="Comma-separated discharge values in m3/s. Ignored when --discharge-csv is supplied.",
+)
+@click.option(
+    "--discharge-csv",
+    type=click.Path(exists=True),
+    default=None,
+    help="CSV with a discharge_m3s column, optionally time_index/date/reach_id.",
+)
+@click.option("--cells", "n_cells", type=int, default=12, show_default=True)
+@click.option("--transect-points", type=int, default=25, show_default=True)
+@click.option("--manning-n", type=float, default=0.035, show_default=True)
+@click.option("--slope", type=float, default=None, help="Bed slope; estimated from DEM if omitted.")
+@click.option("--bank-height-m", type=float, default=1.5, show_default=True)
+@click.option("--format", "output_format", type=click.Choice(["csv", "parquet"]), default="csv")
+@click.option(
+    "--solver",
+    type=click.Choice(["builtin-1d", "external"]),
+    default="builtin-1d",
+    show_default=True,
+)
+@click.option(
+    "--external-source",
+    type=click.Choice(
+        [
+            "auto",
+            "hecras-hdf",
+            "telemac-slf",
+            "delft3d-netcdf",
+            "mike-dfs",
+            "mike-1d",
+            "habby-csv",
+            "instream-netlogo",
+        ]
+    ),
+    default="auto",
+    show_default=True,
+    help="External result format when --solver external.",
+)
+@click.option("--external-result", type=click.Path(exists=True), default=None)
+@click.option("--flow-area", default=None, help="HEC-RAS 2D flow-area name.")
+@click.option("--time-index", type=int, default=None, help="External result time index.")
+def preprocess_gis_hydraulics(
+    boundary: str,
+    centerline: str,
+    out_dir: str,
+    dem_path: str | None,
+    discharges: str | None,
+    discharge_csv: str | None,
+    n_cells: int,
+    transect_points: int,
+    manning_n: float,
+    slope: float | None,
+    bank_height_m: float,
+    output_format: str,
+    solver: str,
+    external_source: str,
+    external_result: str | None,
+    flow_area: str | None,
+    time_index: int | None,
+) -> None:
+    """Generate hydraulic cells from real GIS geometry or imported model results."""
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    if solver == "external":
+        if external_result is None:
+            raise click.UsageError("--external-result is required when --solver external.")
+        from openlimno.preprocess import read_external_model
+
+        imported = read_external_model(
+            external_result,
+            source=external_source,
+            flow_area=flow_area,
+            time_index=time_index,
+        )
+        target = out / f"hydraulic_cells.{output_format}"
+        if output_format == "parquet":
+            imported.table.to_parquet(target, index=False)
+        else:
+            imported.table.to_csv(target, index=False)
+        console.print(
+            f"[green]✓[/] imported {imported.source_key} hydraulic cells: "
+            f"{len(imported.table)} rows → {target}"
+        )
+        for warning in imported.warnings:
+            console.print(f"[yellow]⚠[/] {warning}")
+        return
+
+    import pandas as pd
+
+    from openlimno.hydro import build_builtin1d_gis_hydraulics
+
+    flow = pd.read_csv(discharge_csv) if discharge_csv is not None else _parse_discharge_list(discharges)
+    result = build_builtin1d_gis_hydraulics(
+        boundary_path=boundary,
+        centerline_path=centerline,
+        out_dir=out,
+        discharges_m3s=flow,
+        dem_path=dem_path,
+        n_cells=n_cells,
+        transect_points=transect_points,
+        manning_n=manning_n,
+        slope=slope,
+        bank_height_m=bank_height_m,
+        output_format=output_format,
+    )
+    n_q = int(result.hydraulic_cells["discharge_m3s"].nunique())
+    n_cells_out = int(result.hydraulic_cells["cell_id"].nunique())
+    console.print(
+        f"[green]✓[/] GIS hydraulic cells: {n_cells_out} cells × {n_q} flows "
+        f"→ {result.hydraulic_cells_path}"
+    )
+    console.print(f"  cells geojson: {result.hydraulic_cells_geojson_path}")
+    console.print(f"  cross sections: {result.cross_sections_path}")
+    console.print(f"  calibration template: {result.calibration_template_path}")
+    console.print(f"  manifest: {result.manifest_path}")
+    for warning in result.warnings:
+        console.print(f"[yellow]⚠[/] {warning}")
+
+
 @preprocess.command("import-model")
 @click.option(
     "--source",
@@ -919,8 +1586,7 @@ def preprocess_import_model(
         result.table.to_csv(out, index=False)
 
     console.print(
-        f"[green]✓[/] imported {result.model} {result.input_kind}: "
-        f"{len(result.table)} rows → {out}"
+        f"[green]✓[/] imported {result.model} {result.input_kind}: {len(result.table)} rows → {out}"
     )
     for warning in result.warnings:
         console.print(f"[yellow]⚠[/] {warning}")
@@ -973,7 +1639,9 @@ def preprocess_diagnose_model(source: str, strict: bool) -> None:
     summary.add_row("dotnet_cli", diagnostic.dotnet_cli or "(not required/found)")
     summary.add_row(
         "dotnet_ok",
-        "(not required)" if diagnostic.dotnet_ok is None else ("yes" if diagnostic.dotnet_ok else "no"),
+        "(not required)"
+        if diagnostic.dotnet_ok is None
+        else ("yes" if diagnostic.dotnet_ok else "no"),
     )
     summary.add_row("ready", "yes" if diagnostic.ready else "no")
     console.print(summary)
@@ -1275,46 +1943,56 @@ def preprocess_inspect_model(
 
 @main.command("fetch")
 @click.argument(
-    "case_yaml", type=click.Path(exists=True, dir_okay=False),
+    "case_yaml",
+    type=click.Path(exists=True, dir_okay=False),
 )
 @click.option(
-    "--fetch-dem", default=None, type=click.Choice(["cop30"]),
+    "--fetch-dem",
+    default=None,
+    type=click.Choice(["cop30"]),
     help="Fetch Copernicus GLO-30 DEM for the case bbox.",
 )
 @click.option(
-    "--fetch-watershed", default=None,
-    help="Fetch upstream watershed via HydroSHEDS. Format: "
-         "'hydrosheds:REGION:LAT:LON[:LEVEL]'.",
+    "--fetch-watershed",
+    default=None,
+    help="Fetch upstream watershed via HydroSHEDS. Format: 'hydrosheds:REGION:LAT:LON[:LEVEL]'.",
 )
 @click.option(
-    "--fetch-soil", default=None,
+    "--fetch-soil",
+    default=None,
     help="Fetch ISRIC SoilGrids point. Format: 'soilgrids:LAT:LON'.",
 )
 @click.option(
-    "--fetch-lulc", default=None,
+    "--fetch-lulc",
+    default=None,
     help="Fetch ESA WorldCover 10 m LULC. Format: "
-         "'worldcover:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX[:YEAR]'.",
+    "'worldcover:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX[:YEAR]'.",
 )
 @click.option(
-    "--fetch-species", default=None,
+    "--fetch-species",
+    default=None,
     help="Fetch GBIF taxon + occurrences. Format: "
-         "'gbif:SCIENTIFIC_NAME:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX'.",
+    "'gbif:SCIENTIFIC_NAME:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX'.",
 )
 @click.option(
-    "--fetch-fishbase", default=None,
+    "--fetch-fishbase",
+    default=None,
     help="Lookup FishBase traits for a species (curated starter "
-         "table of ~12 species). Format: 'starter:SCIENTIFIC_NAME'.",
+    "table of ~12 species). Format: 'starter:SCIENTIFIC_NAME'.",
 )
 @click.option(
-    "--fetch-climate", default=None,
-    help="Fetch daily climate. Format: 'daymet:LAT:LON:SY:EY' or "
-         "'open-meteo:LAT:LON:SY:EY'.",
+    "--fetch-climate",
+    default=None,
+    help="Fetch daily climate. Format: 'daymet:LAT:LON:SY:EY' or 'open-meteo:LAT:LON:SY:EY'.",
 )
 def fetch(
     case_yaml: str,
-    fetch_dem: str | None, fetch_watershed: str | None,
-    fetch_soil: str | None, fetch_lulc: str | None,
-    fetch_species: str | None, fetch_fishbase: str | None,
+    fetch_dem: str | None,
+    fetch_watershed: str | None,
+    fetch_soil: str | None,
+    fetch_lulc: str | None,
+    fetch_species: str | None,
+    fetch_fishbase: str | None,
     fetch_climate: str | None,
 ) -> None:
     """Run fetchers against an EXISTING case.yaml — additive to its
@@ -1360,18 +2038,16 @@ def fetch(
 
     if fetch_dem == "cop30":
         if not case_bbox_tuple:
-            raise click.UsageError(
-                "--fetch-dem cop30 needs case.bbox set in the case.yaml"
-            )
-        console.print(
-            f"[bold]Fetching Copernicus GLO-30 for bbox {case_bbox_tuple}…[/]"
-        )
+            raise click.UsageError("--fetch-dem cop30 needs case.bbox set in the case.yaml")
+        console.print(f"[bold]Fetching Copernicus GLO-30 for bbox {case_bbox_tuple}…[/]")
         dem = fetch_copernicus_dem(*case_bbox_tuple)
         ce = dem.cache_entries[0]
         record_fetch(
-            output_dir, label="cross_section_dem",
+            output_dir,
+            label="cross_section_dem",
             source_type="copernicus_dem",
-            source_url=ce.source_url, fetch_time=ce.fetch_time,
+            source_url=ce.source_url,
+            fetch_time=ce.fetch_time,
             produced_file=Path(dem.path).name,
             params={"bbox": list(case_bbox_tuple), "n_tiles": dem.n_tiles},
             notes=f"CLI `fetch` Copernicus GLO-30 — {dem.n_tiles} tile(s)",
@@ -1383,19 +2059,14 @@ def fetch(
     if fetch_watershed:
         wparts = fetch_watershed.split(":")
         if not (4 <= len(wparts) <= 5) or wparts[0] != "hydrosheds":
-            raise click.UsageError(
-                "--fetch-watershed must be "
-                "'hydrosheds:REGION:LAT:LON[:LEVEL]'"
-            )
+            raise click.UsageError("--fetch-watershed must be 'hydrosheds:REGION:LAT:LON[:LEVEL]'")
         try:
             w_region = wparts[1]
             w_lat = float(wparts[2])
             w_lon = float(wparts[3])
             w_level = int(wparts[4]) if len(wparts) == 5 else 12
         except ValueError as e:
-            raise click.UsageError(
-                f"--fetch-watershed parse error: {fetch_watershed!r}"
-            ) from e
+            raise click.UsageError(f"--fetch-watershed parse error: {fetch_watershed!r}") from e
         console.print(
             f"[bold]Fetching HydroSHEDS lev{w_level:02d} {w_region.upper()} "
             f"@({w_lat:.4f}, {w_lon:.4f})…[/]"
@@ -1404,8 +2075,7 @@ def fetch(
         pour = find_basin_at(layer.shp_path, w_lat, w_lon)
         if pour is None:
             raise click.ClickException(
-                f"(lat={w_lat}, lon={w_lon}) outside HydroSHEDS region "
-                f"{w_region.upper()}"
+                f"(lat={w_lat}, lon={w_lon}) outside HydroSHEDS region {w_region.upper()}"
             )
         pour_id = int(pour["HYBAS_ID"])
         ups = upstream_basin_ids(layer.shp_path, pour_id)
@@ -1413,14 +2083,17 @@ def fetch(
         ws_path.parent.mkdir(parents=True, exist_ok=True)
         summary = write_watershed_geojson(layer.shp_path, ups, ws_path)
         record_fetch(
-            output_dir, label="watershed_hydrosheds",
+            output_dir,
+            label="watershed_hydrosheds",
             source_type="hydrosheds_hydrobasins",
             source_url=layer.cache.source_url,
             fetch_time=layer.cache.fetch_time,
             produced_file=ws_path.relative_to(output_dir),
             params={
-                "region": w_region, "level": w_level,
-                "pour_lat": w_lat, "pour_lon": w_lon,
+                "region": w_region,
+                "level": w_level,
+                "pour_lat": w_lat,
+                "pour_lon": w_lon,
                 "pour_hybas_id": pour_id,
                 "n_basins": summary["n_basins"],
                 "area_km2": summary["area_km2"],
@@ -1429,37 +2102,34 @@ def fetch(
         )
         _wedm_patches["data"]["watershed"] = {
             "uri": str(ws_path.relative_to(output_dir)),
-            "pour_lat": w_lat, "pour_lon": w_lon, "pour_hybas_id": pour_id,
-            "region": w_region, "level": w_level,
+            "pour_lat": w_lat,
+            "pour_lon": w_lon,
+            "pour_hybas_id": pour_id,
+            "region": w_region,
+            "level": w_level,
             "n_basins": summary["n_basins"],
             "area_km2": round(summary["area_km2"], 3),
         }
-        console.print(
-            f"  → {summary['n_basins']} basins, "
-            f"{summary['area_km2']:.1f} km²"
-        )
+        console.print(f"  → {summary['n_basins']} basins, {summary['area_km2']:.1f} km²")
         n_ran += 1
 
     if fetch_soil:
         sparts = fetch_soil.split(":")
         if len(sparts) != 3 or sparts[0] != "soilgrids":
-            raise click.UsageError(
-                "--fetch-soil must be 'soilgrids:LAT:LON'"
-            )
+            raise click.UsageError("--fetch-soil must be 'soilgrids:LAT:LON'")
         try:
             s_lat = float(sparts[1])
             s_lon = float(sparts[2])
         except ValueError as e:
-            raise click.UsageError(
-                f"--fetch-soil parse error: {fetch_soil!r}"
-            ) from e
+            raise click.UsageError(f"--fetch-soil parse error: {fetch_soil!r}") from e
         console.print(f"[bold]Fetching SoilGrids @({s_lat:.4f}, {s_lon:.4f})…[/]")
         sg = fetch_soilgrids(s_lat, s_lon)
         soil_path = output_dir / "data" / "soil.csv"
         soil_path.parent.mkdir(parents=True, exist_ok=True)
         sg.df.to_csv(soil_path, index=False)
         record_fetch(
-            output_dir, label="soil_soilgrids",
+            output_dir,
+            label="soil_soilgrids",
             source_type="isric_soilgrids_v2",
             source_url=sg.cache.source_url,
             fetch_time=sg.cache.fetch_time,
@@ -1469,12 +2139,11 @@ def fetch(
         )
         _wedm_patches["data"]["soil"] = {
             "uri": str(soil_path.relative_to(output_dir)),
-            "lat": s_lat, "lon": s_lon,
+            "lat": s_lat,
+            "lon": s_lon,
             "properties": sorted(sg.df["property"].unique().tolist()),
             "depths": sorted(sg.df["depth"].unique().tolist()),
-            "statistic": (
-                str(sg.df["statistic"].iloc[0]) if len(sg.df) else "mean"
-            ),
+            "statistic": (str(sg.df["statistic"].iloc[0]) if len(sg.df) else "mean"),
         }
         console.print(f"  → {len(sg.df)} rows")
         n_ran += 1
@@ -1483,8 +2152,7 @@ def fetch(
         lparts = fetch_lulc.split(":")
         if not (5 <= len(lparts) <= 6) or lparts[0] != "worldcover":
             raise click.UsageError(
-                "--fetch-lulc must be "
-                "'worldcover:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX[:YEAR]'"
+                "--fetch-lulc must be 'worldcover:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX[:YEAR]'"
             )
         try:
             l_lon_min = float(lparts[1])
@@ -1493,74 +2161,69 @@ def fetch(
             l_lat_max = float(lparts[4])
             l_year = int(lparts[5]) if len(lparts) == 6 else 2021
         except ValueError as e:
-            raise click.UsageError(
-                f"--fetch-lulc parse error: {fetch_lulc!r}"
-            ) from e
-        console.print(
-            f"[bold]Fetching ESA WorldCover {l_year}…[/]"
-        )
+            raise click.UsageError(f"--fetch-lulc parse error: {fetch_lulc!r}") from e
+        console.print(f"[bold]Fetching ESA WorldCover {l_year}…[/]")
         wc = fetch_esa_worldcover(
-            l_lon_min, l_lat_min, l_lon_max, l_lat_max, year=l_year,
+            l_lon_min,
+            l_lat_min,
+            l_lon_max,
+            l_lat_max,
+            year=l_year,
         )
         lulc_path = output_dir / "data" / f"lulc_{l_year}.tif"
         lulc_path.parent.mkdir(parents=True, exist_ok=True)
         import shutil as _shutil
+
         if wc.path != lulc_path:
             _shutil.copy(wc.path, lulc_path)
         record_fetch(
-            output_dir, label=f"lulc_worldcover_{l_year}",
+            output_dir,
+            label=f"lulc_worldcover_{l_year}",
             source_type="esa_worldcover",
             source_url=wc.cache_entries[0].source_url,
             fetch_time=wc.cache_entries[0].fetch_time,
             produced_file=lulc_path.relative_to(output_dir),
             params={
                 "bbox": [l_lon_min, l_lat_min, l_lon_max, l_lat_max],
-                "year": l_year, "version": wc.version,
+                "year": l_year,
+                "version": wc.version,
                 "n_tiles": wc.n_tiles,
             },
             notes=f"CLI `fetch` WorldCover — citation: {wc.citation}",
         )
         _wedm_patches["data"]["lulc"] = {
             "uri": str(lulc_path.relative_to(output_dir)),
-            "year": l_year, "version": wc.version,
-            "class_km2": {
-                str(k): round(v, 6) for k, v in wc.class_km2.items()
-            },
+            "year": l_year,
+            "version": wc.version,
+            "class_km2": {str(k): round(v, 6) for k, v in wc.class_km2.items()},
         }
-        console.print(
-            f"  → {wc.n_tiles} tile(s), "
-            f"{sum(wc.class_pixels.values()):,} px"
-        )
+        console.print(f"  → {wc.n_tiles} tile(s), {sum(wc.class_pixels.values()):,} px")
         n_ran += 1
 
     if fetch_species:
         spparts = fetch_species.split(":")
         if len(spparts) != 6 or spparts[0] != "gbif":
             raise click.UsageError(
-                "--fetch-species must be "
-                "'gbif:SCIENTIFIC_NAME:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX'"
+                "--fetch-species must be 'gbif:SCIENTIFIC_NAME:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX'"
             )
         sp_name = spparts[1].strip()
         try:
             sp_bbox = (
-                float(spparts[2]), float(spparts[3]),
-                float(spparts[4]), float(spparts[5]),
+                float(spparts[2]),
+                float(spparts[3]),
+                float(spparts[4]),
+                float(spparts[5]),
             )
         except ValueError as e:
-            raise click.UsageError(
-                f"--fetch-species parse error: {fetch_species!r}"
-            ) from e
+            raise click.UsageError(f"--fetch-species parse error: {fetch_species!r}") from e
         console.print(f"[bold]Matching GBIF taxon {sp_name!r}…[/]")
         m = match_species(sp_name)
         if m.usage_key is None or m.match_type == "NONE":
             raise click.ClickException(
-                f"GBIF could not match {sp_name!r} "
-                f"(match_type={m.match_type})"
+                f"GBIF could not match {sp_name!r} (match_type={m.match_type})"
             )
         occ = fetch_gbif_occurrences(m.usage_key, sp_bbox)
-        sp_path = (
-            output_dir / "data" / f"species_gbif_{m.usage_key}.csv"
-        )
+        sp_path = output_dir / "data" / f"species_gbif_{m.usage_key}.csv"
         sp_path.parent.mkdir(parents=True, exist_ok=True)
         occ.df.to_csv(sp_path, index=False)
         primary = occ.cache[0] if occ.cache else None
@@ -1569,8 +2232,7 @@ def fetch(
             label=f"species_gbif_{m.usage_key}",
             source_type="gbif_occurrence",
             source_url=(
-                primary.source_url if primary
-                else "https://api.gbif.org/v1/occurrence/search"
+                primary.source_url if primary else "https://api.gbif.org/v1/occurrence/search"
             ),
             fetch_time=primary.fetch_time if primary else "",
             produced_file=sp_path.relative_to(output_dir),
@@ -1578,7 +2240,8 @@ def fetch(
                 "scientific_name": sp_name,
                 "canonical_name": m.canonical_name,
                 "usage_key": m.usage_key,
-                "family": m.family, "order": m.order,
+                "family": m.family,
+                "order": m.order,
                 "match_type": m.match_type,
                 "confidence": int(m.confidence) if m.confidence is not None else 0,
                 "occurrence_count_returned": len(occ.df),
@@ -1591,31 +2254,29 @@ def fetch(
             "scientific_name": sp_name,
             "canonical_name": m.canonical_name,
             "usage_key": int(m.usage_key),
-            "family": m.family, "order": m.order,
+            "family": m.family,
+            "order": m.order,
             "match_type": m.match_type,
             "confidence": int(m.confidence) if m.confidence is not None else 0,
             "occurrence_count_returned": len(occ.df),
             "occurrence_count_total": int(occ.total_matched),
         }
         console.print(
-            f"  → {m.canonical_name} ({m.family}), "
-            f"{len(occ.df)}/{occ.total_matched:,} records"
+            f"  → {m.canonical_name} ({m.family}), {len(occ.df)}/{occ.total_matched:,} records"
         )
         n_ran += 1
 
     if fetch_fishbase:
         from openlimno.preprocess.fetch import fetch_fishbase_traits
+
         fbparts = fetch_fishbase.split(":", 1)
         if len(fbparts) != 2 or fbparts[0] != "starter":
             raise click.UsageError(
-                "--fetch-fishbase must be 'starter:SCIENTIFIC_NAME' "
-                f"(got {fetch_fishbase!r})"
+                f"--fetch-fishbase must be 'starter:SCIENTIFIC_NAME' (got {fetch_fishbase!r})"
             )
         fb_name = fbparts[1].strip()
         if not fb_name:
-            raise click.UsageError(
-                "--fetch-fishbase scientific name is empty"
-            )
+            raise click.UsageError("--fetch-fishbase scientific name is empty")
         console.print(f"[bold]Looking up FishBase traits for {fb_name!r}…[/]")
         traits = fetch_fishbase_traits(fb_name)
         if traits is None:
@@ -1649,8 +2310,7 @@ def fetch(
         valid = {"daymet", "open-meteo"}
         if len(cparts) != 5 or cparts[0] not in valid:
             raise click.UsageError(
-                "--fetch-climate must be '<source>:LAT:LON:SY:EY' "
-                f"with source ∈ {sorted(valid)}"
+                f"--fetch-climate must be '<source>:LAT:LON:SY:EY' with source ∈ {sorted(valid)}"
             )
         c_source, c_lat_s, c_lon_s, sy_s, ey_s = cparts
         try:
@@ -1659,17 +2319,10 @@ def fetch(
             c_sy = int(sy_s)
             c_ey = int(ey_s)
         except ValueError as e:
-            raise click.UsageError(
-                f"--fetch-climate parse error: {fetch_climate!r}"
-            ) from e
+            raise click.UsageError(f"--fetch-climate parse error: {fetch_climate!r}") from e
         if c_sy > c_ey:
-            raise click.UsageError(
-                f"start_year ({c_sy}) > end_year ({c_ey})"
-            )
-        console.print(
-            f"[bold]Fetching {c_source} ({c_lat:.4f}, {c_lon:.4f}) "
-            f"{c_sy}–{c_ey}…[/]"
-        )
+            raise click.UsageError(f"start_year ({c_sy}) > end_year ({c_ey})")
+        console.print(f"[bold]Fetching {c_source} ({c_lat:.4f}, {c_lon:.4f}) {c_sy}–{c_ey}…[/]")
         if c_source == "daymet":
             res = fetch_daymet_daily(c_lat, c_lon, c_sy, c_ey)
             label = "climate_daymet"
@@ -1682,32 +2335,35 @@ def fetch(
         clim_path.parent.mkdir(parents=True, exist_ok=True)
         res.df.to_csv(clim_path, index=False)
         record_fetch(
-            output_dir, label=label, source_type=stype,
+            output_dir,
+            label=label,
+            source_type=stype,
             source_url=res.cache.source_url,
             fetch_time=res.cache.fetch_time,
             produced_file=clim_path.relative_to(output_dir),
             params={
-                "lat": c_lat, "lon": c_lon,
-                "start_year": c_sy, "end_year": c_ey,
+                "lat": c_lat,
+                "lon": c_lon,
+                "start_year": c_sy,
+                "end_year": c_ey,
             },
             notes=f"CLI `fetch` {c_source} — citation: {res.citation}",
         )
         _wedm_patches["data"]["climate"] = {
             "uri": str(clim_path.relative_to(output_dir)),
             "source": c_source,
-            "lat": c_lat, "lon": c_lon,
-            "start_year": c_sy, "end_year": c_ey,
+            "lat": c_lat,
+            "lon": c_lon,
+            "start_year": c_sy,
+            "end_year": c_ey,
         }
         console.print(
-            f"  → {len(res.df)} days, "
-            f"peak T_water {res.df['T_water_C_stefan'].max():.1f}°C"
+            f"  → {len(res.df)} days, peak T_water {res.df['T_water_C_stefan'].max():.1f}°C"
         )
         n_ran += 1
 
     if n_ran == 0:
-        raise click.UsageError(
-            "No fetchers selected — pass at least one --fetch-* flag."
-        )
+        raise click.UsageError("No fetchers selected — pass at least one --fetch-* flag.")
 
     # Patch case.yaml WEDM v0.2 data.* blocks.
     # v3.4.0 R13-3: use ruamel.yaml round-trip so the fetcher
@@ -1720,6 +2376,7 @@ def fetch(
     # path-safety sandbox.
     from openlimno._yaml_rt import dump_round_trip, load_round_trip
     from openlimno.case import Case as _Case
+
     case_doc = load_round_trip(case_yaml_path)
     case_doc["openlimno"] = "0.2"
     if case_doc.get("data") is None:
@@ -1730,87 +2387,142 @@ def fetch(
         case_yaml_path=Path(case_yaml_path).resolve(),
     )
     dump_round_trip(case_doc, case_yaml_path, case=_case)
-    console.print(
-        f"\n[green]✓[/] ran {n_ran} fetcher(s); case.yaml updated to WEDM 0.2"
-    )
+    console.print(f"\n[green]✓[/] ran {n_ran} fetcher(s); case.yaml updated to WEDM 0.2")
 
 
 @main.command("init-from-osm")
-@click.option("--river", default=None, help="Waterway 'name' tag in OSM (optional if --bbox or --polyline given).")
-@click.option("--region", default="Idaho", help="Admin area to scope the OSM query (used only without --bbox).")
-@click.option("--bbox", default=None,
-                help="Spatial bbox 'lon_min,lat_min,lon_max,lat_max' (overrides region).")
-@click.option("--polyline", "polyline_path", type=click.Path(exists=True), default=None,
-                help="Path to a LineString GeoJSON (skips Overpass entirely).")
-@click.option("--output", "output_dir", type=click.Path(), required=True,
-                help="Target directory (created if missing).")
+@click.option(
+    "--river",
+    default=None,
+    help="Waterway 'name' tag in OSM (optional if --bbox or --polyline given).",
+)
+@click.option(
+    "--region",
+    default="Idaho",
+    help="Admin area to scope the OSM query (used only without --bbox).",
+)
+@click.option(
+    "--bbox",
+    default=None,
+    help="Spatial bbox 'lon_min,lat_min,lon_max,lat_max' (overrides region).",
+)
+@click.option(
+    "--polyline",
+    "polyline_path",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to a LineString GeoJSON (skips Overpass entirely).",
+)
+@click.option(
+    "--output",
+    "output_dir",
+    type=click.Path(),
+    required=True,
+    help="Target directory (created if missing).",
+)
 @click.option("--n-sections", default=11, type=int, help="Number of mesh nodes / cross-sections.")
 @click.option("--reach-km", default=1.0, type=float, help="Length of modelled reach (km).")
-@click.option("--valley-width", default=10.0, type=float, help="Cross-section bank-to-bank width (m).")
+@click.option(
+    "--valley-width", default=10.0, type=float, help="Cross-section bank-to-bank width (m)."
+)
 @click.option("--thalweg-depth", default=1.0, type=float, help="Thalweg depth below banks (m).")
 @click.option("--bank-elev", default=1500.0, type=float, help="Upstream bank elevation (m).")
 @click.option("--slope", default=0.002, type=float, help="Bed slope along reach.")
 @click.option("--species", default="oncorhynchus_mykiss", help="Default target species.")
-@click.option("--fetch-dem", type=click.Choice(["none", "cop30"]), default="none",
-                help="Auto-fetch real cross-section bathymetry: "
-                     "'cop30' streams Copernicus GLO-30 DEM from AWS S3 and "
-                     "cuts perpendicular xs along the centerline. Overrides "
-                     "--valley-width / --thalweg-depth / --bank-elev synthesis. "
-                     "Requires --bbox (no global lookup with --river).")
-@click.option("--fetch-discharge", default=None,
-                help="Auto-fetch discharge time series. Format: "
-                     "'usgs-nwis:SITE_ID:START:END' (US gauges, no auth). "
-                     "Example: 'usgs-nwis:13305000:2020-01-01:2024-12-31' "
-                     "for Lemhi River at Lemhi, ID.")
-@click.option("--fetch-species", default=None,
-                help="Auto-fetch GBIF species match + nearby "
-                     "georeferenced occurrences. Format: "
-                     "'gbif:SCIENTIFIC_NAME:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX'. "
-                     "Writes data/species_<key>.csv and records "
-                     "taxonomy match in the sidecar. Example: "
-                     "'gbif:Salmo trutta:100.10:38.10:100.30:38.30'.")
-@click.option("--fetch-soil", default=None,
-                help="Auto-fetch SoilGrids 250 m soil properties at a "
-                     "point. Format: 'soilgrids:LAT:LON' — pulls the "
-                     "default 6 properties (bdod/clay/sand/silt/soc/"
-                     "phh2o) × top 3 depths (0-5/5-15/15-30 cm) × mean "
-                     "statistic and writes data/soil.csv plus a "
-                     "sidecar entry. Example: 'soilgrids:38.20:100.20'.")
-@click.option("--fetch-lulc", default=None,
-                help="Auto-fetch ESA WorldCover 10 m LULC. Format: "
-                     "'worldcover:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX[:YEAR]' "
-                     "with YEAR ∈ {2020, 2021}, default 2021. Writes "
-                     "data/lulc.tif (uint8 11-class) + a histogram "
-                     "snapshot to the sidecar. Example: "
-                     "'worldcover:100.10:38.10:100.30:38.30:2021'.")
-@click.option("--fetch-watershed", default=None,
-                help="Auto-fetch upstream watershed via HydroSHEDS. "
-                     "Format: 'hydrosheds:REGION:LAT:LON[:LEVEL]' where "
-                     "REGION ∈ {af,ar,as,au,eu,gr,na,sa,si} and LEVEL "
-                     "∈ 1-12 (default 12, finest). Writes "
-                     "data/watershed.geojson with the contributing-"
-                     "area polygon + drainage area in km². Example: "
-                     "'hydrosheds:as:31.23:121.47' (Yangtze estuary).")
-@click.option("--fetch-climate", default=None,
-                help="Auto-fetch daily climate time series. Formats: "
-                     "'daymet:LAT:LON:SY:EY' (North America, 1 km, "
-                     "Daymet v4 since 1980) or 'open-meteo:LAT:LON:SY:EY' "
-                     "(global, ~11 km, ERA5/ERA5-Land reanalysis via "
-                     "Open-Meteo since 1940). Both produce the same "
-                     "DataFrame schema (tmax/tmin/T_air_mean + Stefan "
-                     "1993 T_water) so downstream code is source-"
-                     "agnostic. Resolution differs: Daymet is the "
-                     "higher-fidelity choice where it covers, "
-                     "Open-Meteo fills the rest of the globe. "
-                     "Example: 'open-meteo:31.23:121.47:2024:2024' "
-                     "(Shanghai).")
+@click.option(
+    "--fetch-dem",
+    type=click.Choice(["none", "cop30"]),
+    default="none",
+    help="Auto-fetch real cross-section bathymetry: "
+    "'cop30' streams Copernicus GLO-30 DEM from AWS S3 and "
+    "cuts perpendicular xs along the centerline. Overrides "
+    "--valley-width / --thalweg-depth / --bank-elev synthesis. "
+    "Requires --bbox (no global lookup with --river).",
+)
+@click.option(
+    "--fetch-discharge",
+    default=None,
+    help="Auto-fetch discharge time series. Format: "
+    "'usgs-nwis:SITE_ID:START:END' (US gauges, no auth). "
+    "Example: 'usgs-nwis:13305000:2020-01-01:2024-12-31' "
+    "for Lemhi River at Lemhi, ID.",
+)
+@click.option(
+    "--fetch-species",
+    default=None,
+    help="Auto-fetch GBIF species match + nearby "
+    "georeferenced occurrences. Format: "
+    "'gbif:SCIENTIFIC_NAME:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX'. "
+    "Writes data/species_<key>.csv and records "
+    "taxonomy match in the sidecar. Example: "
+    "'gbif:Salmo trutta:100.10:38.10:100.30:38.30'.",
+)
+@click.option(
+    "--fetch-soil",
+    default=None,
+    help="Auto-fetch SoilGrids 250 m soil properties at a "
+    "point. Format: 'soilgrids:LAT:LON' — pulls the "
+    "default 6 properties (bdod/clay/sand/silt/soc/"
+    "phh2o) × top 3 depths (0-5/5-15/15-30 cm) × mean "
+    "statistic and writes data/soil.csv plus a "
+    "sidecar entry. Example: 'soilgrids:38.20:100.20'.",
+)
+@click.option(
+    "--fetch-lulc",
+    default=None,
+    help="Auto-fetch ESA WorldCover 10 m LULC. Format: "
+    "'worldcover:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX[:YEAR]' "
+    "with YEAR ∈ {2020, 2021}, default 2021. Writes "
+    "data/lulc.tif (uint8 11-class) + a histogram "
+    "snapshot to the sidecar. Example: "
+    "'worldcover:100.10:38.10:100.30:38.30:2021'.",
+)
+@click.option(
+    "--fetch-watershed",
+    default=None,
+    help="Auto-fetch upstream watershed via HydroSHEDS. "
+    "Format: 'hydrosheds:REGION:LAT:LON[:LEVEL]' where "
+    "REGION ∈ {af,ar,as,au,eu,gr,na,sa,si} and LEVEL "
+    "∈ 1-12 (default 12, finest). Writes "
+    "data/watershed.geojson with the contributing-"
+    "area polygon + drainage area in km². Example: "
+    "'hydrosheds:as:31.23:121.47' (Yangtze estuary).",
+)
+@click.option(
+    "--fetch-climate",
+    default=None,
+    help="Auto-fetch daily climate time series. Formats: "
+    "'daymet:LAT:LON:SY:EY' (North America, 1 km, "
+    "Daymet v4 since 1980) or 'open-meteo:LAT:LON:SY:EY' "
+    "(global, ~11 km, ERA5/ERA5-Land reanalysis via "
+    "Open-Meteo since 1940). Both produce the same "
+    "DataFrame schema (tmax/tmin/T_air_mean + Stefan "
+    "1993 T_water) so downstream code is source-"
+    "agnostic. Resolution differs: Daymet is the "
+    "higher-fidelity choice where it covers, "
+    "Open-Meteo fills the rest of the globe. "
+    "Example: 'open-meteo:31.23:121.47:2024:2024' "
+    "(Shanghai).",
+)
 def init_from_osm(
-    river: str | None, region: str, bbox: str | None, polyline_path: str | None,
-    output_dir: str, n_sections: int, reach_km: float, valley_width: float,
-    thalweg_depth: float, bank_elev: float, slope: float, species: str,
-    fetch_dem: str, fetch_discharge: str | None,
-    fetch_watershed: str | None, fetch_species: str | None,
-    fetch_soil: str | None, fetch_lulc: str | None,
+    river: str | None,
+    region: str,
+    bbox: str | None,
+    polyline_path: str | None,
+    output_dir: str,
+    n_sections: int,
+    reach_km: float,
+    valley_width: float,
+    thalweg_depth: float,
+    bank_elev: float,
+    slope: float,
+    species: str,
+    fetch_dem: str,
+    fetch_discharge: str | None,
+    fetch_watershed: str | None,
+    fetch_species: str | None,
+    fetch_soil: str | None,
+    fetch_lulc: str | None,
     fetch_climate: str | None,
 ) -> None:
     """Build a complete OpenLimno case from OSM data (SPEC §4.0).
@@ -1830,9 +2542,7 @@ def init_from_osm(
                 raise ValueError
             bbox_tuple = tuple(bbox_parts)
         except (ValueError, IndexError) as e:
-            raise click.BadParameter(
-                "--bbox must be 'lon_min,lat_min,lon_max,lat_max'"
-            ) from e
+            raise click.BadParameter("--bbox must be 'lon_min,lat_min,lon_max,lat_max'") from e
 
     if not (river or bbox_tuple or polyline_path):
         raise click.UsageError("Provide --river, --bbox, or --polyline")
@@ -1846,8 +2556,10 @@ def init_from_osm(
         _wedm_patches["case_bbox"] = list(bbox_tuple)
 
     spec = OSMCaseSpec(
-        river_name=river, region_name=region,
-        bbox=bbox_tuple, polyline_geojson=polyline_path,
+        river_name=river,
+        region_name=region,
+        bbox=bbox_tuple,
+        polyline_geojson=polyline_path,
         n_sections=n_sections,
         reach_length_m=reach_km * 1000.0,
         valley_width_m=valley_width,
@@ -1856,11 +2568,12 @@ def init_from_osm(
         slope=slope,
         species_id=species,
     )
-    descriptor = (polyline_path if polyline_path
-                    else f"bbox {bbox}" if bbox
-                    else f"'{river}' in {region}")
+    descriptor = (
+        polyline_path if polyline_path else f"bbox {bbox}" if bbox else f"'{river}' in {region}"
+    )
     console.print(f"[bold]Fetching geometry from {descriptor}...[/]")
     import time as _time
+
     osm_fetch_time = _time.strftime("%Y-%m-%dT%H:%M:%S%z")
     paths = build_case(spec, output_dir)
 
@@ -1876,6 +2589,7 @@ def init_from_osm(
     if not polyline_path:  # only when we actually hit OSM Overpass
         from openlimno.preprocess.fetch import record_fetch as _rf
         from openlimno.preprocess.osm_builder import build_overpass_query
+
         # Round-5 fix: use osm_builder's canonical query string instead
         # of re-deriving it here — the previous reconstruction
         # diverged (`way["waterway"~"^(river|stream)$"]` vs the actual
@@ -1885,7 +2599,9 @@ def init_from_osm(
         # fetch uses; if osm_builder ever changes the query, this
         # automatically stays in sync.
         overpass_query = build_overpass_query(
-            bbox=bbox_tuple, river_name=river, region_name=region,
+            bbox=bbox_tuple,
+            river_name=river,
+            region_name=region,
         )
         if bbox_tuple:
             osm_params: dict[str, object] = {"bbox": list(bbox_tuple)}
@@ -1929,15 +2645,16 @@ def init_from_osm(
             record_fetch,
         )
         from openlimno.preprocess.osm_builder import fetch_river_polyline
+
         console.print("[bold]Fetching Copernicus GLO-30 DEM for bbox...[/]")
         dem = fetch_copernicus_dem(*bbox_tuple)
         console.print(f"  → DEM {dem.n_tiles} tile(s), bounds {dem.bounds}")
-        polyline = clip_centerline_to_bbox(
-            fetch_river_polyline(bbox=bbox_tuple), *bbox_tuple
-        )
+        polyline = clip_centerline_to_bbox(fetch_river_polyline(bbox=bbox_tuple), *bbox_tuple)
         console.print(f"  → centerline clipped to bbox: {len(polyline)} verts")
         xs_df = cut_cross_sections_from_dem(
-            dem.path, polyline, n_sections=n_sections,
+            dem.path,
+            polyline,
+            n_sections=n_sections,
             section_width_m=valley_width,
             points_per_section=21,
         )
@@ -1980,11 +2697,11 @@ def init_from_osm(
             fetch_nwis_daily_discharge,
             record_fetch,
         )
+
         discharge_parts = fetch_discharge.split(":")
         if len(discharge_parts) != 4 or discharge_parts[0] != "usgs-nwis":
             raise click.UsageError(
-                "--fetch-discharge must be 'usgs-nwis:SITE_ID:START:END' "
-                f"(got {fetch_discharge!r})"
+                f"--fetch-discharge must be 'usgs-nwis:SITE_ID:START:END' (got {fetch_discharge!r})"
             )
         _, site, start, end = discharge_parts
         # Validate date format to avoid a silent 400 from NWIS — they
@@ -1993,30 +2710,24 @@ def init_from_osm(
         date_pat = re.compile(r"^\d{4}-\d{2}-\d{2}$")
         if not (date_pat.match(start) and date_pat.match(end)):
             raise click.UsageError(
-                "--fetch-discharge dates must be YYYY-MM-DD "
-                f"(got start={start!r} end={end!r})"
+                f"--fetch-discharge dates must be YYYY-MM-DD (got start={start!r} end={end!r})"
             )
         # Round-3 review: also enforce start <= end. NWIS returns
         # a HTTP 400 for inverted ranges which surfaces as a noisy
         # requests traceback; users get a much clearer local error.
         if start > end:  # lexicographic OK for YYYY-MM-DD
             raise click.UsageError(
-                f"--fetch-discharge start_date ({start}) must be on or "
-                f"before end_date ({end})"
+                f"--fetch-discharge start_date ({start}) must be on or before end_date ({end})"
             )
         # Site IDs are USGS station numbers (8–15 digits). Reject
         # anything else upfront so the silent 400 is replaced by a
         # clear local error.
         if not re.match(r"^\d{8,15}$", site):
-            raise click.UsageError(
-                f"--fetch-discharge site_id must be 8–15 digits "
-                f"(got {site!r})"
-            )
+            raise click.UsageError(f"--fetch-discharge site_id must be 8–15 digits (got {site!r})")
         console.print(f"[bold]Fetching USGS NWIS site {site}, {start}..{end}...[/]")
         nwis = fetch_nwis_daily_discharge(site, start, end)
         console.print(
-            f"  → station: {nwis.station_name} "
-            f"({nwis.station_lat:.4f}, {nwis.station_lon:.4f})"
+            f"  → station: {nwis.station_name} ({nwis.station_lat:.4f}, {nwis.station_lon:.4f})"
         )
         q_path = Path(output_dir) / "data" / f"Q_{start[:4]}_{end[:4]}.csv"
         nwis.df.to_csv(q_path, index=False)
@@ -2029,7 +2740,9 @@ def init_from_osm(
             fetch_time=nwis.cache.fetch_time,
             produced_file=q_path.relative_to(output_dir),
             params={
-                "site_id": site, "start_date": start, "end_date": end,
+                "site_id": site,
+                "start_date": start,
+                "end_date": end,
                 "parameterCd": "00060",
             },
             notes=(
@@ -2054,6 +2767,7 @@ def init_from_osm(
         # through the v3.0 sandbox via ``case=``.
         from openlimno._yaml_rt import dump_round_trip, load_round_trip
         from openlimno.case import Case as _Case
+
         case_doc = load_round_trip(case_yaml_path)
         if case_doc.get("data") is None:
             case_doc["data"] = {}
@@ -2065,9 +2779,7 @@ def init_from_osm(
             case_yaml_path=case_yaml_path.resolve(),
         )
         dump_round_trip(case_doc, case_yaml_path, case=_case)
-        console.print(
-            "  → wired into case.yaml: data.rating_curve + regulatory_export"
-        )
+        console.print("  → wired into case.yaml: data.rating_curve + regulatory_export")
 
     if fetch_watershed:
         from openlimno.preprocess.fetch import (
@@ -2079,6 +2791,7 @@ def init_from_osm(
         from openlimno.preprocess.fetch import (
             record_fetch as _rfw,
         )
+
         wparts = fetch_watershed.split(":")
         if not (4 <= len(wparts) <= 5) or wparts[0] != "hydrosheds":
             raise click.UsageError(
@@ -2113,8 +2826,7 @@ def init_from_osm(
             )
         pour_id = int(pour["HYBAS_ID"])
         console.print(
-            f"  → pour-point basin HYBAS_ID={pour_id}, "
-            f"SUB_AREA={pour.get('SUB_AREA', 'n/a')} km²"
+            f"  → pour-point basin HYBAS_ID={pour_id}, SUB_AREA={pour.get('SUB_AREA', 'n/a')} km²"
         )
         upstream = upstream_basin_ids(layer.shp_path, pour_id)
         ws_path = Path(output_dir) / "data" / "watershed.geojson"
@@ -2131,8 +2843,10 @@ def init_from_osm(
             fetch_time=layer.cache.fetch_time,
             produced_file=ws_path.relative_to(output_dir),
             params={
-                "region": w_region, "level": w_level,
-                "pour_lat": w_lat, "pour_lon": w_lon,
+                "region": w_region,
+                "level": w_level,
+                "pour_lat": w_lat,
+                "pour_lon": w_lon,
                 "pour_hybas_id": pour_id,
                 "n_basins": summary["n_basins"],
                 "area_km2": summary["area_km2"],
@@ -2146,9 +2860,11 @@ def init_from_osm(
         )
         _wedm_patches["data"]["watershed"] = {
             "uri": str(ws_path.relative_to(output_dir)),
-            "pour_lat": w_lat, "pour_lon": w_lon,
+            "pour_lat": w_lat,
+            "pour_lon": w_lon,
             "pour_hybas_id": pour_id,
-            "region": w_region, "level": w_level,
+            "region": w_region,
+            "level": w_level,
             "n_basins": summary["n_basins"],
             "area_km2": round(summary["area_km2"], 3),
         }
@@ -2161,6 +2877,7 @@ def init_from_osm(
         from openlimno.preprocess.fetch import (
             record_fetch as _rfsp,
         )
+
         # Format: gbif:SCIENTIFIC_NAME:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX
         # Scientific names contain spaces but never colons, so naive
         # split-by-':' works. We expect exactly 6 parts.
@@ -2174,34 +2891,29 @@ def init_from_osm(
         sp_name = spparts[1].strip()
         try:
             sp_bbox = (
-                float(spparts[2]), float(spparts[3]),
-                float(spparts[4]), float(spparts[5]),
+                float(spparts[2]),
+                float(spparts[3]),
+                float(spparts[4]),
+                float(spparts[5]),
             )
         except ValueError as e:
             raise click.UsageError(
-                f"--fetch-species bbox values must be decimal; got "
-                f"{fetch_species!r}"
+                f"--fetch-species bbox values must be decimal; got {fetch_species!r}"
             ) from e
         console.print(f"[bold]Matching GBIF taxon for {sp_name!r}…[/]")
         m = match_species(sp_name)
         if m.usage_key is None or m.match_type == "NONE":
             raise click.ClickException(
-                f"GBIF could not match {sp_name!r} "
-                f"(match_type={m.match_type}). Check spelling."
+                f"GBIF could not match {sp_name!r} (match_type={m.match_type}). Check spelling."
             )
         console.print(
             f"  → usageKey={m.usage_key} ({m.canonical_name}, "
             f"{m.match_type}, confidence {m.confidence}); "
             f"family={m.family}, order={m.order}"
         )
-        console.print(
-            f"[bold]Fetching GBIF occurrences in bbox {sp_bbox}…[/]"
-        )
+        console.print(f"[bold]Fetching GBIF occurrences in bbox {sp_bbox}…[/]")
         occ = fetch_gbif_occurrences(m.usage_key, sp_bbox)
-        sp_path = (
-            Path(output_dir) / "data" /
-            f"species_gbif_{m.usage_key}.csv"
-        )
+        sp_path = Path(output_dir) / "data" / f"species_gbif_{m.usage_key}.csv"
         sp_path.parent.mkdir(parents=True, exist_ok=True)
         occ.df.to_csv(sp_path, index=False)
         console.print(
@@ -2217,8 +2929,9 @@ def init_from_osm(
             label=f"species_gbif_{m.usage_key}",
             source_type="gbif_occurrence",
             source_url=(
-                primary_cache.source_url if primary_cache else
-                "https://api.gbif.org/v1/occurrence/search"
+                primary_cache.source_url
+                if primary_cache
+                else "https://api.gbif.org/v1/occurrence/search"
             ),
             fetch_time=primary_cache.fetch_time if primary_cache else "",
             produced_file=sp_path.relative_to(output_dir),
@@ -2228,7 +2941,8 @@ def init_from_osm(
                 "usage_key": m.usage_key,
                 "match_type": m.match_type,
                 "confidence": m.confidence,
-                "family": m.family, "order": m.order,
+                "family": m.family,
+                "order": m.order,
                 "bbox": list(sp_bbox),
                 "occurrence_count_returned": len(occ.df),
                 "occurrence_count_total": occ.total_matched,
@@ -2247,7 +2961,8 @@ def init_from_osm(
             "scientific_name": sp_name,
             "canonical_name": m.canonical_name,
             "usage_key": int(m.usage_key),
-            "family": m.family, "order": m.order,
+            "family": m.family,
+            "order": m.order,
             "match_type": m.match_type,
             "confidence": int(m.confidence) if m.confidence is not None else 0,
             "occurrence_count_returned": len(occ.df),
@@ -2261,12 +2976,10 @@ def init_from_osm(
         from openlimno.preprocess.fetch import (
             record_fetch as _rfs,
         )
+
         sparts = fetch_soil.split(":")
         if len(sparts) != 3 or sparts[0] != "soilgrids":
-            raise click.UsageError(
-                "--fetch-soil must be 'soilgrids:LAT:LON' "
-                f"(got {fetch_soil!r})"
-            )
+            raise click.UsageError(f"--fetch-soil must be 'soilgrids:LAT:LON' (got {fetch_soil!r})")
         try:
             s_lat = float(sparts[1])
             s_lon = float(sparts[2])
@@ -2274,9 +2987,7 @@ def init_from_osm(
             raise click.UsageError(
                 f"--fetch-soil lat/lon must be decimal; got {fetch_soil!r}"
             ) from e
-        console.print(
-            f"[bold]Fetching SoilGrids @({s_lat:.4f}, {s_lon:.4f})…[/]"
-        )
+        console.print(f"[bold]Fetching SoilGrids @({s_lat:.4f}, {s_lon:.4f})…[/]")
         sg = fetch_soilgrids(s_lat, s_lon)
         soil_path = Path(output_dir) / "data" / "soil.csv"
         soil_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2302,13 +3013,12 @@ def init_from_osm(
             fetch_time=sg.cache.fetch_time,
             produced_file=soil_path.relative_to(output_dir),
             params={
-                "lat": s_lat, "lon": s_lon,
+                "lat": s_lat,
+                "lon": s_lon,
                 "n_rows": len(sg.df),
                 "properties": sorted(sg.df["property"].unique().tolist()),
                 "depths": sorted(sg.df["depth"].unique().tolist()),
-                "statistic": (
-                    sg.df["statistic"].iloc[0] if len(sg.df) else None
-                ),
+                "statistic": (sg.df["statistic"].iloc[0] if len(sg.df) else None),
             },
             notes=(
                 f"ISRIC SoilGrids 2.0 point query (250 m grid). Top "
@@ -2318,12 +3028,11 @@ def init_from_osm(
         )
         _wedm_patches["data"]["soil"] = {
             "uri": str(soil_path.relative_to(output_dir)),
-            "lat": s_lat, "lon": s_lon,
+            "lat": s_lat,
+            "lon": s_lon,
             "properties": sorted(sg.df["property"].unique().tolist()),
             "depths": sorted(sg.df["depth"].unique().tolist()),
-            "statistic": (
-                str(sg.df["statistic"].iloc[0]) if len(sg.df) else "mean"
-            ),
+            "statistic": (str(sg.df["statistic"].iloc[0]) if len(sg.df) else "mean"),
         }
 
     if fetch_lulc:
@@ -2334,6 +3043,7 @@ def init_from_osm(
         from openlimno.preprocess.fetch import (
             record_fetch as _rfl,
         )
+
         lparts = fetch_lulc.split(":")
         if not (5 <= len(lparts) <= 6) or lparts[0] != "worldcover":
             raise click.UsageError(
@@ -2349,8 +3059,7 @@ def init_from_osm(
             l_year = int(lparts[5]) if len(lparts) == 6 else 2021
         except ValueError as e:
             raise click.UsageError(
-                f"--fetch-lulc bbox values must be decimal, year integer; "
-                f"got {fetch_lulc!r}"
+                f"--fetch-lulc bbox values must be decimal, year integer; got {fetch_lulc!r}"
             ) from e
         console.print(
             f"[bold]Fetching ESA WorldCover {l_year} for bbox "
@@ -2358,7 +3067,11 @@ def init_from_osm(
             f"{l_lat_max:.3f})…[/]"
         )
         wc = fetch_esa_worldcover(
-            l_lon_min, l_lat_min, l_lon_max, l_lat_max, year=l_year,
+            l_lon_min,
+            l_lat_min,
+            l_lon_max,
+            l_lat_max,
+            year=l_year,
         )
         console.print(
             f"  → {wc.n_tiles} tile(s), version {wc.version}, "
@@ -2366,36 +3079,36 @@ def init_from_osm(
         )
         # Move/rename into case_dir/data/lulc.tif so it lives with the case.
         import shutil as _shutil
+
         lulc_path = Path(output_dir) / "data" / f"lulc_{l_year}.tif"
         lulc_path.parent.mkdir(parents=True, exist_ok=True)
         if wc.path != lulc_path:
             _shutil.copy(wc.path, lulc_path)
         # Top 3 classes for the console summary.
         top = sorted(
-            wc.class_km2.items(), key=lambda kv: kv[1], reverse=True,
+            wc.class_km2.items(),
+            key=lambda kv: kv[1],
+            reverse=True,
         )[:3]
-        top_str = ", ".join(
-            f"{WORLDCOVER_CLASSES[c]} {km:.1f} km²" for c, km in top
-        )
+        top_str = ", ".join(f"{WORLDCOVER_CLASSES[c]} {km:.1f} km²" for c, km in top)
         console.print(f"  → top classes: {top_str}")
         # Sidecar: store the full histogram for downstream stats.
         _rfl(
             output_dir,
             label=f"lulc_worldcover_{l_year}",
             source_type="esa_worldcover",
-            source_url=wc.cache_entries[0].source_url if wc.cache_entries
-            else f"https://esa-worldcover.s3.eu-central-1.amazonaws.com/"
-                 f"{wc.version}/{l_year}/map/",
-            fetch_time=wc.cache_entries[0].fetch_time if wc.cache_entries
-            else "",
+            source_url=wc.cache_entries[0].source_url
+            if wc.cache_entries
+            else f"https://esa-worldcover.s3.eu-central-1.amazonaws.com/{wc.version}/{l_year}/map/",
+            fetch_time=wc.cache_entries[0].fetch_time if wc.cache_entries else "",
             produced_file=lulc_path.relative_to(output_dir),
             params={
                 "bbox": [l_lon_min, l_lat_min, l_lon_max, l_lat_max],
-                "year": l_year, "version": wc.version,
+                "year": l_year,
+                "version": wc.version,
                 "n_tiles": wc.n_tiles,
                 "class_pixels": {str(k): v for k, v in wc.class_pixels.items()},
-                "class_km2": {str(k): round(v, 6)
-                              for k, v in wc.class_km2.items()},
+                "class_km2": {str(k): round(v, 6) for k, v in wc.class_km2.items()},
             },
             notes=(
                 f"ESA WorldCover 10 m {l_year} ({wc.version}). 11-class "
@@ -2407,10 +3120,9 @@ def init_from_osm(
         )
         _wedm_patches["data"]["lulc"] = {
             "uri": str(lulc_path.relative_to(output_dir)),
-            "year": l_year, "version": wc.version,
-            "class_km2": {
-                str(k): round(v, 6) for k, v in wc.class_km2.items()
-            },
+            "year": l_year,
+            "version": wc.version,
+            "class_km2": {str(k): round(v, 6) for k, v in wc.class_km2.items()},
         }
 
     if fetch_climate:
@@ -2421,6 +3133,7 @@ def init_from_osm(
         from openlimno.preprocess.fetch import (
             record_fetch as _rfc,
         )
+
         cparts = fetch_climate.split(":")
         valid_sources = {"daymet", "open-meteo"}
         if len(cparts) != 5 or cparts[0] not in valid_sources:
@@ -2445,9 +3158,7 @@ def init_from_osm(
             )
 
         if source == "daymet":
-            console.print(
-                f"[bold]Fetching Daymet ({c_lat:.4f}, {c_lon:.4f}) {c_sy}–{c_ey}…[/]"
-            )
+            console.print(f"[bold]Fetching Daymet ({c_lat:.4f}, {c_lon:.4f}) {c_sy}–{c_ey}…[/]")
             res = fetch_daymet_daily(c_lat, c_lon, c_sy, c_ey)
             console.print(
                 f"  → snapped to Daymet pixel ({res.lat:.4f}, {res.lon:.4f}), "
@@ -2462,10 +3173,7 @@ def init_from_osm(
                 f"default; basin-specific calibration recommended."
             )
         else:  # open-meteo
-            console.print(
-                f"[bold]Fetching Open-Meteo ({c_lat:.4f}, {c_lon:.4f}) "
-                f"{c_sy}–{c_ey}…[/]"
-            )
+            console.print(f"[bold]Fetching Open-Meteo ({c_lat:.4f}, {c_lon:.4f}) {c_sy}–{c_ey}…[/]")
             res = fetch_open_meteo_daily(c_lat, c_lon, c_sy, c_ey)
             console.print(
                 f"  → snapped to Open-Meteo cell ({res.lat:.4f}, {res.lon:.4f}), "
@@ -2497,16 +3205,20 @@ def init_from_osm(
             fetch_time=res.cache.fetch_time,
             produced_file=clim_path.relative_to(output_dir),
             params={
-                "lat": c_lat, "lon": c_lon,
-                "start_year": c_sy, "end_year": c_ey,
+                "lat": c_lat,
+                "lon": c_lon,
+                "start_year": c_sy,
+                "end_year": c_ey,
             },
             notes=notes,
         )
         _wedm_patches["data"]["climate"] = {
             "uri": str(clim_path.relative_to(output_dir)),
             "source": source,
-            "lat": c_lat, "lon": c_lon,
-            "start_year": c_sy, "end_year": c_ey,
+            "lat": c_lat,
+            "lon": c_lon,
+            "start_year": c_sy,
+            "end_year": c_ey,
         }
 
     # WEDM v0.2 patch pass: fold collected fetch outputs into case.yaml
@@ -2514,13 +3226,12 @@ def init_from_osm(
     # cases that didn't use any fetcher remain on '0.1' (no patch).
     if _wedm_patches["data"] or "case_bbox" in _wedm_patches:
         import yaml as _yaml_v02
+
         case_yaml_path = Path(paths["case_yaml"])
         case_doc = _yaml_v02.safe_load(case_yaml_path.read_text()) or {}
         case_doc["openlimno"] = "0.2"
         if "case_bbox" in _wedm_patches:
-            case_doc.setdefault("case", {})["bbox"] = (
-                _wedm_patches["case_bbox"]
-            )
+            case_doc.setdefault("case", {})["bbox"] = _wedm_patches["case_bbox"]
         if _wedm_patches["data"]:
             case_doc.setdefault("data", {}).update(_wedm_patches["data"])
         case_yaml_path.write_text(

@@ -86,6 +86,8 @@ nav:
   - Strategy:
       - strategy/competitive-positioning.md
       - strategy/interop-validation-matrix.md
+      - strategy/native-ibm-instream-successor.md
+      - strategy/ibm-redesign.md
   - Releases:
       - RELEASE_v1.0.0.md
       - RELEASE_v1.3.0.md

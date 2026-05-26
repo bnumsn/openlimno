@@ -45,6 +45,7 @@ from openlimno.habitat.hsi import HSICurve
 from openlimno.hydro.builtin_1d import (
     Builtin1D,
     CrossSection,
+    MANSQResult,
     load_sections_from_parquet,
 )
 from openlimno.wedm import validate_case
@@ -284,6 +285,7 @@ class Case:
         # we want flagged early.
         mesh_path = self._resolve_mesh_uri(cfg, warnings)
 
+        using_schism_results = False
         if backend == "builtin-1d":
             # v3.2.0 R11-2 closure: solver-level warning when the
             # case has no boundaries block AND the case isn't an
@@ -333,6 +335,7 @@ class Case:
                 container_image=schism_cfg.get("container_image"),
                 container_runtime=schism_cfg.get("container_runtime", "docker"),
                 n_procs=schism_cfg.get("n_procs", 1),
+                n_scribes=schism_cfg.get("n_scribes", 0),
                 timeout_s=schism_cfg.get("timeout_s"),
             )
             adapter.prepare(
@@ -385,9 +388,21 @@ class Case:
                     f"``hydrodynamics.schism.dry_run: true`` in case.yaml."
                 )
             else:
-                # Real SCHISM result reading lands in M3 beta;
-                # for now treat it as an approximation
-                hydraulic_results = adapter.read_results(hydro_work)  # type: ignore[assignment]
+                schism_results = adapter.read_results(hydro_work)
+                from openlimno.hydro import write_schism_hydraulic_cells_csv
+
+                schism_cells_path = hydro_work / "hydraulic_cells_schism.csv"
+                write_schism_hydraulic_cells_csv(schism_results, schism_cells_path)
+                hydraulic_results, discharges_m3s = self._schism_results_to_cell_results(
+                    schism_results,
+                    warnings,
+                )
+                using_schism_results = True
+                warnings.append(
+                    "SCHISM results normalized to "
+                    f"{schism_cells_path.name}; WUA-Q discharge_m3s values "
+                    "represent SCHISM output time_seconds for the 2D backend."
+                )
         else:
             raise NotImplementedError(
                 f"Unknown hydrodynamics backend '{backend}'. Supported: builtin-1d, schism."
@@ -503,7 +518,7 @@ class Case:
         # (return value unused at this layer; auto-writes drift_egg.csv to out_dir)
         self._maybe_drift_egg(
             cfg,
-            hydraulic_results,
+            {} if using_schism_results else hydraulic_results,
             sections,
             out_dir,
             warnings,
@@ -1219,6 +1234,55 @@ class Case:
                             }
                         )
         return pd.DataFrame(rows) if rows else None
+
+    def _schism_results_to_cell_results(
+        self,
+        schism_results: Any,
+        warnings: list[str],
+    ) -> tuple[dict[float, list[MANSQResult]], list[float]]:
+        """Adapt node-centred SCHISM outputs to the existing WUA cell path."""
+
+        table = schism_results.table.copy()
+        if table.empty:
+            raise RuntimeError("SCHISM output normalized to zero hydraulic rows")
+        if "time_seconds" not in table.columns:
+            table["time_seconds"] = table.get("source_time_index", 0).astype(float)
+        out: dict[float, list[MANSQResult]] = {}
+        for time_seconds, group in table.groupby("time_seconds", sort=True):
+            key = float(time_seconds)
+            cells: list[MANSQResult] = []
+            for row in group.itertuples(index=False):
+                area = float(getattr(row, "area_m2", 0.0))
+                if not math.isfinite(area):
+                    area = 0.0
+                depth = float(getattr(row, "depth_m", 0.0))
+                if not math.isfinite(depth):
+                    depth = 0.0
+                velocity = float(getattr(row, "velocity_ms", 0.0))
+                if not math.isfinite(velocity):
+                    velocity = 0.0
+                water_surface = float(getattr(row, "water_surface_m", 0.0))
+                if not math.isfinite(water_surface):
+                    water_surface = 0.0
+                station = float(getattr(row, "node_id", len(cells) + 1))
+                cells.append(
+                    MANSQResult(
+                        station_m=station,
+                        discharge_m3s=key,
+                        water_surface_m=water_surface,
+                        depth_mean_m=depth,
+                        velocity_mean_ms=velocity,
+                        area_m2=area,
+                        top_width_m=0.0,
+                        hydraulic_radius_m=depth,
+                    )
+                )
+            out[key] = cells
+        warnings.append(
+            "SCHISM 2D node results were adapted to OpenLimno cell WUA arrays; "
+            "station_m is SCHISM node_id and discharge_m3s is time_seconds."
+        )
+        return out, sorted(out)
 
     def _load_studyplan(
         self, studyplan_path: str | Path | None, warnings: list[str]
@@ -2985,8 +3049,12 @@ class Case:
         import xarray as xr
 
         Qs = sorted(results.keys())
-        stations = [s.station_m for s in sections]
-        depth = np.zeros((len(Qs), len(sections)))
+        first_results = results[Qs[0]] if Qs else []
+        if first_results and len(first_results) != len(sections):
+            stations = [float(getattr(r, "station_m", i + 1)) for i, r in enumerate(first_results)]
+        else:
+            stations = [s.station_m for s in sections]
+        depth = np.zeros((len(Qs), len(stations)))
         velocity = np.zeros_like(depth)
         wse = np.zeros_like(depth)
         area = np.zeros_like(depth)

@@ -10,17 +10,23 @@ Public API:
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Callable
 from functools import cache
 from importlib import resources
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT202012
 
 SCHEMA_VERSION = "0.1"
+_URI_REFERENCE_FORBIDDEN = re.compile(r'[\x00-\x20<>"{}|\\^`]')
+_MALFORMED_PERCENT_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
+_FormatCheck = Callable[[object], bool]
+_FormatRegistrar = Callable[[_FormatCheck], _FormatCheck]
 
 
 def _schema_dir() -> Path:
@@ -32,6 +38,23 @@ def load_schema(name: str) -> dict[str, Any]:
     p = _schema_dir() / f"{name}.schema.json"
     with p.open("r", encoding="utf-8") as f:
         return json.load(f)
+
+
+@cache
+def _format_checker() -> FormatChecker:
+    checker = FormatChecker()
+
+    def _is_uri_reference(value: object) -> bool:
+        if not isinstance(value, str):
+            return True
+        return (
+            not _URI_REFERENCE_FORBIDDEN.search(value)
+            and not _MALFORMED_PERCENT_ESCAPE.search(value)
+        )
+
+    checks = cast(Callable[[str], _FormatRegistrar], checker.checks)
+    checks("uri-reference")(_is_uri_reference)
+    return checker
 
 
 @cache
@@ -63,7 +86,7 @@ def _validate_yaml_against(path: str | Path, schema_name: str) -> list[str]:
     validator = Draft202012Validator(
         schema,
         registry=_registry(),
-        format_checker=Draft202012Validator.FORMAT_CHECKER,
+        format_checker=_format_checker(),
     )
     return [
         f"{'/'.join(str(x) for x in err.absolute_path) or '<root>'}: {err.message}"

@@ -1,0 +1,12 @@
+data:
+  cross_section: cross_sections.parquet
+  hydraulic_cells: hydraulic_cells.csv
+hydrodynamics:
+  backend: builtin-1d
+  builtin_1d:
+    scheme: normal-depth
+    slope: 0.001
+    manning_n: 0.035
+ibm_forcing:
+  habitat_cells: hydraulic_cells.csv
+  time_index_column: time_index

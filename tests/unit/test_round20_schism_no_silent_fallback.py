@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 import pytest
 import yaml
 
@@ -146,3 +147,63 @@ def test_round20_schism_dry_run_still_falls_back(
         f"the explicit 'used Builtin1D approximation' warning. Got "
         f"warnings: {result.warnings}"
     )
+
+
+def test_schism_success_normalizes_results_without_1d_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A successful real SCHISM run should feed normalized 2D node results
+    into WUA and write the hydraulic-cells handoff CSV."""
+    from openlimno.hydro import schism as schism_mod
+
+    case = _make_schism_case(tmp_path / "case_dir3")
+
+    log_dir = tmp_path / "case_dir3" / "out"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "schism.log"
+    log_path.write_text("success\n")
+    fake_report = _FakeReport(return_code=0, dry_run=False, log_path=log_path)
+
+    def _fake_prepare(self: Any, *args: Any, **kwargs: Any) -> None:
+        return None
+
+    def _fake_run(self: Any, *args: Any, **kwargs: Any) -> _FakeReport:
+        return fake_report
+
+    def _fake_read_results(self: Any, *args: Any, **kwargs: Any) -> Any:
+        @dataclass
+        class _FakeResults:
+            table: pd.DataFrame
+            source_files: tuple[Path, ...]
+            n_nodes: int
+            n_times: int
+            warnings: tuple[str, ...] = ()
+
+        return _FakeResults(
+            table=pd.DataFrame(
+                {
+                    "node_id": [1, 2, 1, 2],
+                    "cell_id": ["schism_node_000001", "schism_node_000002"] * 2,
+                    "time_seconds": [0.0, 0.0, 60.0, 60.0],
+                    "source_time_index": [0, 0, 1, 1],
+                    "water_surface_m": [0.2, 0.3, 0.4, 0.5],
+                    "depth_m": [0.8, 1.1, 0.9, 1.2],
+                    "velocity_ms": [0.3, 0.4, 0.35, 0.45],
+                    "area_m2": [10.0, 12.0, 10.0, 12.0],
+                }
+            ),
+            source_files=(tmp_path / "out2d_1.nc",),
+            n_nodes=2,
+            n_times=2,
+        )
+
+    monkeypatch.setattr(schism_mod.SCHISMAdapter, "prepare", _fake_prepare)
+    monkeypatch.setattr(schism_mod.SCHISMAdapter, "run", _fake_run)
+    monkeypatch.setattr(schism_mod.SCHISMAdapter, "read_results", _fake_read_results)
+
+    result = case.run(discharges_m3s=[5.0])
+
+    assert result.discharges_m3s == [0.0, 60.0]
+    assert len(result.wua_q) == 2
+    assert (result.output_dir / "hydro_work_schism" / "hydraulic_cells_schism.csv").exists()
+    assert any("SCHISM results normalized" in warning for warning in result.warnings)

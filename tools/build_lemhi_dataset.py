@@ -33,7 +33,6 @@ import json
 import sys
 import uuid
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -609,7 +608,7 @@ def main() -> int:
         "license": "CC-BY-4.0 (synthetic) / public-domain (USGS) / public-literature (HSI)",
     }
     (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2))
-    print(f"  wrote  data/lemhi/manifest.json")
+    print("  wrote  data/lemhi/manifest.json")
 
     print("\nLemhi sample data package built.")
     return 0

@@ -1,0 +1,35 @@
+{
+  "case": {
+    "key": "yakima_kiona",
+    "label": "Yakima River at Kiona, Washington",
+    "station_id": "12510500",
+    "river_name": "Yakima River",
+    "nhd_area_id": "153011766",
+    "bbox": "-119.65,46.20,-119.40,46.35",
+    "initial_abundance": 180,
+    "n_cells": 10,
+    "slope": 0.001,
+    "manning_n": 0.035
+  },
+  "generated_utc": "2026-05-25T05:31:20+00:00",
+  "nwis": {
+    "station_id": "12510500",
+    "site_name": "YAKIMA RIVER AT KIONA, WA",
+    "latitude": 46.25346748,
+    "longitude": -119.4780794,
+    "parameter": "00060 daily mean discharge",
+    "statistic": "00003 mean",
+    "unit": "ft3/s",
+    "start_date": "2025-10-01",
+    "end_date": "2025-10-07",
+    "n_values": 7,
+    "url": "https://waterservices.usgs.gov/nwis/dv/?format=json&sites=12510500&startDT=2025-10-01&endDT=2025-10-07&parameterCd=00060&statCd=00003&siteStatus=all"
+  },
+  "nhd": {
+    "area_url": "https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer/9/query?where=permanent_identifier%3D%27153011766%27&outFields=%2A&returnGeometry=true&outSR=4326&f=geojson",
+    "flowline_url": "https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer/6/query?where=GNIS_NAME%3D%27Yakima+River%27&geometry=-119.65%2C46.20%2C-119.40%2C46.35&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=%2A&returnGeometry=true&outSR=4326&returnExceededLimitFeatures=true&f=geojson",
+    "area_path": "data/gis/yakima_kiona_nhd_area_153011766.geojson",
+    "flowline_path": "data/gis/yakima_kiona_nhd_flowline_153011766.geojson"
+  },
+  "hydraulics_manifest": "data/hydraulics/hydraulic_manifest.json"
+}

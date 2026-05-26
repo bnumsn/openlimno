@@ -144,12 +144,14 @@ def test_passage_cli_smoke(tmp_path: Path) -> None:
 def test_calibrate_pestpp_glm_generates_workspace(tmp_path: Path) -> None:
     """CLI PEST++ path writes files instead of pretending to run pestpp-glm."""
     xs_path = tmp_path / "cross_section.parquet"
-    pd.DataFrame({
-        "station_m": [0.0, 0.0, 0.0, 0.0],
-        "point_index": [0, 1, 2, 3],
-        "distance_m": [-5.0, -4.999, 4.999, 5.0],
-        "elevation_m": [5.0, 0.0, 0.0, 5.0],
-    }).to_parquet(xs_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0, 0.0, 0.0, 0.0],
+            "point_index": [0, 1, 2, 3],
+            "distance_m": [-5.0, -4.999, 4.999, 5.0],
+            "elevation_m": [5.0, 0.0, 0.0, 5.0],
+        }
+    ).to_parquet(xs_path, index=False)
     (tmp_path / "mesh.nc").write_bytes(b"placeholder")
     observed = tmp_path / "observed.csv"
     pd.DataFrame({"h_m": [0.5, 1.0], "Q_m3s": [2.5, 6.0]}).to_csv(observed, index=False)
@@ -220,21 +222,19 @@ def test_v251_wua_plot_cli_writes_png_via_atomic_write(tmp_path: Path) -> None:
         [
             "wua",
             str(LEMHI_CASE),
-            "--species", "oncorhynchus_mykiss",
-            "--stage", "spawning",
+            "--species",
+            "oncorhynchus_mykiss",
+            "--stage",
+            "spawning",
             "--plot",
-            "--n-q", "3",
+            "--n-q",
+            "3",
         ],
     )
-    assert result.exit_code == 0, (
-        f"CLI exited {result.exit_code}; output:\n{result.output}"
-    )
+    assert result.exit_code == 0, f"CLI exited {result.exit_code}; output:\n{result.output}"
     # Output PNG lives under the case's output_dir (lemhi out/...).
     # The CLI prints "plot saved: <path>"; assert that path exists.
-    saved_lines = [
-        line for line in result.output.splitlines()
-        if "plot saved:" in line
-    ]
+    saved_lines = [line for line in result.output.splitlines() if "plot saved:" in line]
     assert saved_lines, f"no 'plot saved' line in CLI output:\n{result.output}"
     png_path = Path(saved_lines[-1].split("plot saved:", 1)[1].strip())
     assert png_path.exists(), f"PNG not on disk: {png_path}"
@@ -674,8 +674,7 @@ def test_preprocess_import_and_inspect_habitat_exchange(tmp_path: Path) -> None:
 def test_preprocess_import_habby_txt_spu_summary(tmp_path: Path) -> None:
     habitat = tmp_path / "d1_to_d9_sub_spu.txt"
     habitat.write_text(
-        "discharge\tSPU\twetted_area\tspecies\tstage\n"
-        "74.7\t31.5\t90.0\tbarbel\tadult\n",
+        "discharge\tSPU\twetted_area\tspecies\tstage\n74.7\t31.5\t90.0\tbarbel\tadult\n",
         encoding="utf-8",
     )
     out = tmp_path / "habby_spu.csv"
@@ -815,6 +814,507 @@ def test_ibm_export_writes_instream_exchange_package(tmp_path: Path) -> None:
     assert list(habitat["reach_id"]) == ["reach-a", "reach-a"]
     assert summary["wua_m2"].iloc[0] == pytest.approx(9.0)
     assert set(manifest["table"]) == {"instream_habitat_cells", "instream_flow_summary"}
+
+
+def test_ibm_studio_cli_invokes_server(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import openlimno.ibm as ibm
+
+    calls: dict[str, object] = {}
+
+    def fake_run_ibm_studio(
+        *,
+        host: str,
+        port: int,
+        output_dir: str | Path,
+        open_browser: bool,
+    ) -> None:
+        calls.update(
+            {
+                "host": host,
+                "port": port,
+                "output_dir": Path(output_dir),
+                "open_browser": open_browser,
+            }
+        )
+
+    monkeypatch.setattr(ibm, "run_ibm_studio", fake_run_ibm_studio)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "ibm-studio",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8877",
+            "--out-dir",
+            str(tmp_path),
+            "--no-open-browser",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "starting OpenLimno IBM Studio" in result.output
+    assert calls == {
+        "host": "127.0.0.1",
+        "port": 8877,
+        "output_dir": tmp_path,
+        "open_browser": False,
+    }
+
+
+def test_ibm_run_native_writes_population_outputs(tmp_path: Path) -> None:
+    cells = pd.DataFrame(
+        {
+            "cell_id": ["pool-a", "riffle-b"],
+            "area_m2": [15.0, 25.0],
+            "depth_m": [0.4, 0.8],
+            "velocity_ms": [0.2, 0.35],
+            "csi": [0.4, 0.9],
+            "temperature_c": [12.0, 12.0],
+            "hiding_cover": [0.1, 0.8],
+        }
+    )
+    cells_path = tmp_path / "habitat_cells.csv"
+    cells.to_csv(cells_path, index=False)
+    out_dir = tmp_path / "native_ibm"
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "ibm-run-native",
+            "--cells",
+            str(cells_path),
+            "--initial-abundance",
+            "12",
+            "--days",
+            "3",
+            "--seed",
+            "4",
+            "--individual-history",
+            "--out-dir",
+            str(out_dir),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "native IBM run complete" in result.output
+    summary = pd.read_csv(out_dir / "native_ibm_population_summary.csv")
+    individuals = pd.read_csv(out_dir / "native_ibm_final_individuals.csv")
+    cell_use = pd.read_csv(out_dir / "native_ibm_cell_use.csv")
+    history = pd.read_csv(out_dir / "native_ibm_individual_history.csv")
+    assert len(summary) == 4
+    assert len(individuals) >= 12
+    assert len(history) >= 48
+    assert not cell_use.empty
+    assert set(cell_use["cell_id"]) <= {"pool-a", "riffle-b"}
+
+
+def test_ibm_profile_validate_cli(tmp_path: Path) -> None:
+    profile_path = tmp_path / "profile.yaml"
+    profile_path.write_text(
+        "profile_version: '0.2'\n"
+        "species:\n"
+        "  id: rainbow_trout\n"
+        "mortality:\n"
+        "  base_daily_survival: 0.99\n",
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["ibm", "profile", "validate", str(profile_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "validates against IBM profile schema" in result.output
+
+
+def test_ibm_scenario_validate_and_run_cli(tmp_path: Path) -> None:
+    cells_path = tmp_path / "habitat_cells.csv"
+    pd.DataFrame(
+        {
+            "reach_id": ["r1", "r1"],
+            "cell_id": ["pool-a", "riffle-b"],
+            "area_m2": [15.0, 25.0],
+            "depth_m": [0.4, 0.8],
+            "velocity_ms": [0.2, 0.35],
+            "csi": [0.4, 0.9],
+            "temperature_c": [12.0, 12.0],
+            "hiding_cover": [0.1, 0.8],
+            "feeding_cover": [0.1, 0.7],
+        }
+    ).to_csv(cells_path, index=False)
+    profile_path = tmp_path / "profile.yaml"
+    profile_path.write_text(
+        "profile_version: '0.2'\n"
+        "species:\n"
+        "  id: rainbow_trout\n"
+        "mortality:\n"
+        "  base_daily_survival: 1.0\n"
+        "  predation_base_risk: 0.0\n"
+        "  predation_csi_risk: 0.0\n",
+        encoding="utf-8",
+    )
+    scenario_path = tmp_path / "scenario.yaml"
+    scenario_path.write_text(
+        "ibm_version: '0.2'\n"
+        "scenario:\n"
+        "  id: cli-smoke\n"
+        "  reach_id: r1\n"
+        "  days: 2\n"
+        "  seed: 7\n"
+        "  stochastic: false\n"
+        "profile:\n"
+        "  uri: profile.yaml\n"
+        "forcing:\n"
+        "  habitat_cells: habitat_cells.csv\n"
+        "population:\n"
+        "  initial_abundance: 3\n"
+        "outputs:\n"
+        "  dir: out\n",
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["ibm", "scenario", "validate", str(scenario_path)])
+    assert result.exit_code == 0, result.output
+    assert "validates against IBM scenario schema" in result.output
+
+    result = runner.invoke(main, ["ibm", "run", str(scenario_path)])
+    assert result.exit_code == 0, result.output
+    assert "IBM scenario run complete" in result.output
+    assert (tmp_path / "out" / "ibm_run_manifest.json").exists()
+
+
+def test_ibm_submodels_ensemble_and_calibrate_cli(tmp_path: Path) -> None:
+    cells_path = tmp_path / "habitat_cells.csv"
+    pd.DataFrame(
+        {
+            "cell_id": ["pool-a", "riffle-b"],
+            "area_m2": [15.0, 25.0],
+            "depth_m": [0.4, 0.8],
+            "velocity_ms": [0.2, 0.35],
+            "csi": [0.4, 0.9],
+            "temperature_c": [12.0, 12.0],
+            "hiding_cover": [0.1, 0.8],
+            "feeding_cover": [0.1, 0.7],
+        }
+    ).to_csv(cells_path, index=False)
+    profile_path = tmp_path / "profile.yaml"
+    profile_path.write_text(
+        "profile_version: '0.2'\n"
+        "species:\n"
+        "  id: rainbow_trout\n"
+        "mortality:\n"
+        "  base_daily_survival: 1.0\n"
+        "  predation_base_risk: 0.0\n"
+        "  predation_csi_risk: 0.0\n"
+        "  thermal_stress_mortality: 0.0\n"
+        "  hydraulic_stress_mortality: 0.0\n",
+        encoding="utf-8",
+    )
+    scenario_path = tmp_path / "scenario.yaml"
+    scenario_path.write_text(
+        "ibm_version: '0.2'\n"
+        "scenario:\n"
+        "  id: cli-experiments\n"
+        "  days: 1\n"
+        "  stochastic: false\n"
+        "  light_phases: [day]\n"
+        "profile:\n"
+        "  uri: profile.yaml\n"
+        "forcing:\n"
+        "  habitat_cells: habitat_cells.csv\n"
+        "population:\n"
+        "  initial_abundance: 4\n"
+        "outputs:\n"
+        "  dir: out\n",
+        encoding="utf-8",
+    )
+    observed_path = tmp_path / "observed.csv"
+    pd.DataFrame({"day": [1], "abundance": [4]}).to_csv(observed_path, index=False)
+    runner = CliRunner()
+
+    result = runner.invoke(main, ["ibm", "submodels"])
+    assert result.exit_code == 0, result.output
+    assert "native-habitat-utility-v0" in result.output
+
+    result = runner.invoke(
+        main,
+        [
+            "ibm",
+            "ensemble",
+            str(scenario_path),
+            "--seed",
+            "1",
+            "--seed",
+            "2",
+            "--out-dir",
+            str(tmp_path / "ensemble"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "IBM ensemble complete" in result.output
+    assert (tmp_path / "ensemble" / "ibm_ensemble_summary.csv").exists()
+
+    result = runner.invoke(
+        main,
+        [
+            "ibm",
+            "calibrate",
+            str(scenario_path),
+            "--observed",
+            str(observed_path),
+            "--param",
+            "base_daily_survival=0.5,1.0",
+            "--out-dir",
+            str(tmp_path / "calibration"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "IBM calibration complete" in result.output
+    assert (tmp_path / "calibration" / "best_profile.yaml").exists()
+
+
+def test_ibm_benchmark_instream7_cli_invokes_runner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import openlimno.ibm as ibm
+
+    fixture = tmp_path / "official-instream"
+    fixture.mkdir()
+    out_dir = tmp_path / "benchmark"
+    calls: dict[str, object] = {}
+
+    def fake_run_instream7_official_benchmark(
+        root: str | Path,
+        output_dir: str | Path,
+        *,
+        case_ids: tuple[str, ...] | None = None,
+        days: int = 7,
+        seed: int = 42,
+        stochastic: bool = True,
+    ) -> types.SimpleNamespace:
+        calls.update(
+            {
+                "root": Path(root),
+                "output_dir": Path(output_dir),
+                "case_ids": case_ids,
+                "days": days,
+                "seed": seed,
+                "stochastic": stochastic,
+            }
+        )
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        redd_path = Path(output_dir) / "instream7_native_redds.csv"
+        redd_path.write_text("redd_id\n", encoding="utf-8")
+        return types.SimpleNamespace(
+            inventory=pd.DataFrame({"case_id": ["ExampleA"]}),
+            population_summary=pd.DataFrame({"day": [0, 1]}),
+            paths={"instream7_native_redds": str(redd_path)},
+        )
+
+    monkeypatch.setattr(
+        ibm,
+        "run_instream7_official_benchmark",
+        fake_run_instream7_official_benchmark,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "ibm-benchmark-instream7",
+            "--fixture",
+            str(fixture),
+            "--case-id",
+            "ExampleA",
+            "--days",
+            "2",
+            "--seed",
+            "5",
+            "--deterministic",
+            "--out-dir",
+            str(out_dir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "inSTREAM 7 official benchmark complete" in result.output
+    assert calls == {
+        "root": fixture,
+        "output_dir": out_dir,
+        "case_ids": ("ExampleA",),
+        "days": 2,
+        "seed": 5,
+        "stochastic": False,
+    }
+    assert "instream7_native_redds" in result.output
+
+
+def test_ibm_run_instream7_netlogo_reference_cli(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import openlimno.ibm as ibm
+
+    fixture = tmp_path / "official"
+    fixture.mkdir()
+    out_dir = tmp_path / "netlogo-out"
+    netlogo = tmp_path / "NetLogo_Console"
+    netlogo.write_text("#!/bin/sh\n", encoding="utf-8")
+    brief = out_dir / "BriefPopOut-r1.csv"
+    calls: dict[str, object] = {}
+
+    def fake_run_instream7_netlogo_reference(
+        root: Path,
+        output_dir: Path,
+        *,
+        case_id: str,
+        netlogo_console: str,
+        days: int,
+        seed: int,
+    ) -> types.SimpleNamespace:
+        calls.update(
+            {
+                "root": root,
+                "output_dir": output_dir,
+                "case_id": case_id,
+                "netlogo_console": netlogo_console,
+                "days": days,
+                "seed": seed,
+            }
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        brief.write_text("brief\n", encoding="utf-8")
+        return types.SimpleNamespace(
+            setup_file=output_dir / "openlimno-ExampleA-2d.xml",
+            table_path=output_dir / "openlimno_netlogo_table.csv",
+            spreadsheet_path=output_dir / "openlimno_netlogo_spreadsheet.csv",
+            brief_population_files=(brief,),
+        )
+
+    monkeypatch.setattr(
+        ibm, "run_instream7_netlogo_reference", fake_run_instream7_netlogo_reference
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "ibm-run-instream7-netlogo-reference",
+            "--fixture",
+            str(fixture),
+            "--case-id",
+            "ExampleA",
+            "--days",
+            "2",
+            "--seed",
+            "11",
+            "--netlogo-console",
+            str(netlogo),
+            "--out-dir",
+            str(out_dir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "NetLogo reference run complete" in result.output
+    assert "brief_pop" in result.output
+    assert calls == {
+        "root": fixture,
+        "output_dir": out_dir,
+        "case_id": "ExampleA",
+        "netlogo_console": str(netlogo),
+        "days": 2,
+        "seed": 11,
+    }
+
+
+def test_ibm_summarize_instream7_brief_cli(tmp_path: Path) -> None:
+    brief = tmp_path / "BriefPopOut-r1.csv"
+    brief.write_text(
+        "InSTREAM-7 brief population output file, Created 10:39:01 AM\n"
+        "BehavSp-Run,End of time step,IsCensus?,Light phase,Reach,Flow,Temperature,Turbidity,Species,Age class,Count,Mean length,Mean weight,Mean condition,FractionDriftFeeding,FractionSearchFeeding,FractionHiding\n"
+        "1,10/1/2001 00:00,false,At setup,ExampleA,3.65,-999,0,Rainbow,Age-0,3,5.0,2.0,1,0,0,1\n"
+        "1,10/1/2001 00:00,false,At setup,ExampleA,3.65,-999,0,Rainbow,Age-1,2,10.0,20.0,1,0,0,1\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "summary.csv"
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "ibm-summarize-instream7-brief",
+            "--brief-pop",
+            str(brief),
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "BriefPop summary written" in result.output
+    summary = pd.read_csv(out)
+    assert int(summary["abundance"].iloc[0]) == 5
+    assert summary["mean_length_mm"].iloc[0] == pytest.approx(70.0)
+
+
+def test_ibm_compare_instream7_netlogo_cli(tmp_path: Path) -> None:
+    brief = tmp_path / "BriefPopOut-r1.csv"
+    brief.write_text(
+        "InSTREAM-7 brief population output file, Created 10:39:01 AM\n"
+        "BehavSp-Run,End of time step,IsCensus?,Light phase,Reach,Flow,Temperature,Turbidity,Species,Age class,Count,Mean length,Mean weight,Mean condition,FractionDriftFeeding,FractionSearchFeeding,FractionHiding\n"
+        "1,10/1/2001 00:00,false,At setup,ExampleA,3.65,-999,0,Rainbow,Age-0,3,5.0,2.0,1,0,0,1\n"
+        "1,10/1/2001 00:00,false,At setup,ExampleA,3.65,-999,0,Rainbow,Age-1,2,10.0,20.0,1,0,0,1\n",
+        encoding="utf-8",
+    )
+    native = tmp_path / "native_summary.csv"
+    pd.DataFrame(
+        {
+            "scenario_id": ["ExampleA"],
+            "reach_id": ["ExampleA"],
+            "species": ["Rainbow"],
+            "day": [0],
+            "official_date": ["2001-10-01"],
+            "abundance": [5],
+            "biomass_g": [46.0],
+            "mean_length_mm": [70.0],
+        }
+    ).to_csv(native, index=False)
+    out = tmp_path / "comparison.csv"
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "ibm-compare-instream7-netlogo",
+            "--native-summary",
+            str(native),
+            "--brief-pop",
+            str(brief),
+            "--out",
+            str(out),
+            "--abundance-tolerance",
+            "0",
+            "--biomass-rel-tolerance",
+            "0.01",
+            "--mean-length-tolerance-mm",
+            "0.1",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "native-vs-NetLogo comparison written" in result.output
+    comparison = pd.read_csv(out)
+    assert len(comparison) == 1
+    assert bool(comparison["passed"].iloc[0])
 
 
 def test_wua_cells_cli_outputs_tables(tmp_path: Path) -> None:

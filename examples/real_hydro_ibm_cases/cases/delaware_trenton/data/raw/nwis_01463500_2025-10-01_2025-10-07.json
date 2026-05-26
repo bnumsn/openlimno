@@ -1,0 +1,221 @@
+{
+  "name": "ns1:timeSeriesResponseType",
+  "declaredType": "org.cuahsi.waterml.TimeSeriesResponseType",
+  "scope": "javax.xml.bind.JAXBElement$GlobalScope",
+  "value": {
+    "queryInfo": {
+      "queryURL": "http://waterservices.usgs.gov/nwis/dv/format=json&sites=01463500&startDT=2025-10-01&endDT=2025-10-07&parameterCd=00060&statCd=00003&siteStatus=all",
+      "criteria": {
+        "locationParam": "[ALL:01463500]",
+        "variableParam": "[00060]",
+        "timeParam": {
+          "beginDateTime": "2025-10-01T00:00:00.000",
+          "endDateTime": "2025-10-07T00:00:00.000"
+        },
+        "parameter": []
+      },
+      "note": [
+        {
+          "value": "[ALL:01463500]",
+          "title": "filter:sites"
+        },
+        {
+          "value": "[mode=RANGE, modifiedSince=null] interval={INTERVAL[2025-10-01T00:00:00.000-04:00/2025-10-07T00:00:00.000-04:00]}",
+          "title": "filter:timeRange"
+        },
+        {
+          "value": "methodIds=[ALL]",
+          "title": "filter:methodId"
+        },
+        {
+          "value": "2026-05-25T05:30:29.561Z",
+          "title": "requestDT"
+        },
+        {
+          "value": "d7967b80-57fa-11f1-aae9-005056beda50",
+          "title": "requestId"
+        },
+        {
+          "value": "Provisional data are subject to revision. Go to http://waterdata.usgs.gov/nwis/help/?provisional for more information.",
+          "title": "disclaimer"
+        },
+        {
+          "value": "caas01",
+          "title": "server"
+        }
+      ]
+    },
+    "timeSeries": [
+      {
+        "sourceInfo": {
+          "siteName": "Delaware River at Trenton NJ",
+          "siteCode": [
+            {
+              "value": "01463500",
+              "network": "NWIS",
+              "agencyCode": "USGS"
+            }
+          ],
+          "timeZoneInfo": {
+            "defaultTimeZone": {
+              "zoneOffset": "-05:00",
+              "zoneAbbreviation": "EST"
+            },
+            "daylightSavingsTimeZone": {
+              "zoneOffset": "-04:00",
+              "zoneAbbreviation": "EDT"
+            },
+            "siteUsesDaylightSavingsTime": true
+          },
+          "geoLocation": {
+            "geogLocation": {
+              "srs": "EPSG:4326",
+              "latitude": 40.22166667,
+              "longitude": -74.77805556
+            },
+            "localSiteXY": []
+          },
+          "note": [],
+          "siteType": [],
+          "siteProperty": [
+            {
+              "value": "ST",
+              "name": "siteTypeCd"
+            },
+            {
+              "value": "020401050911",
+              "name": "hucCd"
+            },
+            {
+              "value": "34",
+              "name": "stateCd"
+            },
+            {
+              "value": "34021",
+              "name": "countyCd"
+            }
+          ]
+        },
+        "variable": {
+          "variableCode": [
+            {
+              "value": "00060",
+              "network": "NWIS",
+              "vocabulary": "NWIS:UnitValues",
+              "variableID": 45807197,
+              "default": true
+            }
+          ],
+          "variableName": "Streamflow, ft&#179;/s",
+          "variableDescription": "Discharge, cubic feet per second",
+          "valueType": "Derived Value",
+          "unit": {
+            "unitCode": "ft3/s"
+          },
+          "options": {
+            "option": [
+              {
+                "value": "Mean",
+                "name": "Statistic",
+                "optionCode": "00003"
+              }
+            ]
+          },
+          "note": [],
+          "noDataValue": -999999.0,
+          "variableProperty": [],
+          "oid": "45807197"
+        },
+        "values": [
+          {
+            "value": [
+              {
+                "value": "2820",
+                "qualifiers": [
+                  "P",
+                  "e"
+                ],
+                "dateTime": "2025-10-01T00:00:00.000"
+              },
+              {
+                "value": "2770",
+                "qualifiers": [
+                  "P",
+                  "e"
+                ],
+                "dateTime": "2025-10-02T00:00:00.000"
+              },
+              {
+                "value": "2810",
+                "qualifiers": [
+                  "P",
+                  "e"
+                ],
+                "dateTime": "2025-10-03T00:00:00.000"
+              },
+              {
+                "value": "2810",
+                "qualifiers": [
+                  "P"
+                ],
+                "dateTime": "2025-10-04T00:00:00.000"
+              },
+              {
+                "value": "3170",
+                "qualifiers": [
+                  "P"
+                ],
+                "dateTime": "2025-10-05T00:00:00.000"
+              },
+              {
+                "value": "3080",
+                "qualifiers": [
+                  "P"
+                ],
+                "dateTime": "2025-10-06T00:00:00.000"
+              },
+              {
+                "value": "3120",
+                "qualifiers": [
+                  "P"
+                ],
+                "dateTime": "2025-10-07T00:00:00.000"
+              }
+            ],
+            "qualifier": [
+              {
+                "qualifierCode": "e",
+                "qualifierDescription": "Value has been estimated.",
+                "qualifierID": 0,
+                "network": "NWIS",
+                "vocabulary": "uv_rmk_cd"
+              },
+              {
+                "qualifierCode": "P",
+                "qualifierDescription": "Provisional data subject to revision.",
+                "qualifierID": 1,
+                "network": "NWIS",
+                "vocabulary": "uv_rmk_cd"
+              }
+            ],
+            "qualityControlLevel": [],
+            "method": [
+              {
+                "methodDescription": "",
+                "methodID": 97504
+              }
+            ],
+            "source": [],
+            "offset": [],
+            "sample": [],
+            "censorCode": []
+          }
+        ],
+        "name": "USGS:01463500:00060:00003"
+      }
+    ]
+  },
+  "nil": false,
+  "globalScope": true,
+  "typeSubstituted": false
+}

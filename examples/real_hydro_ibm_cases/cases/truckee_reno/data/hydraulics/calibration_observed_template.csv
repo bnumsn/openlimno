@@ -1,0 +1,11 @@
+cell_id,station_m,discharge_m3s,observed_water_surface_m,observed_depth_m,observed_velocity_ms,weight,note
+gis-hydro-001,1134.448,10.420599545856,,,,1.0,Fill observed fields for calibration of slope/manning_n.
+gis-hydro-002,3403.345,10.420599545856,,,,1.0,Fill observed fields for calibration of slope/manning_n.
+gis-hydro-003,5672.241,10.420599545856,,,,1.0,Fill observed fields for calibration of slope/manning_n.
+gis-hydro-004,7941.138,10.420599545856,,,,1.0,Fill observed fields for calibration of slope/manning_n.
+gis-hydro-005,10210.035,10.420599545856,,,,1.0,Fill observed fields for calibration of slope/manning_n.
+gis-hydro-006,12478.931,10.420599545856,,,,1.0,Fill observed fields for calibration of slope/manning_n.
+gis-hydro-007,14747.828,10.420599545856,,,,1.0,Fill observed fields for calibration of slope/manning_n.
+gis-hydro-008,17016.724,10.420599545856,,,,1.0,Fill observed fields for calibration of slope/manning_n.
+gis-hydro-009,19285.621,10.420599545856,,,,1.0,Fill observed fields for calibration of slope/manning_n.
+gis-hydro-010,21554.518,10.420599545856,,,,1.0,Fill observed fields for calibration of slope/manning_n.

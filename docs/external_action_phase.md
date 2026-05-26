@@ -15,8 +15,9 @@
 **OpenLimno's code is healthy. The project is not.**
 
 - All `pixi run check` gates green (ruff 0; mypy --strict core +
-  Studio clean; 702 tests pass on the gated suite plus the 1
-  pre-existing env-drift fail).
+  Studio clean; 706 tests pass on the gated suite; 31 optional /
+  external tests are deselected by default). The PEST++ real-binary
+  gate passes separately in the `pestpp` environment.
 - The 4-pass R-DOC-AUDIT-WIRED track closed unfreeze-gate U6
   (production-caller audit). The "API exists ≠ capability exists"
   pattern that motivated this entire moratorium is no longer the

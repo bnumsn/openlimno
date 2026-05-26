@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openlimno.org/schemas/ibm/ibm_scenario.schema.json",
+  "title": "OpenLimno IBM scenario",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ibm_version", "scenario", "forcing", "outputs"],
+  "properties": {
+    "ibm_version": {
+      "type": "string",
+      "pattern": "^0\\.2$"
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "description": {"type": "string"},
+        "reach_id": {"type": "string", "minLength": 1, "default": "reach-1"},
+        "days": {"type": "integer", "minimum": 0, "default": 365},
+        "start_day": {"type": "integer", "minimum": 1, "maximum": 366, "default": 1},
+        "start_year": {"type": "integer", "default": 0},
+        "seed": {"type": "integer", "default": 42},
+        "stochastic": {"type": "boolean", "default": true},
+        "light_phases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1},
+          "default": ["dawn", "day", "dusk", "night"]
+        }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "uri": {"type": "string", "minLength": 1}
+      }
+    },
+    "forcing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["habitat_cells"],
+      "properties": {
+        "habitat_cells": {"type": "string", "minLength": 1},
+        "time_index_column": {"type": "string", "default": "time_index"},
+        "required_columns": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "population": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "initial_population": {"type": "string", "minLength": 1},
+        "default_species": {"type": "string", "default": "rainbow_trout"},
+        "initial_abundance": {"type": "integer", "minimum": 0, "default": 100},
+        "initial_length_mm": {"type": "number", "exclusiveMinimum": 0, "default": 110.0}
+      }
+    },
+    "submodels": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "experiments": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ensemble": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "seeds": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "integer"}
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"type": "number"}
+              }
+            },
+            "dir": {"type": "string", "minLength": 1}
+          }
+        },
+        "calibration": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "observed": {"type": "string", "minLength": 1},
+            "method": {
+              "enum": ["grid", "abc"],
+              "default": "grid"
+            },
+            "objective": {
+              "enum": ["rmse_abundance"],
+              "default": "rmse_abundance"
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"type": "number"}
+              }
+            },
+            "samples": {"type": "integer", "minimum": 1, "default": 64},
+            "acceptance_fraction": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1,
+              "default": 0.1
+            },
+            "tolerance": {"type": "number", "minimum": 0},
+            "seed": {"type": "integer", "default": 271828},
+            "dir": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "outputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dir"],
+      "properties": {
+        "dir": {"type": "string", "minLength": 1},
+        "formats": {
+          "type": "array",
+          "items": {"enum": ["csv", "parquet"]},
+          "default": ["csv"]
+        },
+        "individual_history": {"type": "boolean", "default": false},
+        "manifest": {"type": "boolean", "default": true}
+      }
+    }
+  }
+}
