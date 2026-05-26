@@ -19,6 +19,7 @@ in :mod:`openlimno.ibm.studio`.
 from __future__ import annotations
 
 import dataclasses
+import logging
 import math
 import os
 from collections.abc import Mapping
@@ -33,6 +34,8 @@ from .instream7 import (
     read_official_initial_population,
     species_profile_from_official_case,
 )
+
+_LOG = logging.getLogger(__name__)
 
 _ARCHIVE_ENV = "OPENLIMNO_INSTREAM7_ARCHIVE"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -76,11 +79,51 @@ def _classify_hmu(depth_m: float, vel_ms: float) -> str:
     return "run"
 
 
+def _crs_unit_factor(crs: Any) -> float:
+    """Return the multiplier that converts the CRS's linear unit to metres.
+
+    Rejects geographic CRSes (degrees), where centroid arithmetic + linear
+    distances are undefined. Recognises metres and US/intl survey foot;
+    anything else (or missing axis info) is rejected so a silent mis-scaling
+    cannot ship undetected. Triple-review (gemini, claude) flagged the
+    earlier foot-or-nothing detector as exactly this hazard.
+    """
+    if crs is None:
+        raise ValueError(
+            "shapefile has no CRS — cannot translate coordinates to metres."
+        )
+    try:
+        unit = crs.axis_info[0].unit_name.lower()
+    except (AttributeError, IndexError) as exc:
+        raise ValueError(
+            f"shapefile CRS {crs!r} has no axis_info — refusing to guess units."
+        ) from exc
+    if "degree" in unit or getattr(crs, "is_geographic", False):
+        raise ValueError(
+            f"shapefile CRS {crs!r} is geographic (unit={unit!r}); a projected "
+            "CRS is required so reach length, station, and area are well-defined."
+        )
+    if "metre" in unit or "meter" in unit:
+        return 1.0
+    if "foot" in unit:
+        return 0.3048
+    raise ValueError(
+        f"shapefile CRS {crs!r} has unrecognised linear unit {unit!r}."
+    )
+
+
 def _shapefile_axis_projection(gdf: Any) -> tuple[Any, Any, tuple[float, float], float]:
-    """Project polygon centroids onto principal axis. Returns (proj_m, axis,
-    origin_xy_native, unit_to_metres_factor).
+    """Project polygon centroids onto principal axis.
+
+    Returns (proj_m, axis, origin_xy_native, unit_to_metres_factor).
+    The principal axis sign is fixed by the convention "station 0 = the
+    centroid with the smallest native x"; this makes reach orientation
+    deterministic across LAPACK builds (the eigenvector sign returned by
+    ``np.linalg.eigh`` is otherwise arbitrary — Claude review flagged).
     """
     import numpy as np
+
+    factor = _crs_unit_factor(gdf.crs)
 
     cents = gdf.geometry.centroid
     xs = cents.x.values.astype(float)
@@ -92,19 +135,16 @@ def _shapefile_axis_projection(gdf: Any) -> tuple[Any, Any, tuple[float, float],
     _, evec = np.linalg.eigh(cov)
     axis = evec[:, -1]
     proj_native = centred.T @ axis
+    # Deterministic axis sign: orient so the axis vector points generally
+    # east (positive x) — falling back to north (positive y) when the axis
+    # is purely meridional. ``np.linalg.eigh`` returns sign-arbitrary
+    # eigenvectors, so without this the same dataset can pick "station 0
+    # = upstream" or "= downstream" across builds (Claude review).
+    if axis[0] < 0 or (axis[0] == 0.0 and axis[1] < 0):
+        axis = -axis
+        proj_native = -proj_native
 
-    factor = 1.0
-    crs = gdf.crs
-    if crs is not None:
-        try:
-            unit = crs.axis_info[0].unit_name.lower()
-            if "foot" in unit:
-                factor = 0.3048
-        except (AttributeError, IndexError):
-            factor = 1.0
-
-    proj_m = proj_native * factor
-    proj_m = proj_m - proj_m.min()
+    proj_m = (proj_native - proj_native.min()) * factor
     return proj_m, axis, (mx, my), factor
 
 
@@ -120,6 +160,7 @@ def build_studio_scenario_from_instream7_archive(
     """Construct a Studio scenario payload from the real inSTREAM 7.4 archive."""
     import geopandas as gpd  # noqa: PLC0415  — heavy import, defer
     import numpy as np
+    from shapely.ops import unary_union as _unary_union
 
     root = Path(archive_root)
     cases = discover_instream7_cases(root)
@@ -127,6 +168,11 @@ def build_studio_scenario_from_instream7_archive(
     if target is None:
         raise FileNotFoundError(
             f"inSTREAM 7 case '{case_id}' not found under {root}"
+        )
+    if not target.species:
+        raise ValueError(
+            f"inSTREAM 7 case '{target.case_id}' has no species — "
+            "cannot build a Studio scenario."
         )
     reach = target.reaches[0]
 
@@ -143,11 +189,21 @@ def build_studio_scenario_from_instream7_archive(
     proj_m, axis, origin, factor = _shapefile_axis_projection(gdf)
     reach_length_m = float(proj_m.max() - proj_m.min())
 
-    cents = gdf.geometry.centroid
-    cx = (cents.x.values - origin[0]) * factor
-    cy = (cents.y.values - origin[1]) * factor
-
+    # Unify the whole scene in a single "principal-axis" frame:
+    # x = along-reach station (metres, 0 = upstream), y = perpendicular
+    # lateral offset (metres, 0 = thalweg-ish). The previous version
+    # mixed translated source x/y for polygon+cells with (station, lateral)
+    # for the centerline, so all three layers were drawn on different axes
+    # (Codex P2). With the unified frame, polygon, cells, and centerline
+    # all overlay correctly in the Studio plan view.
     perp = np.array([-axis[1], axis[0]])
+
+    cents = gdf.geometry.centroid
+    raw_centred = np.vstack([cents.x.values - origin[0], cents.y.values - origin[1]]).T
+    proj_native = raw_centred @ axis
+    lateral_native = raw_centred @ perp
+    cx = (proj_native - proj_native.min()) * factor   # = station_m
+    cy = lateral_native * factor                       # = lateral offset
 
     order = np.argsort(proj_m)
     cells: list[dict[str, object]] = []
@@ -187,12 +243,22 @@ def build_studio_scenario_from_instream7_archive(
         )
 
     try:
-        outline = gdf.geometry.unary_union.buffer(0).convex_hull
+        # Project the dissolved outline into the principal-axis frame too,
+        # so the polygon, cells, and centerline live on the same axes.
+        # ``shapely.ops.unary_union`` is the canonical idiom — the
+        # GeoSeries ``.unary_union`` property is deprecated in
+        # geopandas ≥1.0 in favour of ``.union_all()`` (Claude review).
+        outline = _unary_union(list(gdf.geometry)).buffer(0).convex_hull
         xs_ext, ys_ext = outline.exterior.coords.xy
+        vertices = np.vstack(
+            [np.asarray(xs_ext, float) - origin[0],
+             np.asarray(ys_ext, float) - origin[1]],
+        ).T
+        v_station = (vertices @ axis - proj_native.min()) * factor
+        v_lateral = (vertices @ perp) * factor
         channel_polygon = [
-            [round((float(x) - origin[0]) * factor, 2),
-             round((float(y) - origin[1]) * factor, 2)]
-            for x, y in zip(xs_ext, ys_ext, strict=True)
+            [round(float(s), 2), round(float(la), 2)]
+            for s, la in zip(v_station.tolist(), v_lateral.tolist(), strict=True)
         ]
     except (AttributeError, ValueError):
         channel_polygon = [
@@ -207,15 +273,13 @@ def build_studio_scenario_from_instream7_archive(
     bin_edges = np.linspace(0.0, max(reach_length_m, 1.0), n_bins + 1)
     centerline_m: list[list[float]] = []
     for i in range(n_bins):
-        mask = (proj_m >= bin_edges[i]) & (proj_m < bin_edges[i + 1])
+        mask = (proj_m >= bin_edges[i]) & (proj_m <= bin_edges[i + 1])
         if int(mask.sum()) < 2:
             continue
-        local_xy = np.vstack([cx[mask], cy[mask]]).T
-        lateral = local_xy @ perp
         centerline_m.append(
             [
                 round(float((bin_edges[i] + bin_edges[i + 1]) / 2), 2),
-                round(float(lateral.mean()), 2),
+                round(float(cy[mask].mean()), 2),
             ]
         )
     if len(centerline_m) < 2:
@@ -224,28 +288,54 @@ def build_studio_scenario_from_instream7_archive(
             for s in np.linspace(0.0, reach_length_m, 40)
         ]
 
+    # Triple-review caught the cm→mm bug here (Codex P1, Claude
+    # "cohort structure collapsed"). The official ``Length mode`` column
+    # is in CENTIMETRES; the Studio config expects MILLIMETRES. Also
+    # weight by abundance so the dominant cohort (300 age-0 fry at 6.1 cm)
+    # drives the mean, not an unweighted average of cohort modes.
     initial_population = read_official_initial_population(target.initial_population_file)
     total_init = int(initial_population["Number"].sum())
-    mode_lengths = initial_population["Length mode"].astype(float).tolist()
-    initial_length_mm = float(sum(mode_lengths) / len(mode_lengths)) if mode_lengths else 80.0
+    if total_init <= 0:
+        raise ValueError(
+            f"inSTREAM 7 case '{target.case_id}' has an empty initial population."
+        )
+    weighted_cm = float(
+        (initial_population["Number"] * initial_population["Length mode"]).sum()
+    )
+    initial_length_mm = (weighted_cm * 10.0) / total_init
+    cohorts = [
+        {
+            "species": str(row["Species"]),
+            "reach": str(row["Reach"]),
+            "age": int(row["Age"]),
+            "number": int(row["Number"]),
+            "length_min_cm": float(row["Length min"]),
+            "length_mode_cm": float(row["Length mode"]),
+            "length_max_cm": float(row["Length max"]),
+        }
+        for row in initial_population.to_dict(orient="records")
+    ]
 
-    profile = species_profile_from_official_case(target, target.species[0])
+    species_name = target.species[0]
+    profile = species_profile_from_official_case(target, species_name)
     profile_dict: dict[str, object] = {}
     for field in dataclasses.fields(profile):
         value = getattr(profile, field.name)
         if isinstance(value, str | int | float | bool):
             profile_dict[field.name] = value
 
+    n_real_cells = int(len(cells_df))
     river: dict[str, object] = {
         "name": "inSTREAM 7.4 Example Project A",
         "reach_name": f"{reach.reach_id} (Cal Poly Humboldt official archive)",
         "length_m": round(reach_length_m, 2),
         "flow_m3s": round(q_med, 3),
         "display_note": (
-            f"Real inSTREAM 7.4 ExampleA archive: {len(cells_df)} surveyed cells, "
-            f"{len(ts)}-day time series, shapefile CRS={gdf.crs}. "
-            "Geometry comes from the official archive — Import GIS still works "
-            "for replacing the shape with a different surveyed reach."
+            f"Real inSTREAM 7.4 ExampleA archive: {n_real_cells} surveyed cells, "
+            f"{len(ts)}-day time series, shapefile CRS={gdf.crs}. The plan-view "
+            f"polygon is the convex envelope of the {n_real_cells} surveyed cells "
+            "(not a concave bank trace). Import GIS to replace with a different "
+            "surveyed reach."
         ),
         "geometry": {
             "channel_polygon_m": channel_polygon,
@@ -254,7 +344,10 @@ def build_studio_scenario_from_instream7_archive(
             "source": "inSTREAM 7.4 ExampleA shapefile (Cal Poly Humboldt)",
             "boundary_quality": {
                 "real": True,
-                "note": "Convex hull of 1373 surveyed polygon cells.",
+                "note": (
+                    f"Convex envelope of {n_real_cells} surveyed polygon cells, "
+                    "rotated into the principal-axis (along-reach) frame."
+                ),
             },
         },
     }
@@ -286,13 +379,21 @@ def build_studio_scenario_from_instream7_archive(
             "archive_filename": "InSTREAM-7.4_2026-02-11.zip",
             "case_id": target.case_id,
             "reach_id": reach.reach_id,
+            "species_name": species_name,
             "shapefile_crs": str(gdf.crs),
-            "real_cells": int(len(cells_df)),
+            "crs_unit_to_metres_factor": factor,
+            "real_cells": n_real_cells,
             "time_series_days": int(len(ts)),
             "median_flow_m3s": q_med,
             "median_temperature_c": t_med,
             "median_turbidity_ntu": tur_med,
             "initial_population_total": total_init,
+            "initial_population_cohorts": cohorts,
+            "initial_length_mm_weighting": (
+                "abundance-weighted mean of Length mode column "
+                "(cm → mm); cohort structure preserved under "
+                "initial_population_cohorts."
+            ),
             "loaded_from": str(root),
         },
     }

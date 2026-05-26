@@ -32,6 +32,7 @@ logic / HTML assets). That refactor is OPEN.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import time
 import uuid
@@ -68,6 +69,8 @@ from .scenario import (
     write_species_profile,
 )
 from .submodels import default_submodel_selection, list_ibm_submodels, validate_submodel_selection
+
+_LOG = logging.getLogger(__name__)
 
 _DEMO_REACH_LENGTH_M = 1500.0
 _DEMO_REACH_CENTERLINE_Y = 60.0
@@ -197,11 +200,11 @@ def _demo_river_geometry() -> dict[str, object]:
     """Synthetic but coherent river geometry for the demo scenario.
 
     Produces a centerline + channel-boundary polygon that visually
-    matches the 8 demo cells (upper-riffle / left-margin / mid-run /
-    cottonwood-pool / gravel-tailout / side-channel / lower-glide /
-    boulder-chute). The polygon includes bulges for the pool (north
-    extension) + side-channel (south extension) + left-margin so all
-    cells render inside the channel shape.
+    matches the 20 demo cells (4 pool-riffle sequences across the 1500 m
+    reach plus 2 side-channels, 2 margins, and 1 boulder chute — see
+    ``_DEMO_BULGES`` and ``_demo_cells``). The polygon widens at each
+    bulge so the off-channel cells (pool, side-channel, margin) render
+    inside the channel shape.
 
     This is the demo's RECOVERY from the pre-fix state where the
     front-end ``display_note`` said "no river boundary loaded; habitat
@@ -373,10 +376,13 @@ def default_studio_scenario_resolved() -> dict[str, object]:
     """Resolve the runtime default scenario.
 
     Prefers the real inSTREAM 7.4 ExampleA archive when one is present on
-    the local filesystem (env var, XDG cache, or repo dev dir); silently
-    falls back to ``default_studio_scenario()`` if the archive is absent
-    or fails to load. The fallback always keeps the running server
-    functional.
+    the local filesystem (env var, XDG cache, or repo dev dir); falls back
+    to ``default_studio_scenario()`` if the archive is absent or fails to
+    load. Falls-back-with-WARNING-log when the archive *is* present but
+    the load fails — triple-review (gemini, claude) caught that a bare
+    silent fallback could mask malformed archives, renamed CSV columns,
+    missing shapefiles, etc., leaving the user staring at the synthetic
+    demo wondering why their archive isn't being used.
     """
     # Imported here to avoid a hard dep on heavy GIS stack at module load.
     try:
@@ -384,11 +390,17 @@ def default_studio_scenario_resolved() -> dict[str, object]:
             build_studio_scenario_from_instream7_archive,
             find_instream7_archive_root,
         )
-    except Exception:  # pragma: no cover - import guard for stripped envs
+    except Exception as exc:  # pragma: no cover - import guard for stripped envs
+        _LOG.warning(
+            "Falling back to synthetic Studio default: "
+            "studio_instream7_default import failed (%s).",
+            exc,
+        )
         return default_studio_scenario()
 
     root = find_instream7_archive_root()
     if root is None:
+        # Quiet: no archive configured is the normal path on CI / fresh checkout.
         return default_studio_scenario()
 
     fallback = default_studio_scenario()
@@ -400,7 +412,12 @@ def default_studio_scenario_resolved() -> dict[str, object]:
             experiments=cast(Mapping[str, object], fallback["experiments"]),
             instream_panel_defaults=cast(Mapping[str, object], fallback["instream"]),
         )
-    except Exception:
+    except Exception as exc:
+        _LOG.warning(
+            "inSTREAM 7 archive at %s failed to load (%s: %s); "
+            "falling back to synthetic Studio default.",
+            root, type(exc).__name__, exc,
+        )
         return fallback
     return real
 

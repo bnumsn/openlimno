@@ -133,20 +133,31 @@ initial pop      = 360 rainbow trout (300 age-0, 50 age-1, 10 age-2)
 license          = GPL-3.0 (not bundled in this Apache-2.0 repo)
 ```
 
-10-day IBM smoke result on the real cells:
+10-day IBM smoke result on the real cells (pre-fix, before the
+2026-05-26 cm→mm correction):
 
 ```
 day  abundance  biomass_g  mean_length_mm
-  0       360       6.6           11.7    ← official tri-cohort init
+  0       360       6.6           11.7    ← BUG: 11.7 was cm-as-mm
   1       359      95.7           28.0
   5       352      93.9           28.0
  10       343      91.5           28.0
-survival_rate = 0.953, events = 17, redds = 0
 ```
 
+Triple-review (Codex P1, Claude "cohort structure collapsed") caught
+that the official ``Length mode`` column is in centimetres and was
+being assigned directly to ``initial_length_mm``. The corrected path
+now computes an abundance-weighted cm→mm mean (300×6.1cm + 50×12cm
++ 10×17cm) × 10 / 360 ≈ 72.2 mm, and preserves the full tri-cohort
+structure under ``_provenance.initial_population_cohorts``.
+
 45-day Studio run from the UI: 360 → 304 (survival 0.844). Plan-view
-correctly renders the real reach geometry (distinctive meander
-curve from the surveyed shapefile, not a synthetic sinusoid).
+renders the convex envelope of the 1373 surveyed cells (rotated into
+principal-axis frame) — that envelope is convex by construction and
+does NOT trace the concave meander; the centerline (binned cell-
+centroid lateral) does carry the along-reach shape. Triple-review
+(2026-05-26 later) explicitly corrected the earlier "distinctive
+meander curve" overclaim here.
 
 Provenance auto-embedded in the scenario JSON under ``_provenance``:
 ``Cal Poly Humboldt inSTREAM 7.4 ExampleA``, archive filename,

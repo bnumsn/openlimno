@@ -91,9 +91,11 @@ def test_default_studio_scenario_has_editable_sections() -> None:
     assert isinstance(geom["centerline_m"], list) and len(geom["centerline_m"]) > 10
     assert geom["crs"] == "local_m"
     # The display note must still point users at Import GIS for the
-    # real shape so the synthetic outline isn't mistaken for survey data
+    # real shape so the synthetic outline isn't mistaken for survey data.
+    # (Triple-review caught the old "or 'real Lemhi shape'" disjunct
+    # was dead code — first clause is always true.)
     note = str(river["display_note"])
-    assert "Import GIS" in note or "real Lemhi shape" in note
+    assert "Import GIS" in note
     assert isinstance(payload["cells"], list)
     assert len(payload["cells"]) >= 8
     first_cell = payload["cells"][0]
