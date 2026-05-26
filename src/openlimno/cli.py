@@ -283,7 +283,31 @@ def wua_cells(
     console.print(f"  outputs: {out}")
 
 
-@main.command("ibm-export")
+# ============================================================
+# IBM CLI surface (per R-IBM-CLI-GRAMMAR cleanup track in ADR-0016).
+#
+# OpenLimno's IBM functionality is exposed via TWO grammars right now:
+#   - Flat top-level verbs: `openlimno ibm-run-native`,
+#     `openlimno ibm-studio`, ..., 8 commands total.
+#   - Nested group: `openlimno ibm <subcommand>` (currently:
+#     `submodels`, `profile`, `scenario`, `ensemble`, `calibrate`,
+#     `run`).
+#
+# Round-22 review (codex+gemini, MEDIUM) flagged the grammar split
+# as bolted-on. The future direction is the NESTED form
+# (`openlimno ibm <verb>`), consistent with the rest of OpenLimno's
+# noun-grouped CLI (`openlimno wua-cells`, `openlimno preprocess
+# import-model`).
+#
+# All 8 flat `ibm-*` commands below are marked `deprecated=True`.
+# They still work, but Click will print a DeprecationWarning so
+# users learn to migrate. Full nested-form parity (so users can
+# replace every flat command with a nested equivalent) is part
+# of the R-IBM-GOD-OBJECT refactor — currently OPEN.
+# ============================================================
+
+
+@main.command("ibm-export", deprecated=True)
 @click.option(
     "--cells",
     "cells_path",
@@ -335,7 +359,7 @@ def ibm_export(
         console.print(f"  {name}: {path}")
 
 
-@main.command("ibm-studio")
+@main.command("ibm-studio", deprecated=True)
 @click.option("--host", default="127.0.0.1", show_default=True)
 @click.option("--port", type=int, default=8770, show_default=True)
 @click.option(
@@ -350,7 +374,7 @@ def ibm_studio(host: str, port: int, out_dir: str, open_browser: bool) -> None:
     run_ibm_studio(host=host, port=port, output_dir=out_dir, open_browser=open_browser)
 
 
-@main.command("ibm-run-native")
+@main.command("ibm-run-native", deprecated=True)
 @click.option(
     "--cells",
     "cells_path",
@@ -428,7 +452,7 @@ def ibm_run_native(
         console.print(f"  {name}: {path}")
 
 
-@main.command("ibm-benchmark-instream7")
+@main.command("ibm-benchmark-instream7", deprecated=True)
 @click.option(
     "--fixture",
     "fixture_path",
@@ -476,7 +500,7 @@ def ibm_benchmark_instream7(
         console.print(f"  {name}: {path}")
 
 
-@main.command("ibm-run-instream7-netlogo-reference")
+@main.command("ibm-run-instream7-netlogo-reference", deprecated=True)
 @click.option(
     "--fixture",
     "fixture_path",
@@ -530,7 +554,7 @@ def ibm_run_instream7_netlogo_reference(
         console.print(f"  brief_pop: {path}")
 
 
-@main.command("ibm-summarize-instream7-brief")
+@main.command("ibm-summarize-instream7-brief", deprecated=True)
 @click.option(
     "--brief-pop",
     "brief_pop_path",
@@ -559,7 +583,7 @@ def ibm_summarize_instream7_brief(
     console.print(f"[green]✓[/] inSTREAM 7 BriefPop summary written: {len(table)} rows -> {out}")
 
 
-@main.command("ibm-compare-instream7-netlogo")
+@main.command("ibm-compare-instream7-netlogo", deprecated=True)
 @click.option(
     "--native-summary",
     "native_summary_path",
@@ -622,7 +646,7 @@ def ibm_compare_instream7_netlogo(
         sys.exit(1)
 
 
-@main.command("ibm-acceptance-report")
+@main.command("ibm-acceptance-report", deprecated=True)
 @click.option(
     "--official-fixture",
     type=click.Path(exists=True),
