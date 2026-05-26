@@ -366,10 +366,48 @@ def ibm_export(
     "--out-dir", type=click.Path(), default="/tmp/openlimno_ibm_studio", show_default=True
 )
 @click.option("--open-browser/--no-open-browser", default=True, show_default=True)
-def ibm_studio(host: str, port: int, out_dir: str, open_browser: bool) -> None:
-    """Launch the local browser UI for the native inSTREAM-like IBM."""
+@click.option(
+    "--i-understand-this-is-experimental",
+    is_flag=True,
+    default=False,
+    help=(
+        "Required flag. The browser-based IBM Studio is a developer/research preview "
+        "(R-IBM-STUDIO-CONSOLIDATE per ADR-0016): 3,286-LOC stdlib http.server "
+        "implementation disconnected from the PyQt6 ``openlimno.studio`` shell. It "
+        "exists as a third Studio surface that round-22 review (codex A6, gemini A5; "
+        "HIGH) flagged as unsustainable. Without this flag, the command refuses to "
+        "start. Pass this flag to acknowledge the experimental status."
+    ),
+)
+def ibm_studio(
+    host: str,
+    port: int,
+    out_dir: str,
+    open_browser: bool,
+    i_understand_this_is_experimental: bool,
+) -> None:
+    """Launch the local browser UI for the native inSTREAM-like IBM.
+
+    DEV-ONLY surface. Per ADR-0016 R-IBM-STUDIO-CONSOLIDATE the
+    browser Studio is provisional and will be consolidated into
+    the PyQt6 ``openlimno.studio`` shell (or deleted) before the
+    IBM track ratifies.
+    """
     from openlimno.ibm import run_ibm_studio
 
+    if not i_understand_this_is_experimental:
+        raise click.UsageError(
+            "openlimno ibm-studio requires "
+            "--i-understand-this-is-experimental. The browser-based IBM "
+            "Studio is a 3rd disconnected GUI surface per round-22 "
+            "review (HIGH). Consolidation tracked as R-IBM-STUDIO-CONSOLIDATE "
+            "in ADR-0016. Use the PyQt6 Studio at ``openlimno-studio`` for "
+            "production work."
+        )
+    console.print(
+        "[yellow]⚠[/] OpenLimno IBM Studio is a research/dev preview "
+        "(R-IBM-STUDIO-CONSOLIDATE per ADR-0016)."
+    )
     console.print(f"[green]✓[/] starting OpenLimno IBM Studio on http://{host}:{port}/")
     run_ibm_studio(host=host, port=port, output_dir=out_dir, open_browser=open_browser)
 

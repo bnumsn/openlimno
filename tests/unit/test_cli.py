@@ -843,6 +843,9 @@ def test_ibm_studio_cli_invokes_server(
     monkeypatch.setattr(ibm, "run_ibm_studio", fake_run_ibm_studio)
 
     runner = CliRunner()
+    # 2026-05-26 R-IBM-STUDIO-CONSOLIDATE: ibm-studio now requires
+    # --i-understand-this-is-experimental so the third disconnected
+    # GUI surface can't be invoked accidentally. ADR-0016 cleanup.
     result = runner.invoke(
         main,
         [
@@ -854,6 +857,7 @@ def test_ibm_studio_cli_invokes_server(
             "--out-dir",
             str(tmp_path),
             "--no-open-browser",
+            "--i-understand-this-is-experimental",
         ],
     )
 
@@ -865,6 +869,39 @@ def test_ibm_studio_cli_invokes_server(
         "output_dir": tmp_path,
         "open_browser": False,
     }
+
+
+def test_ibm_studio_cli_refuses_without_experimental_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R-IBM-STUDIO-CONSOLIDATE: ibm-studio must refuse to start
+    unless the user explicitly opts in to the experimental flag.
+    Without the flag, the command returns a UsageError with a
+    pointer to the production PyQt6 Studio.
+    """
+    import openlimno.ibm as ibm
+
+    def fake_run_ibm_studio(*args: object, **kwargs: object) -> None:
+        # Should NOT be called when the gating flag is absent.
+        raise AssertionError("ibm-studio launched without the experimental flag")
+
+    monkeypatch.setattr(ibm, "run_ibm_studio", fake_run_ibm_studio)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "ibm-studio",
+            "--host", "127.0.0.1",
+            "--port", "8877",
+            "--out-dir", str(tmp_path),
+            "--no-open-browser",
+            # --i-understand-this-is-experimental DELIBERATELY ABSENT
+        ],
+    )
+    assert result.exit_code != 0, "ibm-studio should refuse to start without the flag"
+    assert "--i-understand-this-is-experimental" in result.output
 
 
 def test_ibm_run_native_writes_population_outputs(tmp_path: Path) -> None:

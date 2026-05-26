@@ -1,4 +1,33 @@
-"""Local browser UI for OpenLimno's native inSTREAM-like IBM."""
+"""Local browser UI for OpenLimno's native inSTREAM-like IBM.
+
+⚠️ DEV/RESEARCH PREVIEW SURFACE (R-IBM-STUDIO-CONSOLIDATE)
+
+This module is OpenLimno's third GUI surface, after:
+  - ``openlimno.studio`` (PyQt6 desktop Studio — the canonical
+    user-facing GUI)
+  - ``openlimno.qgis.openlimno_qgis_plugin`` (M2-alpha QGIS plugin,
+    maintenance-only since 2026-05-19)
+
+Round-22 architectural review (codex A6, gemini A5; HIGH × 2) flagged
+the existence of this third disconnected GUI surface as unsustainable.
+Per ADR-0016 (author override; cleanup track R-IBM-STUDIO-CONSOLIDATE),
+this surface is now classified as DEV-ONLY:
+
+  - The CLI entry ``openlimno ibm-studio`` requires
+    ``--i-understand-this-is-experimental`` to launch. Without that
+    flag the command refuses to start.
+  - This module's public API in ``openlimno.ibm.__init__`` is NOT
+    in ``__all__``; users must import it via the full submodule path
+    if they want to script the Studio.
+  - No new UX features will be accepted here. The future direction
+    is integration into the PyQt6 ``openlimno.studio`` shell OR
+    outright deletion if the IBM workbench moves to a different
+    deployment model.
+
+The 3,286-LOC monolith is also on the R-IBM-GOD-OBJECT track for
+splitting by responsibility (server / handlers / views / business
+logic / HTML assets). That refactor is OPEN.
+"""
 
 from __future__ import annotations
 
