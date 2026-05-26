@@ -47,13 +47,18 @@ def _normalise_discharges(
     discharges_m3s: float | Sequence[float] | pd.Series | np.ndarray,
     n_sections: int,
 ) -> np.ndarray:
+    # 2026-05-26 mypy --strict fix: numpy stubs reject ``dtype=float`` for
+    # ``np.full`` _ScalarT (HEAD numpy types). Use np.float64 explicitly.
     if np.isscalar(discharges_m3s):
-        out = np.full(n_sections, float(discharges_m3s), dtype=float)
+        out = np.full(n_sections, float(discharges_m3s), dtype=np.float64)
     else:
-        out = np.asarray(discharges_m3s, dtype=float)
+        out = np.asarray(discharges_m3s, dtype=np.float64)
     if out.shape != (n_sections,):
         raise ValueError("discharges_m3s must be scalar or match the number of sections")
-    if np.any(~np.isfinite(out)) or np.any(out < 0.0):
+    # 2026-05-26 mypy --strict fix: ``np.any(out < 0.0)`` is rejected by
+    # mypy (operand types for <). Use the ndarray method form so the
+    # comparison binds through numpy.
+    if (~np.isfinite(out)).any() or (out < 0.0).any():
         raise ValueError("discharges_m3s values must be finite and non-negative")
     return out
 

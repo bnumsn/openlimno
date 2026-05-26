@@ -250,8 +250,11 @@ def _official_fixture_item(
         bool(summary["complete_example_set"]) and bool(summary["has_insalmo_adult_arrivals"])
         for summary in fixture_summaries
     )
+    # 2026-05-26 mypy --strict fix: status was annotated earlier in the
+    # function (line 196), so re-annotating here triggers no-redef. Drop
+    # the type and let mypy infer from the AcceptanceStatus Literal.
     if errors:
-        status: AcceptanceStatus = "failed"
+        status = "failed"
     elif strict_official:
         status = "passed" if has_instream and has_insalmo else "failed"
     else:
