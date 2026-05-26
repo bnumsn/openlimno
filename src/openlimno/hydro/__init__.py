@@ -7,6 +7,19 @@ Provides two backends:
 
 Both implement the ``HydroSolver`` Protocol. SPEC §3.2 rejects BMI in 1.0
 (ADR-0004) because two backends don't justify a 25-method standard interface.
+
+NAMESPACE NOTE (R-IBM-HYDROSOLVER cleanup track, ADR-0016 post-merge): this
+package ALSO contains two workflow helpers that are NOT HydroSolver
+implementations — they hardcode Builtin1D and sidestep the protocol:
+
+- ``openlimno.hydro.calibration`` — grid-search Manning n calibration
+- ``openlimno.hydro.gis_hydraulics`` — GIS-driven hydraulic cell builder
+
+Round-22 review (codex A4 / gemini A3, MEDIUM) flagged this as namespace
+pollution. The two modules' own docstrings document the boundary. Future
+direction is either (a) a ``HydraulicWorkflow`` protocol added here, or
+(b) moving the helpers to ``openlimno/workflows/``. Either lands as part
+of the R-IBM-GOD-OBJECT refactor (still OPEN per ADR-0016).
 """
 
 from __future__ import annotations

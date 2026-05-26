@@ -1,4 +1,32 @@
-"""Calibration helpers for OpenLimno hydraulic solvers."""
+"""Calibration helpers for OpenLimno hydraulic solvers.
+
+⚠️ MODULE BOUNDARY NOTE (R-IBM-HYDROSOLVER cleanup track,
+ADR-0016): this module lives under ``openlimno.hydro`` for
+discoverability (users calibrating builtin-1d expect to find
+it here), but it is NOT a ``HydroSolver`` implementation — it is
+a calibration workflow that *uses* ``Builtin1D`` directly. The
+hydro package's contract is the three-method ``HydroSolver``
+Protocol (`prepare` / `run` / `read_results`); this module
+sidesteps that contract and hardcodes Builtin1D.
+
+Round-22 codex A4 / gemini A3 (MEDIUM) flagged this as protocol
+leakage: importers shouldn't be expected to discover that the
+``hydro`` namespace mixes solver-protocol implementers with
+workflow helpers.
+
+Future direction (when R-IBM-GOD-OBJECT lands):
+  - Option A: keep the module here but add a ``HydraulicWorkflow``
+    Protocol in ``openlimno/hydro/__init__.py`` that this module
+    implements, restoring a uniform contract.
+  - Option B: move to ``openlimno/workflows/hydro_calibration.py``
+    so the ``hydro/`` namespace is solver-protocol-only.
+
+For now (post-2026-05-26 merge per ADR-0016) the module stays
+in place + this docstring documents the boundary. Downstream
+callers that import from ``openlimno.hydro.calibration`` should
+treat it as a calibration helper, NOT as evidence of a wider
+hydro-protocol expansion.
+"""
 
 from __future__ import annotations
 

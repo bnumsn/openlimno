@@ -5,6 +5,23 @@ tables. It creates clipped habitat/hydraulic cells from a river boundary and
 centerline, builds cross-sections from a DEM when supplied, falls back to a
 clearly marked synthetic section shape when DEM/bathymetry are unavailable,
 then runs the built-in 1D solver to produce cell-level depth/velocity rows.
+
+⚠️ MODULE BOUNDARY NOTE (R-IBM-HYDROSOLVER cleanup track, ADR-0016):
+this module is workflow code, NOT a ``HydroSolver`` implementation.
+It directly instantiates ``Builtin1D`` rather than implementing the
+``HydroSolver`` protocol (``prepare`` / ``run`` / ``read_results``).
+Round-22 codex A4 / gemini A3 (MEDIUM) flagged this as protocol
+leakage in the hydro/ namespace.
+
+The module STAYS in ``openlimno.hydro`` (rather than moving to
+``openlimno.preprocess``) for now because it produces hydraulic
+cells that ARE then consumed by the habitat surface — i.e., it's
+upstream of the habitat pipeline, downstream of preprocessing.
+Sibling to ``calibration.py``.
+
+Future direction is the same as for ``calibration.py``: either
+introduce a ``HydraulicWorkflow`` protocol or move to
+``openlimno/workflows/``. Tracked under R-IBM-GOD-OBJECT.
 """
 
 from __future__ import annotations
