@@ -39,8 +39,13 @@ def test_run_studio_scenario_writes_native_outputs(tmp_path: Path) -> None:
     assert river_view["river"]["name"] == "Lemhi River"  # type: ignore[index]
     geometry = river_view["geometry"]  # type: ignore[index]
     assert isinstance(geometry, dict)
-    assert "centerline_m" not in geometry
-    assert "channel_polygon_m" not in geometry
+    # 2026-05-26: demo now ships a synthetic outline so the plan-view
+    # reads as a coherent reach. Both centerline + boundary polygon
+    # round-trip through ``run_studio_scenario``.
+    assert "centerline_m" in geometry
+    assert "channel_polygon_m" in geometry
+    assert len(geometry["centerline_m"]) > 10
+    assert len(geometry["channel_polygon_m"]) > 20
     assert len(river_view["cells"]) >= 8  # type: ignore[arg-type]
     first_cell = river_view["cells"][0]  # type: ignore[index]
     assert len(first_cell["polygon_m"]) == 4
@@ -75,8 +80,20 @@ def test_default_studio_scenario_has_editable_sections() -> None:
     river = payload["river"]
     assert isinstance(river, dict)
     assert river["name"] == "Lemhi River"
-    assert "geometry" not in river
-    assert "No real river boundary" in str(river["display_note"])
+    # 2026-05-26 UI walkthrough fix: the demo now ships a synthetic
+    # but coherent river outline so the 8 cells render on a single
+    # connected channel. Real GIS boundaries still come via the
+    # ``Import GIS`` UI surface.
+    assert "geometry" in river
+    geom = river["geometry"]
+    assert isinstance(geom, dict)
+    assert isinstance(geom["channel_polygon_m"], list) and len(geom["channel_polygon_m"]) > 20
+    assert isinstance(geom["centerline_m"], list) and len(geom["centerline_m"]) > 10
+    assert geom["crs"] == "local_m"
+    # The display note must still point users at Import GIS for the
+    # real shape so the synthetic outline isn't mistaken for survey data
+    note = str(river["display_note"])
+    assert "Import GIS" in note or "real Lemhi shape" in note
     assert isinstance(payload["cells"], list)
     assert len(payload["cells"]) >= 8
     first_cell = payload["cells"][0]

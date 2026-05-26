@@ -235,6 +235,98 @@ def _demo_cells() -> list[dict[str, object]]:
     ]
 
 
+def _demo_river_geometry() -> dict[str, object]:
+    """Synthetic but coherent river geometry for the demo scenario.
+
+    Produces a centerline + channel-boundary polygon that visually
+    matches the 8 demo cells (upper-riffle / left-margin / mid-run /
+    cottonwood-pool / gravel-tailout / side-channel / lower-glide /
+    boulder-chute). The polygon includes bulges for the pool (north
+    extension) + side-channel (south extension) + left-margin so all
+    cells render inside the channel shape.
+
+    This is the demo's RECOVERY from the pre-fix state where the
+    front-end ``display_note`` said "no river boundary loaded; habitat
+    cells only" — leaving the plan-view with scattered rectangles
+    that looked random. With ``channel_polygon_m`` + ``centerline_m``
+    populated the cells now read as a single coherent reach.
+
+    Real river data should still be imported via the ``Import GIS``
+    button (or ``/api/gis/import``) — this synthetic outline is
+    only the default-demo fallback.
+    """
+    import math
+
+    length_m = 380.0
+    centerline_y = 50.0      # mainline runs near y=50
+    base_half_width = 7.0    # 14 m channel width default
+    sway_amplitude = 4.0     # mild meander
+    n_centerline = 40
+
+    # 1) Centerline: gentle sinusoidal sway around y=50
+    centerline = [
+        [
+            x,
+            centerline_y + sway_amplitude * math.sin(2 * math.pi * x / 220.0),
+        ]
+        for x in [i * (length_m / (n_centerline - 1)) for i in range(n_centerline)]
+    ]
+
+    # 2) Banks: offset ±half_width perpendicular to centerline tangent,
+    #    widening where pool / margin / side-channel sit.
+    def _local_half_width(x: float, side: str) -> float:
+        # Side ∈ {"north", "south"}. Bulges extend the polygon to cover
+        # off-channel cells:
+        #   margin (x≈62)         → north bulge ~ small
+        #   cottonwood-pool (x≈158) → north bulge ~ large (cell y=76)
+        #   side-channel (x≈246)   → south bulge ~ large (cell y=31)
+        half = base_half_width
+        if side == "north":
+            # left-margin bulge
+            half += 8.0 * math.exp(-((x - 62) / 25) ** 2)
+            # cottonwood-pool bulge (covers y up to ~88)
+            half += 30.0 * math.exp(-((x - 158) / 28) ** 2)
+        elif side == "south":
+            # side-channel bulge (covers y down to ~15)
+            half += 25.0 * math.exp(-((x - 246) / 28) ** 2)
+        return half
+
+    north_bank = []
+    south_bank = []
+    for i, (x, y) in enumerate(centerline):
+        # Tangent direction for perpendicular offset
+        if i == 0:
+            dx, dy = centerline[1][0] - x, centerline[1][1] - y
+        elif i == len(centerline) - 1:
+            dx, dy = x - centerline[-2][0], y - centerline[-2][1]
+        else:
+            dx = centerline[i + 1][0] - centerline[i - 1][0]
+            dy = centerline[i + 1][1] - centerline[i - 1][1]
+        norm = math.hypot(dx, dy) or 1.0
+        # Perpendicular unit vector pointing "north" (positive y side)
+        nx, ny = -dy / norm, dx / norm
+        if ny < 0:  # ensure north points to +y
+            nx, ny = -nx, -ny
+        h_north = _local_half_width(x, "north")
+        h_south = _local_half_width(x, "south")
+        north_bank.append([x + nx * h_north, y + ny * h_north])
+        south_bank.append([x - nx * h_south, y - ny * h_south])
+
+    # 3) Stitch banks into a closed polygon (north along, south back).
+    channel_polygon = north_bank + list(reversed(south_bank))
+
+    return {
+        "channel_polygon_m": channel_polygon,
+        "centerline_m": centerline,
+        "crs": "local_m",
+        "source": "OpenLimno demo synthetic outline",
+        "boundary_quality": {
+            "real": False,
+            "note": "synthetic outline; load real GIS for true shape",
+        },
+    }
+
+
 def _demo_river() -> dict[str, object]:
     return {
         "name": "Lemhi River",
@@ -242,9 +334,11 @@ def _demo_river() -> dict[str, object]:
         "length_m": 380.0,
         "flow_m3s": 5.8,
         "display_note": (
-            "No real river boundary is bundled with the demo. Load a surveyed, "
-            "remote-sensed, or GIS-derived boundary polygon to display the true river shape."
+            "Demo bundled with a synthetic river outline so the 8 habitat "
+            "cells render as a coherent reach. For the real Lemhi shape "
+            "use ``Import GIS`` with a surveyed boundary polygon."
         ),
+        "geometry": _demo_river_geometry(),
     }
 
 
