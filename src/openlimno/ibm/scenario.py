@@ -366,11 +366,18 @@ def run_ibm_scenario(
         # SpeciesProfile() weight_a/b and the day-1 mass uses the loaded
         # archive's weight_a/b, producing a silent mass jump between days
         # (2026-05-26 software-test S1; Codex + Gemini both verified live).
+        #
+        # If the scenario carries ``population.cohorts``, build a
+        # stratified initial population (per-age, per-length-mode) —
+        # 2026-05-27 stratified-init track A. This closes the ~35%
+        # biomass offset against NetLogo BriefPop reference (Step 9).
+        cohort_specs = population.get("cohorts")
         fish = build_initial_population(
             n=int(population.get("initial_abundance", 100)),
             species=species,
             length_mm=float(population.get("initial_length_mm", 110.0)),
             profile=profile,
+            cohorts=cohort_specs if isinstance(cohort_specs, (list, tuple)) else None,
         )
 
     light_phases_raw = scenario.get("light_phases", ("dawn", "day", "dusk", "night"))

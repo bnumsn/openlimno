@@ -58,7 +58,24 @@
         "initial_population": {"type": "string", "minLength": 1},
         "default_species": {"type": "string", "default": "rainbow_trout"},
         "initial_abundance": {"type": "integer", "minimum": 0, "default": 100},
-        "initial_length_mm": {"type": "number", "exclusiveMinimum": 0, "default": 110.0}
+        "initial_length_mm": {"type": "number", "exclusiveMinimum": 0, "default": 110.0},
+        "cohorts": {
+          "type": "array",
+          "description": "Stratified age-cohort initialisation (e.g. from inSTREAM 7 InitialPopulations.csv). When present, overrides the uniform initial_abundance + initial_length_mm path.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["number", "length_mm_mode"],
+            "properties": {
+              "number": {"type": "integer", "minimum": 1},
+              "age_days": {"type": "integer", "minimum": 0, "default": 365},
+              "length_mm_mode": {"type": "number", "exclusiveMinimum": 0},
+              "length_mm_min": {"type": "number", "exclusiveMinimum": 0},
+              "length_mm_max": {"type": "number", "exclusiveMinimum": 0},
+              "species": {"type": "string", "minLength": 1}
+            }
+          }
+        }
       }
     },
     "submodels": {

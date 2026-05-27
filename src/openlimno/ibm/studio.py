@@ -1255,6 +1255,42 @@ def _cells_from_payload(value: object) -> pd.DataFrame:
     return frame
 
 
+def _normalise_population_cohorts(value: object) -> list[dict[str, object]] | None:
+    """Coerce a JSON-typed cohort list (from config.population_cohorts) into
+    the dict-of-dicts shape build_initial_population expects, or return None
+    if the field is absent/empty. 2026-05-27 stratified-init track A.
+    """
+    if not isinstance(value, list) or not value:
+        return None
+    out: list[dict[str, object]] = []
+    for raw in value:
+        if not isinstance(raw, Mapping):
+            continue
+        try:
+            n = int(cast(Any, raw.get("number", 0)))
+            mode = float(cast(Any, raw["length_mm_mode"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if n <= 0:
+            continue
+        cohort: dict[str, object] = {
+            "number": n,
+            "length_mm_mode": mode,
+            "age_days": int(cast(Any, raw.get("age_days", 365))),
+        }
+        for key in ("length_mm_min", "length_mm_max"):
+            if key in raw:
+                try:
+                    cohort[key] = float(cast(Any, raw[key]))
+                except (TypeError, ValueError):
+                    pass
+        sp = raw.get("species")
+        if isinstance(sp, str) and sp.strip():
+            cohort["species"] = sp.strip()
+        out.append(cohort)
+    return out or None
+
+
 def _first_offending_cell_id(frame: pd.DataFrame, mask: pd.Series) -> str:
     """Return a printable cell_id (or row index) for the first masked row."""
     if "cell_id" in frame.columns:
@@ -1660,6 +1696,7 @@ def _write_studio_scenario_files(
     submodels: Mapping[str, str],
     experiments: Mapping[str, object] | None,
     payload: Mapping[str, object],
+    population_cohorts: list[dict[str, object]] | None = None,
 ) -> dict[str, str]:
     run_root.mkdir(parents=True, exist_ok=True)
     cells_path = run_root / "studio_habitat_cells.csv"
@@ -1683,6 +1720,10 @@ def _write_studio_scenario_files(
             "default_species": species,
             "initial_abundance": initial_abundance,
             "initial_length_mm": initial_length_mm,
+            **(
+                {"cohorts": population_cohorts}
+                if population_cohorts else {}
+            ),
         },
         "outputs": {
             "dir": ".",
@@ -2209,6 +2250,7 @@ def run_studio_scenario(
         payload.get("experiments", default["experiments"]),
         default_seed=seed,
     )
+    population_cohorts = _normalise_population_cohorts(config.get("population_cohorts"))
 
     run_root = _run_dir(output_dir, "native")
     studio_paths = _write_studio_scenario_files(
@@ -2227,6 +2269,7 @@ def run_studio_scenario(
         submodels=submodels,
         experiments=experiments,
         payload=payload,
+        population_cohorts=population_cohorts,
     )
 
     result, paths = run_ibm_scenario(

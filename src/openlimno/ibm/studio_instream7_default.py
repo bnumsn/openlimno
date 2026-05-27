@@ -24,7 +24,7 @@ import math
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
@@ -352,12 +352,32 @@ def build_studio_scenario_from_instream7_archive(
         },
     }
 
+    # Convert provenance cohorts (cm-based) to the IBM's
+    # ``population.cohorts`` format (mm-based, ready to consume).
+    # Triangular sampling (min/mode/max) per cohort preserves the
+    # within-age length variability the official archive carries.
+    cohort_specs: list[dict[str, object]] = [
+        {
+            "age_days": 365 * int(cast(int, c["age"])),
+            "number": int(cast(int, c["number"])),
+            "length_mm_min": float(cast(float, c["length_min_cm"])) * 10.0,
+            "length_mm_mode": float(cast(float, c["length_mode_cm"])) * 10.0,
+            "length_mm_max": float(cast(float, c["length_max_cm"])) * 10.0,
+            "species": str(c["species"]),
+        }
+        for c in cohorts
+    ]
+
     config: dict[str, object] = {
         "scenario_id": "instream7-example-a-real-archive",
         "reach_id": reach.reach_id,
         "species": "rainbow_trout",
         "initial_abundance": total_init,
         "initial_length_mm": round(initial_length_mm, 2),
+        # Stratified initial population (2026-05-27 track A) — picked up
+        # by scenario.py / build_initial_population so the day-0 mass
+        # matches the official Cal Poly Humboldt 3-cohort biomass.
+        "population_cohorts": cohort_specs,
         "days": 45,
         "seed": 20260526,
         "stochastic": True,

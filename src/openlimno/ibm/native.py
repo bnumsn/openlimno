@@ -16,6 +16,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -190,16 +191,38 @@ def build_initial_population(
     mass_g: float | None = None,
     age_days: int = 365,
     profile: SpeciesProfile | None = None,
+    cohorts: Sequence[Mapping[str, object]] | None = None,
+    rng: np.random.Generator | None = None,
 ) -> pd.DataFrame:
     """Create an initial individual table for :func:`run_native_ibm`.
 
-    If ``profile`` is supplied its ``weight_a``/``weight_b`` are used for
-    length→mass; otherwise a default ``SpeciesProfile(species=species)``
-    is constructed (which is what callers got before the 2026-05-26
-    triple-AI software test caught a silent day-0/day-1 mass jump caused
-    by initial-mass using default weight_a/b and the runtime later
-    recomputing mass from length using the loaded archive's weight_a/b).
+    If ``cohorts`` is supplied (e.g. from an inSTREAM 7 official
+    ``InitialPopulations.csv``) the population is built from per-age
+    cohorts:
+
+      [{"age_days": 0,    "number": 300, "length_mm_mode": 61.0, ...},
+       {"age_days": 365,  "number":  50, "length_mm_mode": 120.0, ...},
+       {"age_days": 730,  "number":  10, "length_mm_mode": 170.0, ...}]
+
+    Each cohort's lengths are sampled from a triangular distribution
+    ``(min, mode, max)`` if min/max are present (otherwise all members
+    get the mode), and masses are derived via the supplied ``profile``.
+    Without ``cohorts`` the population is uniform: ``n`` fish at
+    ``length_mm`` with masses from ``profile``.
+
+    Pinned by the 2026-05-26 NetLogo benchmark gap (Step 9): the
+    ExampleA archive ships 3 age cohorts (300×61mm + 50×120mm +
+    10×170mm) whose true total mass is 2409 g; the previous uniform
+    init produced ~1616 g. Stratified init closes that 35% offset.
     """
+
+    if cohorts:
+        return _build_initial_population_from_cohorts(
+            cohorts=cohorts,
+            species=species,
+            profile=profile if profile is not None else SpeciesProfile(species=species),
+            rng=rng or np.random.default_rng(),
+        )
 
     if n < 0:
         raise ValueError("initial population size must be non-negative")
@@ -220,6 +243,65 @@ def build_initial_population(
             "alive": np.ones(n, dtype=bool),
         }
     )
+
+
+def _build_initial_population_from_cohorts(
+    *,
+    cohorts: Sequence[Mapping[str, object]],
+    species: str,
+    profile: SpeciesProfile,
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Expand a per-age cohort table into one row per individual.
+
+    Cohort dict accepts:
+      number          (int, required)        — how many individuals
+      age_days        (int, default 365 × age_years) — defaults to 365
+      length_mm_mode  (float, required)      — most-likely length
+      length_mm_min   (float, optional)      — triangular dist min
+      length_mm_max   (float, optional)      — triangular dist max
+      species         (str, optional)        — overrides outer species
+    """
+    fish_id = 0
+    parts: list[pd.DataFrame] = []
+    for cohort in cohorts:
+        n = int(cast(int, cohort.get("number", 0)))
+        if n <= 0:
+            continue
+        mode = float(cast(float, cohort["length_mm_mode"]))
+        lo = float(cast(float, cohort.get("length_mm_min", mode)))
+        hi = float(cast(float, cohort.get("length_mm_max", mode)))
+        if lo > hi:
+            lo, hi = hi, lo
+        if lo == hi == mode:
+            lengths = np.full(n, mode, dtype=float)
+        else:
+            lengths = rng.triangular(lo, mode, hi, size=n)
+        masses = _length_to_mass_g(lengths, profile)
+        age = int(cast(int, cohort.get("age_days", 365)))
+        sp = str(cohort.get("species", species))
+        parts.append(
+            pd.DataFrame(
+                {
+                    "fish_id": np.arange(fish_id, fish_id + n, dtype=int),
+                    "species": sp,
+                    "age_days": np.full(n, age, dtype=int),
+                    "length_mm": lengths,
+                    "mass_g": masses,
+                    "cell_id": np.full(n, "", dtype=object),
+                    "alive": np.ones(n, dtype=bool),
+                }
+            )
+        )
+        fish_id += n
+    if not parts:
+        return pd.DataFrame(
+            columns=[
+                "fish_id", "species", "age_days", "length_mm", "mass_g",
+                "cell_id", "alive",
+            ],
+        )
+    return pd.concat(parts, ignore_index=True)
 
 
 def _normalise_population_frame(
