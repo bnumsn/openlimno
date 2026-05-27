@@ -34,6 +34,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import time
 import uuid
 from collections.abc import Mapping
@@ -423,10 +424,18 @@ def default_studio_scenario_resolved() -> dict[str, object]:
         # Quiet: no archive configured is the normal path on CI / fresh checkout.
         return default_studio_scenario()
 
+    # Allow callers to opt into a non-default archive case via
+    # ``OPENLIMNO_INSTREAM7_CASE_ID``. Default is ExampleA; set to
+    # ``ExampleB`` to load the 3-reach × 3-species (Rainbow/Brown/
+    # Cutthroat) archive when a single-reach scenario is too narrow
+    # for the experiment. 2026-05-27 track D.
+    requested_case = os.environ.get("OPENLIMNO_INSTREAM7_CASE_ID", "ExampleA")
+
     fallback = default_studio_scenario()
     try:
         real = build_studio_scenario_from_instream7_archive(
             root,
+            case_id=requested_case,
             submodels=cast(Mapping[str, object], fallback["submodels"]),
             submodel_catalog=cast(list[dict[str, object]], fallback["submodel_catalog"]),
             experiments=cast(Mapping[str, object], fallback["experiments"]),

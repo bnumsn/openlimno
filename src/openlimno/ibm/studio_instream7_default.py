@@ -185,7 +185,41 @@ def build_studio_scenario_from_instream7_archive(
         reach, flow_m3s=q_med, temperature_c=t_med, turbidity_ntu=tur_med
     )
 
+    # ExampleB's shapefile is shared across all three reaches (5631 rows
+    # combined), but ``cells_df`` only carries the per-reach subset
+    # (1353 / 1604 / 2674 cells per reach). Filter the GeoDataFrame to
+    # the same cell_id set so projection indices line up — without this
+    # the per-cell loop hits ``IndexError: iloc out-of-bounds`` for
+    # multi-reach archives. 2026-05-27 track D.
     gdf = gpd.read_file(reach.shapefile)
+    # ExampleA uses ``ID_TEXT`` while ExampleB uses ``ID_text``. Resolve
+    # the cell-id column case-insensitively before filtering.
+    cell_col = next(
+        (c for c in gdf.columns if c.lower() == reach.cell_id_field.lower()),
+        reach.cell_id_field,
+    )
+    if cell_col in gdf.columns:
+        keep = set(cells_df["cell_id"].astype(str).tolist())
+        gdf = gdf[gdf[cell_col].astype(str).isin(keep)].reset_index(drop=True)
+    # If the filter still leaves a row mismatch (e.g. duplicate cell_ids
+    # in the shapefile, or missing CSV rows), align cells_df to gdf by
+    # cell_id so the by-position loop below is safe.
+    if len(gdf) != len(cells_df) and cell_col in gdf.columns:
+        order_map = {str(cid): i for i, cid in enumerate(gdf[cell_col].astype(str).tolist())}
+        cells_df = (
+            cells_df.assign(_order=cells_df["cell_id"].astype(str).map(order_map))
+            .dropna(subset=["_order"])
+            .sort_values("_order", kind="mergesort")
+            .drop(columns="_order")
+            .reset_index(drop=True)
+        )
+        # And keep only gdf rows whose cell_id is in cells_df (drop dupes).
+        wanted = set(cells_df["cell_id"].astype(str).tolist())
+        gdf = (
+            gdf[gdf[cell_col].astype(str).isin(wanted)]
+            .drop_duplicates(subset=[cell_col])
+            .reset_index(drop=True)
+        )
     proj_m, axis, origin, factor = _shapefile_axis_projection(gdf)
     reach_length_m = float(proj_m.max() - proj_m.min())
 
@@ -221,7 +255,7 @@ def build_studio_scenario_from_instream7_archive(
         csi = round(0.5 * (depth_score * vel_score) + 0.3 * feed + 0.2 * spawn, 3)
         cells.append(
             {
-                "cell_id": f"ExampleA-{int(row['cell_id'])}",
+                "cell_id": f"{target.case_id}-{row['cell_id']}",
                 "reach_id": reach.reach_id,
                 "reach_order": 1,
                 "habitat_type": _classify_hmu(depth, vel),
