@@ -298,6 +298,44 @@ def test_studio_run_caps_days_at_max() -> None:
 # Software-test M1: run-dir prune
 # ---------------------------------------------------------------------------
 
+def test_aggregate_last_day_sums_across_species() -> None:
+    """Pin 2026-05-28 multi-species follow-up: the top-level
+    ``final_abundance``/``final_biomass_g``/``survival_rate`` must
+    aggregate across species at the last day, not return one species'
+    tail row (the previous ``iloc[-1]`` behaviour). Biomass-weighted
+    mean length keeps the heterogeneous-body-size case well-defined."""
+    import pandas as pd
+
+    from openlimno.ibm.studio import _aggregate_last_day
+
+    # Two-species, two-day toy summary.
+    summary = pd.DataFrame(
+        [
+            {"day": 0, "species": "Rainbow", "abundance": 200, "biomass_g": 1000.0, "mean_length_mm": 70.0, "survival_rate": 1.0},
+            {"day": 0, "species": "Brown",   "abundance": 100, "biomass_g":  500.0, "mean_length_mm": 80.0, "survival_rate": 1.0},
+            {"day": 1, "species": "Rainbow", "abundance": 180, "biomass_g":  900.0, "mean_length_mm": 70.0, "survival_rate": 0.9},
+            {"day": 1, "species": "Brown",   "abundance":  90, "biomass_g":  450.0, "mean_length_mm": 80.0, "survival_rate": 0.9},
+        ]
+    )
+    agg = _aggregate_last_day(summary, initial_n=300)
+    assert agg["abundance"] == 270         # 180 + 90
+    assert agg["biomass_g"] == 1350.0      # 900 + 450
+    # Biomass-weighted mean length: (70*900 + 80*450) / 1350 = 73.33...
+    assert abs(float(agg["mean_length_mm"]) - 73.333333) < 1e-3
+    assert agg["survival_rate"] == 0.9     # 270/300
+
+
+def test_aggregate_last_day_handles_empty_summary() -> None:
+    """No simulation rows → no division by zero."""
+    import pandas as pd
+
+    from openlimno.ibm.studio import _aggregate_last_day
+
+    agg = _aggregate_last_day(pd.DataFrame(), initial_n=0)
+    assert agg["abundance"] == 0
+    assert agg["survival_rate"] is None
+
+
 def test_run_studio_scenario_surfaces_effective_days_warning(tmp_path: Path) -> None:
     """Pin pass-2 M2' (Codex): the response must announce the cap, not
     silently change the requested simulation horizon. Use a small valid

@@ -1617,6 +1617,63 @@ def _json_default(value: object) -> object:
     return str(value)
 
 
+def _aggregate_last_day(
+    population_summary: pd.DataFrame, *, initial_n: int,
+) -> dict[str, object]:
+    """Collapse the final day's per-species rows into one whole-population
+    snapshot. Returns a dict with the same keys daily rows use
+    (``abundance``, ``biomass_g``, ``mean_length_mm``, ``survival_rate``,
+    ``n_recruits``, ``n_spawners``, ``n_active_redds``, ``n_eggs_remaining``)
+    but aggregated across species. Mean length is biomass-weighted so it
+    stays well-defined across heterogeneous body sizes.
+
+    Pinned by the 2026-05-28 multi-species walkthrough (ExampleB had 3
+    species → previous ``iloc[-1]`` returned one species' tail row).
+    """
+    if population_summary.empty:
+        return {
+            "abundance": 0,
+            "biomass_g": 0.0,
+            "mean_length_mm": 0.0,
+            "survival_rate": None,
+            "n_recruits": 0,
+            "n_spawners": 0,
+            "n_active_redds": 0,
+            "n_eggs_remaining": 0,
+        }
+    last_day = int(population_summary["day"].max())
+    last_rows = population_summary[population_summary["day"] == last_day]
+    abundance = int(pd.to_numeric(last_rows["abundance"]).sum())
+    biomass = float(pd.to_numeric(last_rows["biomass_g"]).sum())
+    # Biomass-weighted mean length: ΣL·m / Σm. Falls back to simple mean
+    # when biomass is zero (e.g. abundance=0).
+    lengths = pd.to_numeric(last_rows["mean_length_mm"])
+    biomasses = pd.to_numeric(last_rows["biomass_g"])
+    if biomass > 0:
+        mean_length = float((lengths * biomasses).sum() / biomass)
+    elif abundance > 0:
+        mean_length = float(lengths.mean())
+    else:
+        mean_length = 0.0
+    survival = (abundance / initial_n) if initial_n > 0 else None
+
+    def _sum_or_zero(col: str) -> int:
+        if col in last_rows.columns:
+            return int(pd.to_numeric(last_rows[col]).sum())
+        return 0
+
+    return {
+        "abundance": abundance,
+        "biomass_g": biomass,
+        "mean_length_mm": mean_length,
+        "survival_rate": survival,
+        "n_recruits": _sum_or_zero("n_recruits"),
+        "n_spawners": _sum_or_zero("n_spawners"),
+        "n_active_redds": _sum_or_zero("n_active_redds"),
+        "n_eggs_remaining": _sum_or_zero("n_eggs_remaining"),
+    }
+
+
 def _is_nan(value: object) -> bool:
     """True iff value is a float NaN. Robust to numpy scalars."""
     if isinstance(value, float):
@@ -2287,7 +2344,13 @@ def run_studio_scenario(
         run_label="studio",
     )
     paths.update(studio_paths)
-    final = result.population_summary.iloc[-1]
+    # Single-species scenarios produce one summary row per day; multi-species
+    # scenarios produce one row per (day, species) pair. ``iloc[-1]`` would
+    # pick one species' tail for the last day, masking the total abundance
+    # for ExampleB-style 3-species runs. Aggregate across species on the
+    # last day so the top-level metrics are always whole-population values.
+    # 2026-05-28 follow-up to commit 05ae04a.
+    final = _aggregate_last_day(result.population_summary, initial_n=initial_abundance)
     cell_summary = _cell_use_summary(result.cell_use)
     events = (
         result.events.sort_values(["day", "event"], kind="mergesort")
@@ -2336,9 +2399,9 @@ def run_studio_scenario(
         "metrics": {
             "initial_abundance": initial_abundance,
             "requested_initial_abundance": requested_initial_abundance,
-            "final_abundance": int(final["abundance"]),
-            "final_biomass_g": float(final["biomass_g"]),
-            "final_mean_length_mm": float(final["mean_length_mm"]),
+            "final_abundance": int(cast(int, final["abundance"])),
+            "final_biomass_g": float(cast(float, final["biomass_g"])),
+            "final_mean_length_mm": float(cast(float, final["mean_length_mm"])),
             "survival_rate": metric_survival,
             "requested_days": requested_days,
             "effective_days": days,
