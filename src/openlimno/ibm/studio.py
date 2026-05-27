@@ -2562,19 +2562,48 @@ def run_studio_ensemble(
     )
     paths = dict(result.paths)
     paths.update(studio_paths)
-    final_mean = (
-        float(result.summary["final_abundance"].mean()) if not result.summary.empty else 0.0
-    )
+    # Surface the per-run distribution as ensemble metrics so callers can
+    # render bands without re-loading the CSV. 2026-05-28 Step-8 follow-up
+    # (Codex flagged metrics.seeds=[] in the pass-2 probe).
+    summary_df = result.summary
+    if not summary_df.empty:
+        finals = pd.to_numeric(summary_df["final_abundance"], errors="coerce")
+        biomass = pd.to_numeric(summary_df["final_biomass_g"], errors="coerce")
+        param_cols = [c for c in summary_df.columns if c.startswith("param_")]
+        parameter_grid_size = (
+            int(summary_df[param_cols].drop_duplicates().shape[0]) if param_cols else 1
+        )
+        ensemble_metrics: dict[str, object] = {
+            "n_runs": int(len(summary_df)),
+            "n_seeds": int(len(seeds)),
+            "seeds": list(int(s) for s in seeds),
+            "parameter_grid_size": parameter_grid_size,
+            "mean_final_abundance": float(finals.mean()) if not finals.empty else 0.0,
+            "median_final_abundance": float(finals.median()) if not finals.empty else 0.0,
+            "min_final_abundance": int(finals.min()) if not finals.empty else 0,
+            "max_final_abundance": int(finals.max()) if not finals.empty else 0,
+            "std_final_abundance": float(finals.std(ddof=0)) if not finals.empty else 0.0,
+            "mean_final_biomass_g": float(biomass.mean()) if not biomass.empty else 0.0,
+        }
+    else:
+        ensemble_metrics = {
+            "n_runs": 0,
+            "n_seeds": int(len(seeds)),
+            "seeds": list(int(s) for s in seeds),
+            "parameter_grid_size": 0,
+            "mean_final_abundance": 0.0,
+            "median_final_abundance": 0.0,
+            "min_final_abundance": 0,
+            "max_final_abundance": 0,
+            "std_final_abundance": 0.0,
+            "mean_final_biomass_g": 0.0,
+        }
     return {
         "ok": True,
         "run_id": run_root.name,
         "run_dir": str(run_root),
         "paths": paths,
-        "metrics": {
-            "n_runs": int(len(result.summary)),
-            "n_seeds": int(len(seeds)),
-            "mean_final_abundance": final_mean,
-        },
+        "metrics": ensemble_metrics,
         "summary": _records(result.summary, limit=500),
         "daily_bands": _records(result.daily_bands),
         "sensitivity": _records(result.sensitivity),
