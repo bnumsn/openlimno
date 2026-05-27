@@ -2285,8 +2285,12 @@ def run_studio_scenario(
         if not result.events.empty
         else result.events
     )
+    # Redds use ``spawn_day`` (the day the redd was created), not ``day``;
+    # the wrong column name shipped silently until the 2026-05-27 1-year
+    # walkthrough exercised the post-spawning-window code path for the
+    # first time.
     redds = (
-        result.redds.sort_values(["day", "redd_id"], kind="mergesort")
+        result.redds.sort_values(["spawn_day", "redd_id"], kind="mergesort")
         if not result.redds.empty
         else result.redds
     )
