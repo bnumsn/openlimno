@@ -182,6 +182,26 @@ svg { width: 100%; height: 280px; display: block; }
 .collapsible summary::after { content: '▸'; transition: transform .12s; color: var(--muted); }
 .collapsible[open] summary::after { transform: rotate(90deg); }
 .collapsible .collapsible-body { padding: 0 12px 12px; }
+/* ---- New-model wizard strip ---- */
+.wizard-strip { display: flex; align-items: center; gap: 8px; padding: 10px 12px; margin-bottom: 12px; background: linear-gradient(180deg, #ecfdf5 0%, #f0fdfa 100%); border: 1px solid #99f6e4; border-radius: 10px; flex-wrap: wrap; position: sticky; top: 0; z-index: 12; }
+.wizard-strip-title { font-weight: 700; font-size: 13px; color: #0f766e; margin-right: 4px; }
+.wizard-step { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; background: #fff; border: 1px solid #99f6e4; font-size: 12px; cursor: pointer; user-select: none; color: var(--muted); transition: background .12s, border-color .12s, color .12s; }
+.wizard-step:hover { background: #f0fdfa; }
+.wizard-step .wizard-num { width: 20px; height: 20px; border-radius: 999px; background: #d1fae5; color: #0f766e; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 11px; }
+.wizard-step.active { border-color: var(--accent); color: var(--accent); background: #fff; box-shadow: 0 0 0 2px #99f6e4; font-weight: 600; }
+.wizard-step.active .wizard-num { background: var(--accent); color: #fff; }
+.wizard-step.completed { color: #047857; background: #d1fae5; border-color: #6ee7b7; }
+.wizard-step.completed .wizard-num { background: #047857; color: #fff; }
+.wizard-step.completed .wizard-num::after { content: ''; }
+.wizard-arrow { color: #99f6e4; font-size: 12px; }
+.wizard-skip { margin-left: auto; padding: 5px 11px; border-radius: 6px; background: transparent; border: 1px solid #99f6e4; color: #0f766e; font-size: 12px; cursor: pointer; }
+.wizard-skip:hover { background: #fff; }
+.wizard-focus { outline: 3px solid var(--accent); outline-offset: 4px; border-radius: 8px; transition: outline-color .2s; animation: wizard-pulse 1.4s ease-out 0s 2 both; }
+@keyframes wizard-pulse {
+  0%   { outline-color: var(--accent); box-shadow: 0 0 0 0 rgba(15, 118, 110, .45); }
+  60%  { box-shadow: 0 0 0 14px rgba(15, 118, 110, 0); }
+  100% { outline-color: var(--accent); box-shadow: 0 0 0 0 rgba(15, 118, 110, 0); }
+}
   @media (max-width: 1100px) { .shell { grid-template-columns: minmax(0, 1fr); } .sidebar { border-right: 0; border-bottom: 1px solid var(--line); } .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .acceptance-grid, .official-workflow, .workflow-detail-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .split, .triptych { grid-template-columns: minmax(0, 1fr); } .river-stage { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 640px) { .app { grid-template-rows: auto 1fr; } .topbar { align-items: flex-start; flex-direction: column; padding: 10px 12px; gap: 6px; } .brand { flex-wrap: wrap; } .status { width: 100%; white-space: normal; } .sidebar, .workspace { padding: 10px; } .grid2, .profile-grid { grid-template-columns: minmax(0, 1fr); } .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } .actions .btn { width: 100%; } .kpis, .acceptance-grid, .official-workflow, .workflow-detail-grid { grid-template-columns: minmax(0, 1fr); } .official-result-head, .river-head, .chart-head { align-items: flex-start; flex-direction: column; } .river-controls { width: 100%; } .river-controls select { width: 100%; } #riverView { height: 280px; } }
 </style>
@@ -197,7 +217,7 @@ svg { width: 100%; height: 280px; display: block; }
         <div class="field"><label>Initial length mm</label><input id="initial_length_mm" type="number" step="0.1" min="1"></div><div class="field"><label>Days</label><input id="days" type="number" min="0"></div>
         <div class="field"><label>Seed</label><input id="seed" type="number"></div><div class="field check"><input id="stochastic" type="checkbox"><label for="stochastic">Stochastic</label></div>
         <div class="field check"><input id="record_individual_history" type="checkbox"><label for="record_individual_history">Fish history</label></div>
-      </div><div class="actions" style="margin-top: 12px;"><button id="runBtn" class="btn primary">Run</button><button id="validateBtn" class="btn">Validate</button><button id="stepBtn" class="btn">Step +1 day</button><button id="resetBtn" class="btn">Reset</button><button id="exportBtn" class="btn">Export JSON</button><button id="importBtn" class="btn">Import JSON</button><input id="importFile" type="file" accept="application/json" style="display:none"></div></div></section>
+      </div><div class="actions" style="margin-top: 12px;"><button id="newModelBtn" class="btn">New model</button><button id="runBtn" class="btn primary">Run</button><button id="validateBtn" class="btn">Validate</button><button id="stepBtn" class="btn">Step +1 day</button><button id="resetBtn" class="btn">Reset</button><button id="exportBtn" class="btn">Export JSON</button><button id="importBtn" class="btn">Import JSON</button><input id="importFile" type="file" accept="application/json" style="display:none"></div></div></section>
       <section class="panel"><header><h2>River</h2></header><div class="panel-body"><div class="grid2">
         <div class="field"><label>River name</label><input id="river_name"></div><div class="field"><label>Reach name</label><input id="river_reach_name"></div>
         <div class="field"><label>Length m</label><input id="river_length_m" type="number" min="1" step="1"></div><div class="field"><label>Flow m3/s</label><input id="river_flow_m3s" type="number" min="0" step="0.1"></div>
@@ -224,6 +244,21 @@ svg { width: 100%; height: 280px; display: block; }
       <details class="collapsible"><summary>Submodels</summary><div class="collapsible-body"><div class="profile-grid" id="submodelFields"></div></div></details>
     </aside>
     <main class="workspace">
+      <nav class="wizard-strip" id="wizardStrip" style="display:none" aria-label="New-model wizard">
+        <span class="wizard-strip-title">建模向导</span>
+        <div class="wizard-step" data-wizard-step="river" tabindex="0"><span class="wizard-num">1</span><span class="wizard-label">河道</span></div>
+        <span class="wizard-arrow">›</span>
+        <div class="wizard-step" data-wizard-step="habitat" tabindex="0"><span class="wizard-num">2</span><span class="wizard-label">栖境</span></div>
+        <span class="wizard-arrow">›</span>
+        <div class="wizard-step" data-wizard-step="species" tabindex="0"><span class="wizard-num">3</span><span class="wizard-label">物种参数</span></div>
+        <span class="wizard-arrow">›</span>
+        <div class="wizard-step" data-wizard-step="population" tabindex="0"><span class="wizard-num">4</span><span class="wizard-label">初始种群</span></div>
+        <span class="wizard-arrow">›</span>
+        <div class="wizard-step" data-wizard-step="validate" tabindex="0"><span class="wizard-num">5</span><span class="wizard-label">校验</span></div>
+        <span class="wizard-arrow">›</span>
+        <div class="wizard-step" data-wizard-step="run" tabindex="0"><span class="wizard-num">6</span><span class="wizard-label">运行</span></div>
+        <button class="wizard-skip" id="wizardSkipBtn" title="退出向导">退出</button>
+      </nav>
       <div class="kpis" id="kpis"></div>
       <nav class="workspace-tabs" id="workspaceTabs">
         <button class="active" data-pane="overview">Overview</button>
@@ -309,6 +344,62 @@ let activeProfileGroup = 'Growth';
 let lastResult = null;
 let lastEnsemble = null;
 let runHistory = [];
+/* ---- New-model wizard ------------------------------------------------
+   Sticky horizontal stepper that walks first-time users through the
+   six modeling steps (河道 → 栖境 → 物种参数 → 初始种群 → 校验 → 运行).
+   - Auto-activates on first visit (unless dismissed via localStorage).
+   - "New model" sidebar button re-activates on demand.
+   - Click on a step → smooth-scrolls to the relevant UI region and
+     pulses an outline around it for ~3 s.
+   - updateWizardProgress() is called whenever state changes (bindState,
+     renderResult, importGIS, etc.) so step pills auto-tick to
+     "completed" without user clicks. */
+const WIZARD_DISMISS_KEY = 'openlimno-studio-wizard-dismissed';
+const wizardSteps = [
+  {
+    id: 'river',
+    targetSelector: '.sidebar section.panel:nth-of-type(2)',  /* River */
+    detect: () => {
+      const r = state?.river || {};
+      return !!(r.name && r.name.trim() && Number(r.length_m) > 0);
+    },
+    activateTab: 'overview',
+  },
+  {
+    id: 'habitat',
+    targetSelector: '.workspace-tabs button[data-pane="cells"]',
+    detect: () => Array.isArray(state?.cells) && state.cells.length > 0,
+    activateTab: 'cells',
+  },
+  {
+    id: 'species',
+    targetSelector: '.sidebar details.collapsible:nth-of-type(1)',
+    detect: () => !!(state?.profile && Object.keys(state.profile).length > 5),
+    activateTab: null,
+  },
+  {
+    id: 'population',
+    targetSelector: '#initial_abundance',
+    detect: () => {
+      const c = state?.config || {};
+      return Number(c.initial_abundance) > 0 && Number(c.days) > 0;
+    },
+    activateTab: null,
+  },
+  {
+    id: 'validate',
+    targetSelector: '#validateBtn',
+    detect: () => wizardState.validated,
+    activateTab: null,
+  },
+  {
+    id: 'run',
+    targetSelector: '#runBtn',
+    detect: () => lastResult != null,
+    activateTab: 'overview',
+  },
+];
+const wizardState = {active: false, current: 0, validated: false};
 let lastRiverViewPayload = null;
 let dragStart = null;
 const mapState = {
@@ -341,7 +432,15 @@ function gisDefaults(){return {centerline_path:'', centerline_layer:'', boundary
 function setStatus(t){$('status').textContent=t;}
 function log(t){const el=$('log'); el.textContent=`${new Date().toLocaleTimeString()}  ${t}\n`+el.textContent;}
 async function api(path,payload){const res=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); const data=await res.json(); if(!res.ok||data.ok===false) throw new Error(data.error||res.statusText); return data;}
-async function loadDefault(){const res=await fetch('/api/default'); state=await res.json(); bindState(); renderAll(); await runModel();}
+async function loadDefault(){const res=await fetch('/api/default'); state=await res.json(); bindState(); renderAll(); /* First-time visitors get the wizard automatically; returning visitors who
+     dismissed it stay on the regular UI. The wizard also coexists with the
+     auto-run, so the user lands on a populated Studio with the strip up. */
+  if (!wizardWasDismissed() && !wizardState.active){
+    wizardState.active = true;
+    wizardState.current = 0;
+    renderWizardStrip();
+  }
+  await runModel();}
 function bindState(){
   state.river = {...riverDefaults(), ...(state.river || {})};
   state.gis = {...gisDefaults(), ...(state.gis || {})};
@@ -424,7 +523,7 @@ function renderSubmodels(){const catalog=state.submodel_catalog||[]; const slots
    exporting JSON. */
 const MAX_CELL_ROWS=80;
 function renderCells(){const head=`<thead><tr>${cellColumns.map(c=>`<th>${c}</th>`).join('')}<th></th></tr></thead>`; const total=state.cells.length; const rendered=Math.min(total,MAX_CELL_ROWS); const body=state.cells.slice(0,rendered).map((row,idx)=>`<tr data-cell-idx="${idx}">${cellColumns.map(c=>`<td><input data-column="${c}" value="${esc(row[c]??'')}"></td>`).join('')}<td><button class="btn warn" data-del-cell="${idx}">Del</button></td></tr>`).join(''); const overflow=total>MAX_CELL_ROWS?`<tr class="cells-overflow"><td colspan="${cellColumns.length+1}" style="font-style:italic;opacity:.75;text-align:center;padding:8px">Showing ${rendered} of ${total} cells — full set sent to IBM run. Use Export JSON to edit all cells.</td></tr>`:''; $('cellsTable').innerHTML=`${head}<tbody>${body}${overflow}</tbody>`; document.querySelectorAll('[data-del-cell]').forEach(btn=>btn.addEventListener('click',()=>{state.cells.splice(Number(btn.dataset.delCell),1); renderCells();}));}
-function renderAll(){renderProfileTabs(); renderProfileFields(); renderSubmodels(); renderCells(); renderGisGuidance(); renderOfficialPlaceholder();}
+function renderAll(){renderProfileTabs(); renderProfileFields(); renderSubmodels(); renderCells(); renderGisGuidance(); renderOfficialPlaceholder(); updateWizardProgress();}
 function renderKpis(m){const items=[['Initial',m?.initial_abundance??'-'],['Final',m?.final_abundance??'-'],['Biomass g',m?.final_biomass_g?.toFixed?m.final_biomass_g.toFixed(1):'-'],['Mean length',m?.final_mean_length_mm?.toFixed?m.final_mean_length_mm.toFixed(1):'-'],['Survival',m?.survival_rate?.toFixed?m.survival_rate.toFixed(3):'-']]; $('kpis').innerHTML=items.map(([l,v])=>`<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join('');}
 function acceptanceCard(label,value){return `<div class="acceptance-card"><div class="label">${esc(label)}</div><div class="value">${esc(value ?? '-')}</div></div>`;}
 function workflowStatusClass(value){return ['passed','warning','error'].includes(value)?value:'warning';}
@@ -729,8 +828,78 @@ function renderValidation(result){table('validationTable',result.checks||[],['ar
 function renderEnsemble(result){lastEnsemble=result; table('ensembleTable',result.summary||[],['run_index','seed','parameter_index','final_abundance','final_biomass_g','final_mean_length_mm']); table('sensitivityTable',result.sensitivity||[],['parameter','target','pearson_r','abs_pearson_r','n']); drawBandChart(result.daily_bands||[]); renderPaths(result.paths); log(`Ensemble ${result.run_id}: ${result.metrics.n_runs} runs`); setStatus(`Ensemble complete: ${result.run_dir}`);}
 function renderCalibration(result){const params=Object.entries(result.best_parameters||{}).map(([k,v])=>`${esc(k)}=${fmt(v,4)}`).join(', '); $('bestParams').innerHTML=params?`Best: ${params} · score ${fmt(result.metrics.best_score,3)}`:''; table('calibrationTable',result.summary||[],['candidate_id','score','accepted','final_abundance','param_base_daily_survival','param_predation_base_risk']); renderPaths(result.paths); log(`Calibration ${result.run_id}: score ${fmt(result.metrics.best_score,3)}`); setStatus(`Calibration complete: ${result.run_dir}`);}
 function renderResult(result){lastResult=result; renderKpis(result.metrics); drawRiverView(result); drawChart(result.population_summary); addHistory(result); table('cellUseTable',result.cell_use_summary,['cell_id','total_fish_use','mean_growth_mm','mean_mortality_risk']); table('eventsTable',result.events,['day','event','n','n_eggs']); table('fishTable',result.final_individuals,['fish_id','species','age_days','length_mm','mass_g','cell_id','alive','reach_id']); table('reddsTable',result.redds,['redd_id','day','reach_id','cell_id','eggs_remaining','degree_days','active']); renderPaths(result.paths);}
-async function runModel(){setBusy(true); try{const result=await api('/api/run',collectState()); renderResult(result); log(`Run ${result.run_id}: final abundance ${result.metrics.final_abundance}`); setStatus(`Run complete: ${result.run_dir}`);}catch(err){log(err.message); setStatus(err.message);}finally{setBusy(false);}}
-async function validateModel(){setBusy(true); try{const result=await api('/api/validate',collectState()); renderValidation(result); renderPaths(result.paths); log(`Validation ${result.run_id}: ${result.metrics.errors} errors, ${result.metrics.warnings} warnings`); setStatus(result.ok?`Validation passed: ${result.run_dir}`:`Validation needs attention: ${result.run_dir}`);}catch(err){log(err.message); setStatus(err.message);}finally{setBusy(false);}}
+async function runModel(){setBusy(true); try{const result=await api('/api/run',collectState()); renderResult(result); updateWizardProgress(); log(`Run ${result.run_id}: final abundance ${result.metrics.final_abundance}`); setStatus(`Run complete: ${result.run_dir}`);}catch(err){log(err.message); setStatus(err.message);}finally{setBusy(false);}}
+async function validateModel(){setBusy(true); try{const result=await api('/api/validate',collectState()); renderValidation(result); renderPaths(result.paths); wizardState.validated = result.ok && (result.metrics?.errors|0)===0; updateWizardProgress(); log(`Validation ${result.run_id}: ${result.metrics.errors} errors, ${result.metrics.warnings} warnings`); setStatus(result.ok?`Validation passed: ${result.run_dir}`:`Validation needs attention: ${result.run_dir}`);}catch(err){log(err.message); setStatus(err.message);}finally{setBusy(false);}}
+
+/* ---- Wizard implementation ---- */
+function wizardStartFresh(){
+  wizardState.active = true;
+  wizardState.current = 0;
+  wizardState.validated = false;
+  try { localStorage.removeItem(WIZARD_DISMISS_KEY); } catch (e) {}
+  renderWizardStrip();
+  wizardFocusStep(0);
+}
+function wizardDismiss(){
+  wizardState.active = false;
+  try { localStorage.setItem(WIZARD_DISMISS_KEY, String(Date.now())); } catch (e) {}
+  renderWizardStrip();
+}
+function wizardWasDismissed(){
+  try { return !!localStorage.getItem(WIZARD_DISMISS_KEY); } catch (e) { return false; }
+}
+function renderWizardStrip(){
+  const strip = $('wizardStrip');
+  if (!wizardState.active){ strip.style.display = 'none'; return; }
+  strip.style.display = 'flex';
+  wizardSteps.forEach((step, idx) => {
+    const pill = document.querySelector(`[data-wizard-step="${step.id}"]`);
+    if (!pill) return;
+    const done = !!step.detect();
+    pill.classList.toggle('completed', done);
+    pill.classList.toggle('active', idx === wizardState.current && !done);
+    if (done){ pill.querySelector('.wizard-num').textContent = '✓'; }
+    else { pill.querySelector('.wizard-num').textContent = String(idx + 1); }
+  });
+}
+function updateWizardProgress(){
+  if (!wizardState.active) return;
+  /* Auto-advance current pointer past completed steps. */
+  while (wizardState.current < wizardSteps.length
+         && wizardSteps[wizardState.current].detect()){
+    wizardState.current += 1;
+  }
+  renderWizardStrip();
+}
+function wizardFocusStep(idx){
+  const step = wizardSteps[idx];
+  if (!step) return;
+  /* Switch to the appropriate workspace tab if the step lives there. */
+  if (step.activateTab){
+    const tabBtn = document.querySelector(`.workspace-tabs button[data-pane="${step.activateTab}"]`);
+    if (tabBtn) tabBtn.click();
+  }
+  setTimeout(() => {
+    const target = document.querySelector(step.targetSelector);
+    if (!target) return;
+    target.scrollIntoView({behavior: 'smooth', block: 'center'});
+    target.classList.add('wizard-focus');
+    setTimeout(() => target.classList.remove('wizard-focus'), 3000);
+  }, 60);
+}
+document.querySelectorAll('.wizard-step').forEach(pill => {
+  pill.addEventListener('click', () => {
+    const stepId = pill.dataset.wizardStep;
+    const idx = wizardSteps.findIndex(s => s.id === stepId);
+    if (idx < 0) return;
+    wizardState.current = idx;
+    wizardFocusStep(idx);
+    renderWizardStrip();
+  });
+  pill.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); pill.click(); }
+  });
+});
 async function runEnsemble(){setBusy(true); try{const result=await api('/api/ensemble',collectState()); renderEnsemble(result);}catch(err){log(err.message); setStatus(err.message);}finally{setBusy(false);}}
 async function runCalibration(){setBusy(true); try{const result=await api('/api/calibrate',collectState()); renderCalibration(result);}catch(err){log(err.message); setStatus(err.message);}finally{setBusy(false);}}
 async function importGIS(){setBusy(true); try{collectState(); const result=await api('/api/gis/import',{...state.gis,river_name:state.river.name,reach_name:state.river.reach_name,flow_m3s:state.river.flow_m3s,reach_id:state.config.reach_id}); state.river={...state.river,...result.river}; state.cells=Array.isArray(result.cells)?result.cells:[]; bindState(); renderAll(); const msg=(result.messages||[]).join(' '); log(`GIS import: ${result.metrics.centerline_points} centerline points, ${result.metrics.channel_polygon_points} channel points, ${result.metrics.cell_features} cells, boundary ${result.metrics.boundary_quality}/${result.metrics.boundary_vertices} vertices${msg?` · ${msg}`:''}`); if(!state.cells.length){renderGisPreview(); setStatus(`GIS imported: ${result.metrics.target_crs} · boundary ${result.metrics.boundary_quality} · no habitat cells`); return;} const run=await api('/api/run',collectState()); renderResult(run); setStatus(`GIS imported: ${result.metrics.target_crs} · boundary ${result.metrics.boundary_quality}`);}catch(err){log(err.message); setStatus(err.message);}finally{setBusy(false);}}
@@ -741,6 +910,8 @@ $('runBtn').addEventListener('click',runModel);
 $('validateBtn').addEventListener('click',validateModel);
 $('stepBtn').addEventListener('click',()=>{collectState(); $('days').value=Number(state.config.days)+1; runModel();});
 $('resetBtn').addEventListener('click',loadDefault);
+$('newModelBtn').addEventListener('click',wizardStartFresh);
+$('wizardSkipBtn').addEventListener('click',wizardDismiss);
 $('addCellBtn').addEventListener('click',()=>{collectState(); const maxStation=Math.max(0,...state.cells.map(c=>Number(c.station_m||0))); const station=maxStation+42; state.cells.push({cell_id:`cell-${state.cells.length+1}`,habitat_type:'run',station_m:station,center_x_m:station,center_y_m:52,length_m:40,width_m:10,reach_id:state.config.reach_id,reach_order:1,area_m2:400,depth_m:.5,velocity_ms:.3,csi:.6,temperature_c:12,turbidity_ntu:0,hiding_cover:.2,feeding_cover:.2,spawning_cover:.2}); renderCells();});
 $('exportBtn').addEventListener('click',()=>{const blob=new Blob([JSON.stringify(collectState(),null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='openlimno-ibm-scenario.json'; a.click(); URL.revokeObjectURL(a.href);});
 $('importBtn').addEventListener('click',()=>$('importFile').click());
