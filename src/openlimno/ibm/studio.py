@@ -1833,6 +1833,11 @@ def write_studio_scenario_files(
         payload.get("experiments", default["experiments"]),
         default_seed=_as_int(config.get("seed"), 42),
     )
+    # Pass population_cohorts through so the written scenario YAML carries
+    # the stratified-init block. Without this, downstream consumers like
+    # the ensemble + calibration runners reload the YAML, see no cohorts,
+    # and collapse the 3-species ExampleB population back to a single
+    # default_species. (2026-05-28 follow-up to multi-species fix.)
     return _write_studio_scenario_files(
         Path(output_dir),
         scenario_id=_as_str(config.get("scenario_id"), "agent-studio-demo"),
@@ -1849,6 +1854,7 @@ def write_studio_scenario_files(
         submodels=submodels,
         experiments=experiments,
         payload=payload,
+        population_cohorts=_normalise_population_cohorts(config.get("population_cohorts")),
     )
 
 
