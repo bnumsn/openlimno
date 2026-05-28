@@ -123,3 +123,75 @@ def test_higher_dose_gives_higher_nitrate() -> None:
     low = simulate(Chemistry(), Params(ammonia_dose_mg_n_l_day=1.0), days=42)
     high = simulate(Chemistry(), Params(ammonia_dose_mg_n_l_day=3.0), days=42)
     assert float(high.timeseries["NO3"].iloc[-1]) > float(low.timeseries["NO3"].iloc[-1])
+
+
+# --- Hour-3: events + calibration ---------------------------------------
+
+
+def test_water_change_dilutes_dissolved_not_biofilm() -> None:
+    """A water change must dilute dissolved N toward tap but leave the
+    ATTACHED biofilm (X) intact (SPEC §1/§5)."""
+    from openlimno.fishtank.events import Event, EventSchedule, TapWater
+
+    # Single big water change at day 21 on an established tank.
+    p = Params()
+    sched = EventSchedule(
+        events=[Event(day=21.0, kind="water_change", value=0.50)],
+        tap_water=TapWater(NO3=5.0),
+    )
+    r = simulate(Chemistry(), p, days=42, schedule=sched)
+    df = r.timeseries
+    before = df[df["day"] < 21.0].iloc[-1]
+    after = df[df["day"] >= 21.0].iloc[0]
+    # NO3 must drop substantially (50% toward tap)
+    assert after["NO3"] < before["NO3"] * 0.7
+    # X_AOB must NOT be halved — attached biofilm survives. (Allow the
+    # small ODE change over the <=0.25-day sampling gap, not a 50% cut.)
+    assert after["X_AOB"] > before["X_AOB"] * 0.95
+
+
+def test_feed_event_changes_ammonia_source() -> None:
+    from openlimno.fishtank.events import Event, TapWater, apply_event
+
+    p = Params(volume_l=100.0, a_exc=0.0276)
+    c = Chemistry()
+    ev = Event(day=5.0, kind="feed", value=2.0)   # 2 g food/day
+    _c2, p2 = apply_event(c, p, ev, TapWater())
+    # dose = a_exc * F / V = 0.0276 * 2 / 100
+    assert p2.ammonia_dose_mg_n_l_day == pytest.approx(0.0276 * 2.0 / 100.0)
+
+
+def test_calibration_recovers_known_truth() -> None:
+    """Hour-3 capstone: fitting the synthetic log must recover the
+    parameters it was generated with (mu_AOB≈0.62, mu_NOB≈0.35)."""
+    import pandas as pd
+
+    from openlimno.fishtank.calibration import fit
+
+    here = __import__("pathlib").Path(__file__).resolve()
+    repo = here.parents[2]
+    obs = pd.read_csv(repo / "data" / "aquarium_logs" / "tank_A_fishless.csv")
+    result = fit(obs, base_params=Params(ammonia_dose_mg_n_l_day=2.0))
+    assert result.converged
+    assert result.best_params["mu_AOB"] == pytest.approx(0.62, abs=0.08)
+    assert result.best_params["mu_NOB"] == pytest.approx(0.35, abs=0.08)
+
+
+def test_calibration_rmse_normalises_across_variables() -> None:
+    """rmse() must normalise per variable so large-magnitude NO3 doesn't
+    swamp small TAN/NO2 (SPEC Hour-3 common-mistake note)."""
+    import pandas as pd
+
+    from openlimno.fishtank.calibration import rmse
+
+    merged = pd.DataFrame(
+        [
+            {"day": 1, "variable": "TAN", "sim": 2.0, "obs": 1.0},   # off by 1, TAN range 1
+            {"day": 2, "variable": "TAN", "sim": 1.0, "obs": 2.0},
+            {"day": 1, "variable": "NO3", "sim": 80.0, "obs": 40.0}, # off by 40, NO3 range 40
+            {"day": 2, "variable": "NO3", "sim": 40.0, "obs": 80.0},
+        ]
+    )
+    # Both variables are off by their full range → normalised residual ≈1
+    # each, so pooled RMSE ≈ 1 — NO3's large magnitude does NOT dominate.
+    assert rmse(merged) == pytest.approx(1.0, abs=0.01)
