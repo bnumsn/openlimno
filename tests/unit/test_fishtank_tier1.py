@@ -195,3 +195,50 @@ def test_calibration_rmse_normalises_across_variables() -> None:
     # Both variables are off by their full range → normalised residual ≈1
     # each, so pooled RMSE ≈ 1 — NO3's large magnitude does NOT dominate.
     assert rmse(merged) == pytest.approx(1.0, abs=0.01)
+
+
+# --- Hour-4: carbonate / pH (Tier-2) ------------------------------------
+
+
+def test_ph_decreases_as_alkalinity_drops() -> None:
+    """Lower alkalinity → lower pH (carbonate buffer exhaustion)."""
+    from openlimno.fishtank import ph_from_dic_alk
+
+    ph_high = ph_from_dic_alk(2.0, 2.0, 25.0)
+    ph_low = ph_from_dic_alk(2.0, 0.5, 25.0)
+    assert ph_low < ph_high
+
+
+def test_alkalinity_drop_stoichiometry() -> None:
+    """7.14 g-CaCO3 per g-N → meq via /50.04."""
+    from openlimno.fishtank import alkalinity_drop_meq
+
+    # 10 mg-N/L oxidised → 71.4 mg-CaCO3/L → 71.4/50.04 meq/L
+    assert alkalinity_drop_meq(10.0) == pytest.approx(71.4 / 50.04, rel=1e-6)
+    assert alkalinity_drop_meq(0.0) == 0.0
+
+
+def test_diagnostic_ph_trajectory_crashes_under_heavy_load() -> None:
+    """Old-tank-syndrome: a heavily-fed tank drifts pH down as its
+    carbonate buffer is consumed by cumulative nitrification."""
+    from openlimno.fishtank import diagnostic_ph_trajectory
+
+    r = simulate(Chemistry(), Params(ammonia_dose_mg_n_l_day=2.0), days=42)
+    df = diagnostic_ph_trajectory(r, initial_alk_meq_l=3.0, dic_mmol_l=2.0)
+    assert "ph_dynamic" in df.columns
+    assert "alk_meq_l" in df.columns
+    ph0 = float(df["ph_dynamic"].iloc[0])
+    ph_end = float(df["ph_dynamic"].iloc[-1])
+    assert ph_end < ph0 - 1.0          # at least a full pH unit crash
+    # Alkalinity is monotone non-increasing (only consumed, never made here)
+    assert (df["alk_meq_l"].diff().dropna() <= 1e-9).all()
+
+
+def test_plot_result_returns_figure_without_streamlit() -> None:
+    """plot_result must work with matplotlib only (no Streamlit needed)."""
+    from openlimno.fishtank.studio import plot_result
+
+    r = simulate(Chemistry(), Params(), days=14)
+    fig = plot_result(r)
+    assert fig is not None
+    assert len(fig.axes) == 2        # two stacked panels
