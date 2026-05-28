@@ -78,31 +78,51 @@ def simulate(
     n_out = int(round(days * 24.0 / dt_output_hours)) + 1
     full_grid = np.linspace(0.0, days, n_out)
 
-    boundaries = schedule.boundaries(days) if schedule else []
+    # Expand repeats ONCE so boundaries + per-day lookup are consistent.
+    expanded: list = schedule.expand(days) if schedule else []
+
+    def events_on(day: float) -> list:
+        same = [e for e in expanded if e.day == day]
+        return sorted(same, key=lambda e: e.priority)
+
+    boundaries = sorted({e.day for e in expanded if 0.0 < e.day < days})
     seg_edges = [0.0, *boundaries, days]
+
+    # Day-0 events apply to the initial state before any integration
+    # (e.g. an ammonia_dose set at day 0). Without this they'd be lost,
+    # since segment boundaries are strictly inside (0, days).
+    if schedule:
+        chem = Chemistry(**vars(chem))
+        for ev in events_on(0.0):
+            chem, p = apply_event(chem, p, ev, schedule.tap_water)
 
     y = chem.to_vector()
     times: list[float] = []
     states: list[np.ndarray] = []
-    for i in range(len(seg_edges) - 1):
+    n_seg = len(seg_edges) - 1
+    for i in range(n_seg):
         t0, t1 = seg_edges[i], seg_edges[i + 1]
-        # Output grid points within this segment; drop the duplicated
-        # right edge except on the final segment so events show a clean
-        # discontinuity.
-        mask = (full_grid >= t0) & (full_grid <= t1)
-        t_eval = full_grid[mask]
-        if t_eval.size == 0 or t_eval[0] > t0:
-            t_eval = np.insert(t_eval, 0, t0)
+        is_last = i == n_seg - 1
+        # Always evaluate at BOTH segment edges plus the interior grid
+        # points, so the pre-event state at t1 is available to carry
+        # across the boundary regardless of whether t1 lands on the
+        # output grid (the off-grid corruption fixed here).
+        inner = full_grid[(full_grid > t0) & (full_grid < t1)]
+        t_eval = np.unique(np.concatenate(([t0], inner, [t1])))
         seg_y = _integrate_segment(y, p, t0, t1, t_eval)
-        # Record all but the last column to avoid duplicate boundary rows
-        keep = slice(None) if i == len(seg_edges) - 2 else slice(0, -1)
-        times.extend(t_eval[keep].tolist())
-        states.append(seg_y[:, keep])
-        # Advance to the segment end and apply any events on this boundary.
+        # Record [t0 .. t1): drop the pre-event boundary row on non-final
+        # segments — the post-event t1 row is recorded by the next
+        # segment, which starts from the post-event state. Final segment
+        # keeps t1 (= days). Each grid point thus appears exactly once,
+        # with post-event state at boundaries.
+        keep_mask = np.ones(t_eval.size, dtype=bool) if is_last else (t_eval < t1)
+        times.extend(t_eval[keep_mask].tolist())
+        states.append(seg_y[:, keep_mask])
+        # Carry the pre-event state at t1 forward, then apply events.
         y = seg_y[:, -1].tolist()
-        if schedule and t1 in boundaries:
+        if schedule and not is_last:
             chem_end = Chemistry.from_vector(y)
-            for ev in schedule.at(t1):
+            for ev in events_on(t1):
                 chem_end, p = apply_event(chem_end, p, ev, schedule.tap_water)
             y = chem_end.to_vector()
 

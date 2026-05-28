@@ -73,8 +73,12 @@ def test_fishless_cycle_qualitative_pattern() -> None:
 
     # NO2 peak lags TAN peak (NOB slower than AOB)
     assert no2_peak_day > tan_peak_day
-    # Cycle spans weeks: NO2 peak must be at least 2 weeks in
+    # Cycle genuinely spans weeks (not days): NO2 peak ≥ 2 weeks in,
+    # AND nitrite stays elevated (>1 mg-N/L) for at least 14 days — this
+    # pins "weeks-long" more strongly than a single peak-day check.
     assert no2_peak_day >= 14.0
+    elevated_no2_days = float(df[df["NO2"] > 1.0]["day"].max() - df[df["NO2"] > 1.0]["day"].min())
+    assert elevated_no2_days >= 14.0, f"NO2 elevated only {elevated_no2_days:.0f} days"
     # NO3 accumulates monotonically once nitrification is established
     no3 = df[df["day"] >= 28]["NO3"]
     assert (no3.diff().dropna() >= -1e-6).all()
@@ -150,6 +154,52 @@ def test_water_change_dilutes_dissolved_not_biofilm() -> None:
     assert after["X_AOB"] > before["X_AOB"] * 0.95
 
 
+def test_water_change_on_off_grid_day() -> None:
+    """Regression for the off-grid event-boundary corruption: an event on
+    a day that does NOT land on the output grid (e.g. 20.3 with a 6-hour
+    grid) must still apply at its true time, not be mislabelled by the
+    nearest grid point."""
+    from openlimno.fishtank.events import Event, EventSchedule, TapWater
+
+    sched = EventSchedule(
+        events=[Event(day=20.3, kind="water_change", value=0.80)],
+        tap_water=TapWater(NO3=5.0),
+    )
+    r = simulate(Chemistry(), Params(), days=42, schedule=sched, dt_output_hours=6.0)
+    df = r.timeseries
+    before = df[df["day"] < 20.3]["NO3"].iloc[-1]
+    after = df[df["day"] >= 20.3]["NO3"].iloc[0]
+    # An 80% water change must drop NO3 sharply right at ~20.3, not at 20.25
+    # with the wrong (pre-event) value carried over.
+    assert after < before * 0.5
+    # And the first post-event timestamp is at/after the true event day.
+    assert float(df[df["day"] >= 20.3]["day"].iloc[0]) >= 20.3
+
+
+def test_repeat_days_expands_events() -> None:
+    """repeat_days materialises an event on a regular cadence (SPEC §5)."""
+    from openlimno.fishtank.events import Event, EventSchedule
+
+    sched = EventSchedule(events=[Event(day=7.0, kind="water_change", value=0.25, repeat_days=7.0)])
+    expanded_days = sorted({e.day for e in sched.expand(42.0)})
+    assert expanded_days == [7.0, 14.0, 21.0, 28.0, 35.0]   # < 42, every 7
+
+
+def test_day_zero_event_applies() -> None:
+    """An event scheduled on day 0 must apply to the initial state
+    (previously dropped because boundaries were strictly inside (0,days))."""
+    from openlimno.fishtank.events import Event, EventSchedule
+
+    sched = EventSchedule(events=[Event(day=0.0, kind="ammonia_dose", value=4.0)])
+    r = simulate(Chemistry(), Params(ammonia_dose_mg_n_l_day=2.0), days=10, schedule=sched)
+    # The day-0 override to 4.0 must take effect: more N in than the 2.0
+    # default would give over 10 days.
+    no_event = simulate(Chemistry(), Params(ammonia_dose_mg_n_l_day=2.0), days=10)
+    total_with = r.timeseries[["TAN", "NO2", "NO3"]].iloc[-1].sum()
+    total_without = no_event.timeseries[["TAN", "NO2", "NO3"]].iloc[-1].sum()
+    assert total_with > total_without * 1.3
+
+
 def test_feed_event_changes_ammonia_source() -> None:
     from openlimno.fishtank.events import Event, TapWater, apply_event
 
@@ -157,8 +207,11 @@ def test_feed_event_changes_ammonia_source() -> None:
     c = Chemistry()
     ev = Event(day=5.0, kind="feed", value=2.0)   # 2 g food/day
     _c2, p2 = apply_event(c, p, ev, TapWater())
-    # dose = a_exc * F / V = 0.0276 * 2 / 100
-    assert p2.ammonia_dose_mg_n_l_day == pytest.approx(0.0276 * 2.0 / 100.0)
+    # dose = a_exc[g-N/g] * F[g/day] / V[L] * 1000 → mg-N/L/day
+    # = 0.0276 * 2 / 100 * 1000 = 0.552 mg-N/L/day (NOT 0.000552 — the
+    # 1000x unit bug that this test previously encoded).
+    assert p2.ammonia_dose_mg_n_l_day == pytest.approx(0.0276 * 2.0 / 100.0 * 1000.0)
+    assert p2.ammonia_dose_mg_n_l_day == pytest.approx(0.552)
 
 
 def test_calibration_recovers_known_truth() -> None:

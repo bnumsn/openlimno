@@ -314,9 +314,12 @@ NO₂ > 0.5 mg-N/L = "brown blood"; NO₃ > 50 = water-change due.
 The lag is **not** a model artefact to tune away — it is the lesson. Cycling
 is slow because the biofilm starts as a tiny inoculum (`X_seed` ≈ 0.02 mg/L)
 and grows logistically toward a media-limited `X_max`. Early on, ρ ∝ X is
-near-zero, so TAN accumulates; only after AOB colonise (~1–2 weeks) does TAN
-fall and NO₂ rise; NOB lag further (lower `μ_NOB`), so NO₂ persists into week
-3–4; NO₃ accumulates throughout. Seeding from an established filter (raising
+near-zero, so TAN accumulates; only after AOB colonise (~1 week) does TAN
+fall (peak ~day 7) and NO₂ rise; NOB lag further (lower `μ_NOB`), so NO₂
+peaks later (~day 15) and stays elevated into week 3. With the default
+parameters the cascade resolves in roughly **3–4 weeks**; lowering the
+seed, temperature, or media area pushes it toward the upper 6-week end.
+NO₃ accumulates throughout. Seeding from an established filter (raising
 `X_seed`) is exactly how hobbyists "instant-cycle" — a parameter the model
 exposes. **The course must NOT present a "few-day" cycle** (a v0.1 error).
 

@@ -36,11 +36,16 @@ def align(sim: pd.DataFrame, obs: pd.DataFrame) -> pd.DataFrame:
         raise ValueError(f"no shared fit columns; obs has {list(obs.columns)}")
     rows: list[dict[str, float | str]] = []
     sim_days = sim["day"].to_numpy(dtype=float)
+    sim_lo, sim_hi = float(sim_days.min()), float(sim_days.max())
+    obs_days = obs["day"].to_numpy(dtype=float)
+    # Drop observations outside the simulated window; np.interp would
+    # otherwise silently endpoint-extrapolate them, inflating/deflating
+    # the fit with non-comparable points.
+    in_range = (obs_days >= sim_lo) & (obs_days <= sim_hi)
     for var in shared:
-        sim_interp = np.interp(obs["day"].to_numpy(dtype=float), sim_days,
-                               sim[var].to_numpy(dtype=float))
-        for d, s, o in zip(obs["day"], sim_interp, obs[var], strict=True):
-            if pd.notna(o):
+        sim_interp = np.interp(obs_days, sim_days, sim[var].to_numpy(dtype=float))
+        for d, s, o, ok in zip(obs_days, sim_interp, obs[var], in_range, strict=True):
+            if ok and pd.notna(o):
                 rows.append({"day": float(d), "variable": var, "sim": float(s), "obs": float(o)})
     return pd.DataFrame(rows)
 
@@ -70,6 +75,7 @@ class CalibrationResult:
     best_rmse: float
     n_evals: int
     converged: bool
+    message: str = ""        # optimiser status message (helps debug non-convergence)
 
 
 def fit(
@@ -103,4 +109,5 @@ def fit(
         best_rmse=float(res.fun),
         n_evals=n_eval,
         converged=bool(res.success),
+        message=str(res.message),
     )

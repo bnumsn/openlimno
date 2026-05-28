@@ -4,7 +4,9 @@ pH is solved (not integrated) from the carbonate system given dissolved
 inorganic carbon (DIC), alkalinity (Alk), and temperature, by root-finding
 on [H+]. Nitrification consumes alkalinity (7.14 g-CaCO3 per g-N), so a
 heavily-fed tank drifts down in pH — which shifts the toxic free-NH3
-fraction. This module closes that loop (SPEC §4.5).
+fraction. This module ILLUSTRATES that loop diagnostically (post-hoc);
+fully coupling DIC/Alk into the integrated ODE state is the deeper
+Tier-2 exercise (SPEC §4.5), not done here.
 
 Teaching note: the equilibrium constants here use simple temperature
 correlations adequate for freshwater aquaria; they are NOT the full
@@ -57,7 +59,21 @@ def ph_from_dic_alk(dic_mmol_l: float, alk_meq_l: float, temperature_c: float) -
         return (hco3 + 2.0 * co3 + oh - h) - alk
 
     h_lo, h_hi = 10.0 ** -12.0, 10.0 ** -3.0   # pH 12 .. 3
-    # brentq needs a sign change; residual is monotone decreasing in pH.
+    # brentq requires a sign change on the bracket; residual is monotone
+    # in pH so the only way it fails is genuinely out-of-range input
+    # (e.g. alkalinity exceeding what this DIC can carry). Surface that as
+    # a clear ValueError instead of brentq's opaque message.
+    f_lo, f_hi = residual(h_lo), residual(h_hi)
+    if f_lo == 0.0:
+        return 12.0
+    if f_hi == 0.0:
+        return 3.0
+    if (f_lo > 0) == (f_hi > 0):
+        raise ValueError(
+            f"no pH solution in [3, 12] for DIC={dic_mmol_l} mmol/L, "
+            f"Alk={alk_meq_l} meq/L, T={temperature_c} C "
+            "(alkalinity inconsistent with this DIC?)"
+        )
     h_root = brentq(residual, h_lo, h_hi, xtol=1e-14, rtol=1e-10, maxiter=200)
     return -math.log10(h_root)
 
@@ -72,8 +88,8 @@ def alkalinity_drop_meq(delta_n_mg_l: float) -> float:
 def diagnostic_ph_trajectory(
     result: Any,
     *,
-    initial_alk_meq_l: float = 3.0,
-    dic_mmol_l: float = 2.0,
+    initial_alk_meq_l: float = 1.4,
+    dic_mmol_l: float = 1.45,
     floor_alk_meq_l: float = 0.1,
 ) -> Any:
     """Tier-2 Hour-4 capstone: compute a pH trajectory diagnostically from

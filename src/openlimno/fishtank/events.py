@@ -18,9 +18,10 @@ from .state import Chemistry, Params
 # live on the media and are NOT removed by a water change (SPEC §1/§5).
 _DISSOLVED = ("TAN", "NO2", "NO3", "DO")
 
-# Same-day ordering: water change first (sets the baseline), then dosing,
-# then a feeding/ammonia change. Lower number applies earlier.
-_PRIORITY = {"water_change": 0, "dose": 1, "ammonia_dose": 2, "feed": 3}
+# Same-day ordering per SPEC §5: water change first (resets the dissolved
+# baseline), then feed, then dose; ammonia_dose alongside dose. Lower
+# number applies earlier.
+_PRIORITY = {"water_change": 0, "feed": 1, "dose": 2, "ammonia_dose": 2}
 
 
 @dataclass(frozen=True)
@@ -33,12 +34,16 @@ class Event:
       - feed         : food [g/day] for subsequent segment (Tier-1 maps
                        to an ammonia-equivalent dose via a_exc)
       - dose         : amount added to ``target`` state, e.g. DO/NO3
+
+    ``repeat_days`` (>0) materialises the event every ``repeat_days`` from
+    ``day`` up to the run horizon (see EventSchedule.expand).
     """
 
     day: float
     kind: str
     value: float
     target: str = ""        # for kind="dose": which state to bump
+    repeat_days: float = 0.0
 
     @property
     def priority(self) -> int:
@@ -60,19 +65,38 @@ class TapWater:
 
 @dataclass
 class EventSchedule:
-    """An ordered list of events with helpers for the segment loop."""
+    """An ordered list of events with helpers for the segment loop.
+
+    Set ``horizon`` (run length, days) so ``repeat_days`` events expand;
+    if 0, events are taken as-is (single occurrences)."""
 
     events: list[Event] = field(default_factory=list)
     tap_water: TapWater = field(default_factory=TapWater)
+    horizon: float = 0.0
+
+    def expand(self, days: float) -> list[Event]:
+        """Materialise repeating events up to ``days`` (inclusive of day 0,
+        exclusive of ``days``). Non-repeating events pass through once."""
+        out: list[Event] = []
+        for e in self.events:
+            if e.repeat_days and e.repeat_days > 0:
+                d = e.day
+                while d < days:
+                    out.append(Event(d, e.kind, e.value, e.target))
+                    d += e.repeat_days
+            else:
+                out.append(e)
+        return out
 
     def boundaries(self, days: float) -> list[float]:
         """Sorted unique event days strictly inside (0, days)."""
-        inner = sorted({e.day for e in self.events if 0.0 < e.day < days})
-        return inner
+        return sorted({e.day for e in self.expand(days) if 0.0 < e.day < days})
 
     def at(self, day: float) -> list[Event]:
-        """Events occurring on ``day``, in apply order."""
-        same = [e for e in self.events if e.day == day]
+        """Events occurring on ``day``, in apply order. Uses ``horizon``
+        for repeat expansion when set (else just the literal events)."""
+        days = self.horizon if self.horizon > 0 else (day + 1.0)
+        same = [e for e in self.expand(days) if e.day == day]
         return sorted(same, key=lambda e: e.priority)
 
 
@@ -98,7 +122,9 @@ def apply_event(
         p = params.with_overrides(ammonia_dose_mg_n_l_day=event.value)
     elif event.kind == "feed":
         # Tier-1: convert g-food/day to an ammonia-equivalent dose.
-        dose = params.a_exc * event.value / params.volume_l
+        #   a_exc [g-N/g-food] · value [g-food/day] / V [L] → g-N/L/day
+        #   × 1000 → mg-N/L/day (the unit ammonia_dose_mg_n_l_day expects).
+        dose = params.a_exc * event.value / params.volume_l * 1000.0
         p = params.with_overrides(ammonia_dose_mg_n_l_day=dose)
     elif event.kind == "dose":
         if event.target:
