@@ -5,277 +5,333 @@
 > 4-hour Master's "Aquatic Ecology Models" lab. See
 > [`COURSE_PLAN.md`](./COURSE_PLAN.md) for the teaching schedule.
 
-Status: **DRAFT v0.1 (2026-05-28)** — design document, pre-implementation.
+Status: **DRAFT v0.2 (2026-05-28)** — design document, pre-implementation.
+v0.2 fixes the dimensional / stoichiometric / biofilm errors raised by the
+2026-05-28 Codex pre-implementation review (see `reviews/e0e77d1.codex-fishtank-spec.md`).
 
 ## 0. Scope and non-goals
 
-### In scope (v0.1)
+### In scope (v0.1 teaching core)
 - A single well-mixed tank (no spatial gradients — one CSTR compartment).
-- Freshwater nitrogen cycle: TAN → NO₂ → NO₃ via two bacterial guilds.
-- Dissolved-oxygen balance with reaeration + biological demand.
-- Discrete keeper events: feeding, water change, fish addition, dosing.
-- Optional tiers (taught as extensions): carbonate/pH system, plant
-  nutrient uptake, fish bioenergetics + mortality.
+- Freshwater nitrogen cycle: TAN → NO₂ → NO₃ via two **attached** bacterial guilds.
+- Dissolved-oxygen balance with reaeration + nitrification + respiration.
+- Discrete keeper events: ammonia dosing (fishless cycle), feeding, water
+  change, fish/plant addition, chemical dosing.
+- Optional tiers (taught as extensions): carbonate/pH dynamics, plant
+  nutrient uptake, denitrification, fish bioenergetics + mortality.
 - Calibration of rate parameters against a measured aquarium log.
 
 ### Out of scope (v0.1)
 - Spatial structure (substrate depth gradients, flow fields).
-- Marine/reef carbonate precipitation (acknowledged hard — see the
-  Reef2Reef community discussion; non-equilibrium CaCO₃ kinetics).
+- Marine/reef carbonate precipitation (non-equilibrium CaCO₃ kinetics — hard).
 - Disease/pathogen dynamics.
 - 3-D rendering / game-like visuals.
 
-### Design rule
-This is a **teaching-first** codebase. When readability and generality
-conflict, readability wins: plain dataclasses over ABCs, explicit rate
-functions over plugin registries, bundled data over live APIs, one
-process = one named function with a docstring stating its units.
+### Design rule — teaching-first
+When readability and generality conflict, readability wins: plain
+dataclasses over ABCs, explicit named rate functions over plugin
+registries, bundled data over live APIs, one process = one named function
+with a docstring stating its **units**.
+
+Modules are tagged **[core]** (taught in class, minimal) or **[release]**
+(packaging/UI engineering, demoed not live-coded). The 4-hour course only
+live-codes the [core] set; [release] modules ship pre-built.
 
 ## 1. State vector
 
-The model state `y` is a fixed-order float vector. Concentrations are
-mg/L unless noted; "mg-N/L" means milligrams of nitrogen per litre.
+The model state `y` is a fixed-order float vector. Dissolved concentrations
+are mg/L; "mg-N/L" means milligrams of nitrogen per litre.
 
-| index | symbol | meaning | unit | typical range |
-|---|---|---|---|---|
-| 0 | `TAN` | total ammonia nitrogen (NH₃ + NH₄⁺) | mg-N/L | 0 – 8 |
-| 1 | `NO2` | nitrite nitrogen | mg-N/L | 0 – 15 |
-| 2 | `NO3` | nitrate nitrogen | mg-N/L | 0 – 80 |
-| 3 | `X_AOB` | ammonia-oxidising bacteria biomass | mg/L | 0 – 50 |
-| 4 | `X_NOB` | nitrite-oxidising bacteria biomass | mg/L | 0 – 50 |
-| 5 | `DO` | dissolved oxygen | mg-O₂/L | 0 – 9 |
+**Attached vs dissolved is the key distinction** (v0.2 correction):
+nitrifying bacteria live as biofilm on filter media / surfaces, NOT
+suspended in the water column. Their state is therefore **attached
+biomass on a per-tank-volume basis** — a bookkeeping convention that keeps
+the rate math per-litre while making the biofilm **immune to water-change
+dilution** (§5). Dissolved species (TAN/NO₂/NO₃/DO) DO dilute on a water change.
 
-**Tier-2 extension state** (taught in Hour 4, optional):
+| idx | symbol | meaning | unit | phase | dilutes on WC? |
+|---|---|---|---|---|---|
+| 0 | `TAN` | total ammonia N (NH₃+NH₄⁺) | mg-N/L | dissolved | yes |
+| 1 | `NO2` | nitrite N | mg-N/L | dissolved | yes |
+| 2 | `NO3` | nitrate N | mg-N/L | dissolved | yes |
+| 3 | `X_AOB` | ammonia-oxidiser biomass | mg/L (attached, vol. basis) | attached | **no** |
+| 4 | `X_NOB` | nitrite-oxidiser biomass | mg/L (attached, vol. basis) | attached | **no** |
+| 5 | `DO` | dissolved oxygen | mg-O₂/L | dissolved | partial (toward tap value) |
 
-| index | symbol | meaning | unit |
+`X` carrying capacity `X_max` (§6) is set by media surface area — a new,
+under-colonised filter has tiny `X` and takes weeks to reach `X_max`
+(this is *why* fishless cycling is slow; see §11).
+
+**Tier-2 extension state** (Hour 4, optional):
+
+| idx | symbol | meaning | unit |
 |---|---|---|---|
 | 6 | `DIC` | dissolved inorganic carbon | mmol/L |
 | 7 | `Alk` | carbonate alkalinity | meq/L |
 | 8 | `B_fish` | total live fish biomass | g |
 | 9 | `B_plant` | total plant biomass | g |
 
-pH is **derived** from (DIC, Alk, T) by solving the carbonate equilibrium,
-not integrated — see §4.5.
+In **Tier-1, pH is a fixed scenario input** (constant), so `NH3_free`
+(§2) is still computable. **In Tier-2, pH is solved** from (DIC, Alk, T).
 
-## 2. Auxiliary (derived, not integrated) quantities
+## 2. Auxiliary (derived, not integrated)
 
-| symbol | from | formula sketch |
+| symbol | from | formula |
 |---|---|---|
-| `NH3_free` | TAN, pH, T | fraction of TAN that is un-ionised NH₃ (the toxic form): `f = 1/(1 + 10^(pKa−pH))`, pKa(T) ≈ 9.25 at 25 °C |
-| `DO_sat` | T, elevation | oxygen saturation (Benson–Krause / Weiss) |
-| `pH` | DIC, Alk, T | carbonate equilibrium (Tier-2) |
-| `theta(T)` | T | Arrhenius temperature factor `1.07^(T−20)` applied to all biological rates |
+| `NH3_free` | TAN, pH, T | unionised fraction `f = 1/(1 + 10^(pKa(T)−pH))`, then `NH3_free = f·TAN` |
+| `pKa(T)` | T (°C) | Emerson 1975: `pKa = 0.09018 + 2729.92/(T+273.15)` → 9.25 @ 25 °C |
+| `DO_sat` | T, elevation | Benson–Krause / Weiss saturation |
+| `pH` | input (Tier-1) / DIC,Alk,T (Tier-2) | §4.5 |
+| `theta(T)` | T | Arrhenius `1.07^(T−20)` on all biological rates |
 
-`NH3_free` matters because fish toxicity tracks free NH₃, not TAN — a key
-teaching point (TAN can look "fine" but high pH makes it lethal).
+`NH3_free` is the toxic form; TAN can read "fine" while high pH makes free
+NH₃ lethal — a key teaching point.
 
-## 3. Process rates
+## 3. Process rates — units stated on every term
 
-All rates are per-litre per-day unless noted. `θ = 1.07^(T−20)` multiplies
-every biological rate (Arrhenius, standard in wastewater ASM models).
+Define the dimensionless Monod factor `M(s,k) = s/(k+s)` (clipped to 0 for s≤0).
+`θ = 1.07^(T−20)` (Arrhenius).
 
-### 3.1 Ammonia excretion (source of TAN)
-Fish convert fed protein to ammonia. Tie excretion to feeding for the
-teaching tier:
-```
-E_TAN = a_exc · F(t) / V
-```
-- `F(t)` = feeding rate [g food/day] from the event schedule
-- `a_exc` ≈ 0.092 · 0.30 ≈ 0.0276 g-N per g-food (≈9.2% N in food,
-  ~30% excreted as TAN within a day; rest is growth/feces)
-- `V` = tank volume [L]
+### 3.1 Two rate families — DO NOT confuse (v0.2 core correction)
 
-### 3.2 Nitrification step 1 (AOB): TAN → NO₂
-Double-Monod (substrate + oxygen), Arrhenius-corrected:
+For each bacterial guild there are **two distinct rates**:
+
+- **Substrate (N) oxidation flux** ρ — the N that leaves the dissolved
+  pool. Units **mg-N/L/day**. This is `growth / yield`:
+  ```
+  ρ1 = (μ_AOB / Y_AOB) · X_AOB · M(TAN, K_TAN) · M(DO, K_O_AOB) · θ      [mg-N/L/day]
+  ρ2 = (μ_NOB / Y_NOB) · X_NOB · M(NO2, K_NO2) · M(DO, K_O_NOB) · θ      [mg-N/L/day]
+  ```
+- **Biomass growth rate** — the biofilm increase. Units **mg/L/day**.
+  Equals `Y · ρ` (so the yield cancels back to `μ·X`):
+  ```
+  growth_AOB = Y_AOB · ρ1 = μ_AOB · X_AOB · M·M · θ                      [mg/L/day]
+  growth_NOB = Y_NOB · ρ2 = μ_NOB · X_NOB · M·M · θ                      [mg/L/day]
+  ```
+
+Sanity: `μ` [1/day] × `X` [mg/L] = mg/L/day of **biomass**; dividing by
+`Y` [mg-biomass per mg-N] converts to mg-N/L/day of **substrate** — the
+correct unit to subtract from TAN. The v0.1 spec used `μX` directly as the
+N flux, which was dimensionally a biomass rate (the bug Codex caught).
+
+### 3.2 Excretion (TAN source from fish feeding)
 ```
-r1 = θ · μ_AOB · X_AOB · [TAN/(K_TAN + TAN)] · [DO/(K_O_AOB + DO)]
+E_TAN = a_exc · F(t) / V            [mg-N/L/day]
+```
+`F(t)` = feeding rate [g food/day] (piecewise-constant between feed events,
+§5), `a_exc ≈ 0.0276 g-N/g-food`, `V` = volume [L].
+
+### 3.3 Biomass dynamics — with media carrying capacity
+Logistic cap ties biofilm to finite media surface; first-order decay:
+```
+dX_AOB/dt = growth_AOB · (1 − X_AOB/X_AOB_max) − b_AOB · X_AOB           [mg/L/day]
+dX_NOB/dt = growth_NOB · (1 − X_NOB/X_NOB_max) − b_NOB · X_NOB
+```
+`X_max` from media area (§6). The `(1−X/X_max)` factor produces the
+colonisation S-curve: tiny seed → weeks of logistic growth → plateau.
+Oxidation flux ρ is **not** capped (a mature filter keeps oxidising at full rate).
+
+### 3.4 NO₃ sinks (Tier-2)
+```
+U_plant = θ · v_plant · B_plant · M(NO3, K_NO3) · light(t) / V           [mg-N/L/day]
+r_denit = θ · k_denit · M(NO3, K_NO3d) · [K_O_inh/(K_O_inh + DO)]        [mg-N/L/day]
+```
+Denitrification is O₂-inhibited — small in a well-aerated tank (a teaching
+caveat on model assumptions).
+
+### 3.5 Oxygen balance (v0.2 stoichiometry fix)
+Mass-based O₂ demand of nitrification: **3.43 g-O₂/g-N** for NH₄-N→NO₂-N,
+**1.14 g-O₂/g-N** for NO₂-N→NO₃-N, **4.57 g-O₂/g-N total**. (The "1.5/1.14"
+in v0.1 mixed a molar ratio with mass fluxes — wrong.)
+```
+dDO/dt = k_a·(DO_sat − DO)        # reaeration (surface + filter)
+         − 3.43·ρ1 − 1.14·ρ2       # nitrification O₂ demand (g-O₂/g-N × mg-N/L/day)
+         − R_fish − R_hetero       # respiration
+         + P_plant                 # photosynthesis (light-gated, Tier-2)
 ```
 
-### 3.3 Nitrification step 2 (NOB): NO₂ → NO₃
-```
-r2 = θ · μ_NOB · X_NOB · [NO2/(K_NO2 + NO2)] · [DO/(K_O_NOB + DO)]
-```
-
-### 3.4 Bacterial growth and decay
-Biomass grows on the substrate it oxidises, with first-order decay:
-```
-dX_AOB/dt = Y_AOB · r1 − b_AOB · X_AOB
-dX_NOB/dt = Y_NOB · r2 − b_NOB · X_NOB
-```
-
-### 3.5 Plant / denitrification sinks for NO₃ (Tier-2)
-```
-U_plant   = θ · v_plant · B_plant · [NO3/(K_NO3 + NO3)] · light(t)
-r_denit   = θ · k_denit · [NO3/(K_NO3d + NO3)] · [K_O_inh/(K_O_inh + DO)]
-```
-Denitrification is O₂-inhibited — only meaningful in low-O₂ pockets;
-small in a well-aerated tank (a teaching caveat about model assumptions).
-
-### 3.6 Oxygen balance
-```
-dDO/dt = k_a · (DO_sat − DO)        # surface + filter reaeration
-         − 1.5 · r1 − 1.14 · r2      # O₂ consumed per g-N nitrified
-         − R_fish − R_hetero          # fish + heterotroph respiration
-         + P_plant                    # plant photosynthesis (light-gated)
-```
-Stoichiometry: 3.43 g-O₂/g-N for full nitrification, split ≈1.5 (step 1)
-+ 1.14 (step 2) per the standard nitrification O₂ demand.
-
-## 4. ODE system (Tier-1, the Hour-2 build target)
+## 4. ODE system (Tier-1 = the Hour-2 build target)
 
 ```
-dTAN/dt   =  E_TAN              − r1
-dNO2/dt   =  r1                 − r2
-dNO3/dt   =  r2                 − U_plant − r_denit
-dX_AOB/dt =  Y_AOB·r1           − b_AOB·X_AOB
-dX_NOB/dt =  Y_NOB·r2           − b_NOB·X_NOB
-dDO/dt    =  k_a·(DO_sat−DO) − 1.5·r1 − 1.14·r2 − R_fish + P_plant
+dTAN/dt   =  E_TAN              − ρ1
+dNO2/dt   =  ρ1                 − ρ2
+dNO3/dt   =  ρ2                 (− U_plant − r_denit)        # sinks Tier-2
+dX_AOB/dt =  Y_AOB·ρ1·(1−X_AOB/X_AOB_max) − b_AOB·X_AOB
+dX_NOB/dt =  Y_NOB·ρ2·(1−X_NOB/X_NOB_max) − b_NOB·X_NOB
+dDO/dt    =  k_a·(DO_sat−DO) − 3.43·ρ1 − 1.14·ρ2 − R_fish (+ P_plant)
 ```
 
-In Tier-1 (Hour 2) `U_plant = r_denit = P_plant = 0` and `R_fish` is a
-constant — students see the pure nitrification cascade. Each later hour
-switches one of these on.
+In **Tier-1** (Hour 2): `U_plant = r_denit = P_plant = 0`, `R_fish` is a
+constant, pH is a fixed input. The TAN source is a constant **ammonia dose**
+(fishless cycle, §5) — NOT the fish/feeding event system, which is taught
+in Hour 3. Students see the pure nitrification cascade.
+
+### Nitrogen accounting (v0.2 conservation fix)
+The dissolved-N pool `TAN+NO2+NO3` is **conserved** except for the
+`E_TAN`/ammonia-dose source and the Tier-2 NO₃ sinks. The N assimilated
+into bacterial biomass is **neglected** in Tier-1: with `Y_AOB≈0.15`
+mg-VSS/mg-N and biomass ≈12% N, N-into-biomass per N-oxidised is ≈1.8% —
+below measurement noise. §10's conservation test therefore checks the
+**dissolved-N budget only**, with the ≈1.8% biomass-assimilation term
+documented as the closure tolerance. (Tier-2 may add an explicit
+assimilation sink `i_N_biomass·growth` for full closure as an exercise.)
 
 ### 4.5 Carbonate / pH (Tier-2, Hour 4 exercise)
-pH is found by root-solving the charge balance given (DIC, Alk, T):
+pH from charge balance given (DIC, Alk, T), root-solved on [H⁺] ∈ bracket:
 ```
 Alk = [HCO3⁻] + 2[CO3²⁻] + [OH⁻] − [H⁺]
-[HCO3⁻], [CO3²⁻] = f(DIC, [H⁺], K1(T), K2(T))
-→ solve for [H⁺], pH = −log10[H⁺]
+[HCO3⁻],[CO3²⁻] = f(DIC,[H⁺],K1(T),K2(T))   →  solve [H⁺]  →  pH = −log10[H⁺]
 ```
-Nitrification consumes alkalinity (7.14 g CaCO₃ per g-N) — a real reason
-hobby tanks crash pH. This closes the loop: high feeding → nitrification
-→ alkalinity drop → pH drop → NH₃ fraction shifts. Great teaching arc.
+Nitrification consumes **7.14 g CaCO₃ alkalinity per g-N** — so high feeding
+→ nitrification → alkalinity drop → pH drop → NH₃-fraction shift. This closes
+the toxicity loop and is the Hour-4 capstone.
 
-## 5. Discrete events
+## 5. Discrete events — solver segmentation
 
-Events fire at scheduled times and apply an instantaneous map to the
-state (the solver stops, applies, restarts):
+The continuous ODE is integrated **between** event times; at each event
+boundary the solver stops, applies an instantaneous state map, and restarts
+(see §7 `solver.py`). Within a segment, time-varying drivers (`F(t)`,
+`light(t)`, ammonia dose) are **piecewise-constant**.
 
-| event | effect |
+| event | effect on state |
 |---|---|
-| `feed(amount_g)` | sets `F(t)` pulse for the day → drives `E_TAN` |
-| `water_change(fraction)` | `c ← c·(1−f) + c_tap·f` for every dissolved species; biofilm `X` unchanged (lives on media) |
-| `add_fish(species, n, length)` | increases `B_fish`, raises baseline excretion |
-| `dose(chemical, amount)` | bumps the relevant state (e.g. `Alk += ...` for buffer) |
-| `add_plants(species, mass)` | increases `B_plant` |
+| `ammonia_dose(rate_mg_n_l_day)` | sets a constant TAN source for the segment (fishless cycle; Hour 2) |
+| `feed(amount_g, repeat_days)` | sets `F(t)` daily rate → drives `E_TAN` (Hour 3) |
+| `water_change(fraction f)` | dissolved `c ← c·(1−f) + c_tap·f` for TAN/NO2/NO3/DO; **attached X unchanged** |
+| `add_fish(species,n,length)` | `B_fish +=`, raises baseline excretion/respiration |
+| `add_plants(species,mass)` | `B_plant +=` |
+| `dose(chemical,amount)` | bumps the relevant state (e.g. `Alk +=` for buffer) |
 
-## 6. Parameter table (defaults, 20 °C)
+**Mechanics specified**: events sort by `(day, priority)`; same-day events
+apply in priority order (water_change before feed before dose); `c_tap` is
+a tap-water chemistry vector in the scenario; output segments are stitched
+on a common `t_eval` grid; the solver uses `solve_ivp(method="LSODA",
+max_step=0.25 day)` per segment to resolve fast transients.
 
-Heritage: nitrification kinetics from the Activated Sludge Model (ASM1,
-Henze et al. 1987) adapted to aquarium scale; toxicity thresholds from
-hobby + aquaculture literature.
+## 6. Parameter table (aquarium-tuned defaults, 20 °C)
 
-| param | symbol | default | unit | source note |
+Kinetic FORMS are from the Activated Sludge Model (ASM1, Henze et al. 1987);
+the **magnitudes here are re-scaled to aquarium biofilm**, NOT used raw from
+wastewater (where suspended biomass is far denser). The colonisation
+timescale is governed jointly by `X_seed`, `X_max`, `μ`, temperature, and
+substrate — calibrate against a real log (Hour 3) rather than trusting
+defaults blindly.
+
+| param | symbol | default | unit | note |
 |---|---|---|---|---|
-| AOB max growth | `mu_AOB` | 0.77 | /day | Nitrosomonas, 20 °C |
-| NOB max growth | `mu_NOB` | 0.78 | /day | Nitrobacter |
+| AOB max growth | `mu_AOB` | 0.55 | /day | aquarium biofilm, 20 °C (< ASM 0.77) |
+| NOB max growth | `mu_NOB` | 0.40 | /day | NOB lag → nitrite spike persists |
 | TAN half-sat | `K_TAN` | 1.0 | mg-N/L | |
 | NO₂ half-sat | `K_NO2` | 1.3 | mg-N/L | |
-| O₂ half-sat (AOB) | `K_O_AOB` | 0.50 | mg-O₂/L | |
-| O₂ half-sat (NOB) | `K_O_NOB` | 0.68 | mg-O₂/L | NOB more O₂-sensitive |
+| O₂ half-sat AOB | `K_O_AOB` | 0.50 | mg-O₂/L | |
+| O₂ half-sat NOB | `K_O_NOB` | 0.68 | mg-O₂/L | NOB more O₂-sensitive |
 | AOB yield | `Y_AOB` | 0.15 | mg/mg-N | |
 | NOB yield | `Y_NOB` | 0.041 | mg/mg-N | |
 | AOB decay | `b_AOB` | 0.10 | /day | |
 | NOB decay | `b_NOB` | 0.10 | /day | |
+| AOB seed | `X_AOB_seed` | 0.02 | mg/L | tiny inoculum → weeks-long cycle |
+| NOB seed | `X_NOB_seed` | 0.02 | mg/L | |
+| AOB capacity | `X_AOB_max` | `c_media·media_area_m2/V` | mg/L | media-limited |
+| NOB capacity | `X_NOB_max` | `c_media·media_area_m2/V` | mg/L | |
+| media biomass dens. | `c_media` | 0.5 | mg/m² | per m² filter media |
+| media area | `media_area_m2` | 1.0 | m² | filter+surfaces |
 | reaeration | `k_a` | 2.0 | /day | filter-dependent |
 | Arrhenius θ | `theta` | 1.07 | — | per °C from 20 |
-| N per food | `a_exc` | 0.0276 | g-N/g-food | 9.2% N × 30% excreted |
-| NH₃ pKa(25 °C) | `pKa` | 9.25 | — | for NH3_free fraction |
+| N per food | `a_exc` | 0.0276 | g-N/g-food | 9.2 %N × 30 % excreted |
+| O₂ demand step1 | — | 3.43 | g-O₂/g-N | NH₄-N→NO₂-N |
+| O₂ demand step2 | — | 1.14 | g-O₂/g-N | NO₂-N→NO₃-N |
+| alk consumed | — | 7.14 | g-CaCO₃/g-N | Tier-2 pH |
 
-All defaults live in `library.py` and are overridable per-scenario.
+Defaults are tuned to produce a **3–6 week** fishless cycle (the real
+range, §11). All overridable per-scenario.
 
 ## 7. Module contracts
 
-| module | holds | exposes | reset/serialise |
+| module | tag | holds | exposes |
 |---|---|---|---|
-| `state.py` | `Tank`, `Chemistry`, `Biota` dataclasses | `.to_vector()`, `.from_vector()` | dataclass → dict → JSON |
-| `processes.py` | (stateless) | `excretion()`, `nitrify_aob()`, `nitrify_nob()`, `oxygen_balance()`, `derivatives(t, y, params)` | pure functions |
-| `solver.py` | (stateless) | `simulate(scenario) -> Result` wrapping `scipy.integrate.solve_ivp` + event handling | — |
-| `events.py` | `EventSchedule` | `apply(state, event)`, `due(t)` | list of typed events |
-| `io.py` | (stateless) | `load_scenario(yaml)`, `write_scenario`, `read_observation(csv)`, `write_result(csv)` + `provenance.json` | — |
-| `library.py` | static dicts | `default_params()`, `species(name)`, `equipment(name)`, `tap_water(profile)` | — |
-| `studio.py` | HTTP/Streamlit app | `run_app()` → sliders + plots | — |
-| `cli.py` | argparse/click | `fishtank run / validate / calibrate / studio` | — |
+| `state.py` | core | `Tank`, `Chemistry`, `Biota` dataclasses | `.to_vector()/.from_vector()` |
+| `processes.py` | core | (stateless) | `monod()`, `oxidation_aob/nob()`, `excretion()`, `oxygen_balance()`, `derivatives(t,y,p)` |
+| `solver.py` | core | (stateless) | `simulate(scenario)->Result`: segment loop over events + `solve_ivp` |
+| `events.py` | core | `EventSchedule` | `apply(state,event)`, `segments(t_span)` |
+| `library.py` | core | static dicts | `default_params()`, `species()`, `equipment()`, `tap_water()` |
+| `calibration.py` | core | (stateless) | `align(sim,obs)`, `rmse()`, `fit(scenario,obs,params)->profile` (Hour 3) |
+| `io.py` | release | (stateless) | `load_scenario/write_scenario`, `read_observation`, `write_result` + `provenance.json` |
+| `studio.py` | release | Streamlit/HTTP app | `run_app()` |
+| `cli.py` | release | argparse/click | `fishtank run/validate/calibrate/studio` |
 
-`derivatives(t, y, params)` is the single function the solver calls; every
-process function feeds into it. This is the pedagogical heart — students
-can read the entire model dynamics in one ~30-line function.
+`derivatives(t,y,p)` is the pedagogical heart — the whole model dynamics
+readable in one ~30-line function.
 
 ## 8. Scenario YAML schema (draft)
 
 ```yaml
-fishtank_version: "0.1"
-tank:
-  volume_l: 120.0
-  temperature_c: 25.0
-  elevation_m: 50.0
-chemistry:                 # initial conditions
+fishtank_version: "0.2"
+tank: {volume_l: 120.0, temperature_c: 25.0, elevation_m: 50.0, ph: 7.4}   # ph fixed in Tier-1
+chemistry:                       # initial conditions
   tan_mg_n_l: 0.0
   no2_mg_n_l: 0.0
   no3_mg_n_l: 5.0
-  x_aob_mg_l: 0.1          # tiny seed bacteria
-  x_nob_mg_l: 0.1
+  x_aob_mg_l: 0.02               # tiny seed
+  x_nob_mg_l: 0.02
   do_mg_l: 7.5
-biota:
-  fish:
-    - species: "zebra_danio"
-      number: 8
-      length_mm: 35
-  plants:
-    - species: "vallisneria"
-      mass_g: 40
-run:
-  days: 45
-  dt_output_hours: 6
-  seed: 20260528
+media: {area_m2: 1.0}
+run: {days: 42, dt_output_hours: 6, seed: 20260528, tier: 1}
 events:
-  - day: 0   ; type: add_fish ; species: zebra_danio ; n: 8 ; length_mm: 35
-  - day: 0   ; type: feed     ; amount_g: 0.5 ; repeat_days: 1
-  - day: 7   ; type: water_change ; fraction: 0.25 ; repeat_days: 7
-parameters:                # optional overrides of library defaults
-  mu_AOB: 0.77
-profile_uri: ""            # optional path to a fitted parameter file
+  - {day: 0, type: ammonia_dose, rate_mg_n_l_day: 2.0}    # fishless cycle source (Hour 2)
+  - {day: 14, type: water_change, fraction: 0.25, repeat_days: 7}
+tap_water: {tan_mg_n_l: 0.0, no2_mg_n_l: 0.0, no3_mg_n_l: 5.0, do_mg_l: 8.5}
+parameters: {}                   # optional overrides of library defaults
+profile_uri: ""                  # optional fitted-parameter file
 ```
 
 ## 9. Output contract
 
-`simulate()` returns a `Result` with:
+`simulate()` returns a `Result`:
 - `timeseries`: DataFrame [day, TAN, NO2, NO3, X_AOB, X_NOB, DO, NH3_free, pH]
+  (pH is the fixed input in Tier-1, solved in Tier-2)
 - `events_log`: which events fired when
-- `warnings`: e.g. "NH3_free exceeded 0.05 mg/L (fish stress) on day 3"
+- `warnings`: e.g. "NH3_free > 0.05 mg/L (chronic fish stress) on day 3"
 - `provenance`: scenario hash + parameter fingerprint + git sha + library version
 
-Toxicity flags use literature thresholds (free NH₃ > 0.05 mg/L = chronic
-stress, NO₂ > 0.5 mg-N/L = "brown blood", NO₃ > 50 = water-change due).
+Toxicity flags (literature): free NH₃ > 0.05 mg/L = chronic stress;
+NO₂ > 0.5 mg-N/L = "brown blood"; NO₃ > 50 = water-change due.
 
 ## 10. Validation strategy
 
-1. **Conservation check**: total N (TAN+NO2+NO3 + bound-in-biomass) is
-   conserved between events (sources = feeding, sinks = plant uptake +
-   denitrification + water change). A unit test asserts the N budget
-   closes to < 0.1% between events.
-2. **Qualitative pattern**: a fishless-cycle run must reproduce the
-   textbook "ammonia spike → nitrite spike (lagged) → nitrate
-   accumulation" sequence.
-3. **Calibration target**: fit `mu_AOB`, `mu_NOB` to a bundled real
-   aquarium log; report RMSE. Bundled logs live in `data/aquarium_logs/`.
-4. **Sensitivity**: ±10% one-at-a-time on each parameter; rank by effect
-   on day-30 NO₃ (the regulatory-equivalent output for a tank).
+1. **Dissolved-N conservation**: total dissolved N (TAN+NO2+NO3) budget
+   closes to within the documented ≈1.8% biomass-assimilation tolerance
+   between events; sources = ammonia dose + feeding, sinks = plant uptake
+   + denitrification + water change. Unit test asserts this.
+2. **Qualitative pattern**: a fishless-cycle run reproduces the textbook
+   "ammonia spike → nitrite spike (lagged, NOB slower) → nitrate
+   accumulation" sequence over **3–6 weeks**.
+3. **Calibration target**: fit `mu_AOB, mu_NOB` (most-sensitive params) to a
+   bundled real aquarium log; report RMSE. Logs in `data/aquarium_logs/`.
+4. **Sensitivity**: ±10% OAT on each param; rank by effect on day-30 NO₃.
 
-## 11. Relationship to OpenLimno
+## 11. Why fishless cycling takes weeks (teaching note)
 
-- **Reuses**: scenario-YAML + provenance.json pattern; the
-  cohort/population idea from the IBM (`B_fish` could later become an
-  individual-based fish module sharing `openlimno.ibm` bioenergetics);
-  the browser-Studio HTTP pattern; the calibration ABC/grid harness.
+The lag is **not** a model artefact to tune away — it is the lesson. Cycling
+is slow because the biofilm starts as a tiny inoculum (`X_seed` ≈ 0.02 mg/L)
+and grows logistically toward a media-limited `X_max`. Early on, ρ ∝ X is
+near-zero, so TAN accumulates; only after AOB colonise (~1–2 weeks) does TAN
+fall and NO₂ rise; NOB lag further (lower `μ_NOB`), so NO₂ persists into week
+3–4; NO₃ accumulates throughout. Seeding from an established filter (raising
+`X_seed`) is exactly how hobbyists "instant-cycle" — a parameter the model
+exposes. **The course must NOT present a "few-day" cycle** (a v0.1 error).
+
+## 12. Relationship to OpenLimno
+
+- **Reuses**: scenario-YAML + provenance pattern; calibration grid/ABC
+  harness; browser-Studio HTTP pattern; (future) `openlimno.ibm`
+  bioenergetics for a fish-growth tier.
 - **Distinct**: single well-mixed compartment (no GIS/cells), continuous
   ODE (not daily-step IBM), hobby-facing not regulatory.
 - **Namespace**: `openlimno.fishtank.*` — one repo, two scales
-  (`limno` = open waters / macrocosm; `fishtank` = closed microcosm).
+  (`limno` = open waters/macrocosm; `fishtank` = closed microcosm).
 
 ## See also
 - [`COURSE_PLAN.md`](./COURSE_PLAN.md) — the 4-hour teaching schedule.
 - ASM1: Henze, M. et al. (1987) *Activated Sludge Model No. 1*, IWA.
-- inSTREAM 7 bioenergetics (already in `openlimno.ibm`) for the future
-  fish-growth tier.
+- Emerson, K. et al. (1975) ammonia pKa(T), *J. Fish. Res. Board Can.*
+- 2026-05-28 Codex pre-implementation review: `reviews/e0e77d1.codex-fishtank-spec.md`.
