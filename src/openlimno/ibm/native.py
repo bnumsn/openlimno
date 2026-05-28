@@ -26,10 +26,10 @@ from openlimno.ibm.events import (
     EVENT_COLUMNS as _EVENT_COLUMNS,
 )
 from openlimno.ibm.events import (
-    counts_by_reach as _counts_by_reach,
+    counts_by_reach_and_species as _counts_by_reach_and_species,
 )
 from openlimno.ibm.events import (
-    spawner_counts_by_reach as _spawner_counts_by_reach,
+    spawner_counts_by_reach_and_species as _spawner_counts_by_reach_and_species,
 )
 from openlimno.ibm.events import (
     write_event_report,
@@ -863,14 +863,17 @@ def run_native_ibm(
                     ):
                         key = (str(arrival_reach), str(arrival_species))
                         initial_by_key[key] = initial_by_key.get(key, 0) + int(n_arrivals)
-                for arrival_reach_id, n_arrivals in _counts_by_reach(
-                    arrivals, cfg.reach_id
-                ).items():
+                for (arrival_reach_id, arrival_species), n_arrivals in (
+                    _counts_by_reach_and_species(
+                        arrivals, cfg.reach_id, prof.species,
+                    ).items()
+                ):
                     event_rows.append(
                         {
                             "scenario_id": cfg.scenario_id,
                             "reach_id": arrival_reach_id,
                             "day": sim_day,
+                            "species": arrival_species,
                             "event": "arrival",
                             "n": n_arrivals,
                             "n_eggs": 0,
@@ -890,6 +893,10 @@ def run_native_ibm(
                     "scenario_id": cfg.scenario_id,
                     "reach_id": moved_reach_id,
                     "day": sim_day,
+                    # _apply_cross_reach_migration returns counts only, not
+                    # per-species movements. Fall back to the IBM's active
+                    # profile species — accurate for single-species runs.
+                    "species": prof.species,
                     "event": "movement",
                     "n": n_moved,
                 }
@@ -959,12 +966,17 @@ def run_native_ibm(
                 dead_idx = alive_idx[deaths]
                 dead_fish = fish.loc[dead_idx].copy()
                 fish.loc[dead_idx, "alive"] = False
-                for dead_reach_id, n_dead in _counts_by_reach(dead_fish, cfg.reach_id).items():
+                for (dead_reach_id, dead_species), n_dead in (
+                    _counts_by_reach_and_species(
+                        dead_fish, cfg.reach_id, prof.species,
+                    ).items()
+                ):
                     event_rows.append(
                         {
                             "scenario_id": cfg.scenario_id,
                             "reach_id": dead_reach_id,
                             "day": sim_day,
+                            "species": dead_species,
                             "event": "mortality",
                             "n": n_dead,
                         }
@@ -982,22 +994,26 @@ def run_native_ibm(
         if not emerged.empty:
             fish = pd.concat([fish, emerged], ignore_index=True)
         if n_recruits:
-            for recruit_reach_id, n_reach_recruits in _counts_by_reach(
-                emerged,
-                cfg.reach_id,
-            ).items():
+            for (recruit_reach_id, recruit_species), n_reach_recruits in (
+                _counts_by_reach_and_species(
+                    emerged, cfg.reach_id, prof.species,
+                ).items()
+            ):
                 event_rows.append(
                     {
                         "scenario_id": cfg.scenario_id,
                         "reach_id": recruit_reach_id,
                         "day": sim_day,
+                        "species": recruit_species,
                         "event": "recruitment",
                         "n": n_reach_recruits,
                     }
                 )
 
         spawn_season = _spawn_season_for_day(prof, day_of_year, simulation_year)
-        spawners_by_reach = _spawner_counts_by_reach(fish, prof, spawn_season, cfg.reach_id)
+        spawners_by_reach_species = _spawner_counts_by_reach_and_species(
+            fish, prof, spawn_season, cfg.reach_id, prof.species,
+        )
         redd_count_before_spawn = len(redds)
         fish, redds, next_redd_id, n_spawners, _n_eggs = _spawn_redds(
             fish,
@@ -1013,39 +1029,58 @@ def run_native_ibm(
         )
         if n_spawners:
             new_redds = redds.iloc[redd_count_before_spawn:]
-            eggs_by_reach = (
-                {
-                    str(key): int(value)
-                    for key, value in new_redds.groupby(new_redds["reach_id"].astype(str))[
-                        "eggs_initial"
-                    ]
-                    .sum()
-                    .items()
+            # Eggs by (reach, species) — keyed the same way as spawners.
+            if (
+                not new_redds.empty
+                and "reach_id" in new_redds
+                and "species" in new_redds
+            ):
+                eggs_grouped = (
+                    new_redds.groupby(
+                        [new_redds["reach_id"].astype(str), new_redds["species"].astype(str)],
+                        sort=False,
+                    )["eggs_initial"].sum()
+                )
+                eggs_by_key: dict[tuple[str, str], int] = {
+                    (str(r), str(s)): int(v) for (r, s), v in eggs_grouped.items()
                 }
-                if not new_redds.empty and "reach_id" in new_redds
-                else {}
-            )
-            for spawn_reach_id, n_reach_spawners in spawners_by_reach.items():
+            else:
+                eggs_by_key = {}
+            for (spawn_reach_id, spawn_species), n_reach_spawners in (
+                spawners_by_reach_species.items()
+            ):
                 event_rows.append(
                     {
                         "scenario_id": cfg.scenario_id,
                         "reach_id": spawn_reach_id,
                         "day": sim_day,
+                        "species": spawn_species,
                         "event": "spawning",
                         "n": n_reach_spawners,
-                        "n_eggs": eggs_by_reach.get(spawn_reach_id, 0),
+                        "n_eggs": eggs_by_key.get(
+                            (spawn_reach_id, spawn_species), 0,
+                        ),
                     }
                 )
-        recruits_by_reach = (
-            {
-                str(key): int(value)
-                for key, value in emerged.groupby(emerged["reach_id"].astype(str)).size().items()
-            }
-            if not emerged.empty and "reach_id" in emerged
+        recruits_by_reach_species = (
+            _counts_by_reach_and_species(emerged, cfg.reach_id, prof.species)
+            if not emerged.empty
             else {}
         )
         for reach_id in summary_reach_ids:
             for species_id in species_values:
+                # Look up per-(reach, species). For single-species runs
+                # fall back to the prof.species value to preserve the
+                # pre-multi-species behaviour where recruits_by_reach
+                # was keyed by reach only.
+                rk = (reach_id, species_id)
+                if rk in recruits_by_reach_species:
+                    n_reach_species_recruits = recruits_by_reach_species[rk]
+                elif species_id == prof.species and len(summary_reach_ids) == 1:
+                    n_reach_species_recruits = n_recruits
+                else:
+                    n_reach_species_recruits = 0
+                n_reach_species_spawners = spawners_by_reach_species.get(rk, 0)
                 summary_rows.append(
                     _summarise_population(
                         fish,
@@ -1055,17 +1090,8 @@ def run_native_ibm(
                         reach_id=reach_id,
                         species=species_id,
                         initial_n=initial_by_key.get((reach_id, species_id), 0),
-                        n_recruits=(
-                            recruits_by_reach.get(
-                                reach_id,
-                                n_recruits if len(summary_reach_ids) == 1 else 0,
-                            )
-                            if species_id == prof.species
-                            else 0
-                        ),
-                        n_spawners=spawners_by_reach.get(reach_id, 0)
-                        if species_id == prof.species
-                        else 0,
+                        n_recruits=n_reach_species_recruits,
+                        n_spawners=n_reach_species_spawners,
                     )
                 )
         if cfg.record_individual_history:
@@ -1078,8 +1104,22 @@ def run_native_ibm(
                 )
             )
 
+    summary_df = pd.DataFrame.from_records(summary_rows)
+    # Add cumulative recruits/spawners per (reach, species) so monthly
+    # snapshots don't miss instantaneous events that fired between two
+    # snapshot days (2026-05-28 track J — 1-year ExampleB walkthrough
+    # showed n_recruits/n_spawners=0 in every monthly slice while the
+    # raw events.csv had 453 redds + 1506 mortalities).
+    if not summary_df.empty:
+        group_cols = ["reach_id", "species"]
+        for col in ("n_recruits", "n_spawners"):
+            if col in summary_df.columns:
+                summary_df[f"cumulative_{col[2:]}"] = (
+                    summary_df.groupby(group_cols, sort=False)[col].cumsum()
+                )
+
     return NativeIBMResult(
-        population_summary=pd.DataFrame.from_records(summary_rows),
+        population_summary=summary_df,
         final_individuals=fish.reset_index(drop=True),
         cell_use=pd.DataFrame.from_records(cell_use_rows),
         events=pd.DataFrame.from_records(event_rows, columns=_EVENT_COLUMNS),

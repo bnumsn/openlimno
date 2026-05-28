@@ -662,10 +662,16 @@ class ReddRecruitmentModel:
             profile.fecundity_length_exponent
         )
         expected_eggs = profile.spawner_female_fraction * profile.fecundity_per_female * length_factor
-        mature_fish = fish.loc[
-            mature,
-            ["cell_id", "reach_id"] if "reach_id" in fish else ["cell_id"],
-        ].copy()
+        spawner_cols = ["cell_id"]
+        if "reach_id" in fish:
+            spawner_cols.append("reach_id")
+        # Preserve the spawner's own species so each redd is labelled with
+        # the parent's species, not the profile's default. 2026-05-28
+        # multi-species follow-up — without this, ExampleB redds all
+        # tagged "rainbow_trout" regardless of cohort.
+        if "species" in fish:
+            spawner_cols.append("species")
+        mature_fish = fish.loc[mature, spawner_cols].copy()
         mature_fish["expected_eggs"] = expected_eggs
         valid_cells = set(cells["cell_id"].astype(str))
         fallback = self.fallback_spawning_cell(cells, profile)
@@ -695,10 +701,11 @@ class ReddRecruitmentModel:
             if egg_count <= 0:
                 continue
             total_eggs += egg_count
+            spawner_species = str(spawner["species"]) if "species" in mature_fish.columns else profile.species
             redd_rows.append(
                 {
                     "redd_id": next_redd_id,
-                    "species": profile.species,
+                    "species": spawner_species,
                     "cell_id": str(spawner["cell_id"]),
                     "reach_id": str(spawner["reach_id"]),
                     "spawn_day": int(sim_day),
