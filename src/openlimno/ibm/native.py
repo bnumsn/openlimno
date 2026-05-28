@@ -1109,14 +1109,22 @@ def run_native_ibm(
     # snapshots don't miss instantaneous events that fired between two
     # snapshot days (2026-05-28 track J — 1-year ExampleB walkthrough
     # showed n_recruits/n_spawners=0 in every monthly slice while the
-    # raw events.csv had 453 redds + 1506 mortalities).
+    # raw events.csv had 453 redds + 1506 mortalities). The group-by
+    # only fires when both reach_id and species columns are present;
+    # guard against schema drift in _summarise_population (2026-05-28
+    # triple-AI review A6, Claude #3).
     if not summary_df.empty:
         group_cols = ["reach_id", "species"]
+        have_groups = all(c in summary_df.columns for c in group_cols)
         for col in ("n_recruits", "n_spawners"):
-            if col in summary_df.columns:
+            if col not in summary_df.columns:
+                continue
+            if have_groups:
                 summary_df[f"cumulative_{col[2:]}"] = (
                     summary_df.groupby(group_cols, sort=False)[col].cumsum()
                 )
+            else:
+                summary_df[f"cumulative_{col[2:]}"] = summary_df[col].cumsum()
 
     return NativeIBMResult(
         population_summary=summary_df,

@@ -1695,12 +1695,19 @@ def _sanitize_for_json(value: object) -> object:
     population produces ``final_mean_length_mm = NaN`` and Python's
     default ``allow_nan=True`` writes the non-standard ``NaN`` token.
 
-    Pinned by 2026-05-26 software-test S2 (Codex).
+    Pinned by 2026-05-26 software-test S2 (Codex). NumPy float32 was
+    added to the float type check after the 2026-05-28 triple-AI review
+    (Claude #4) flagged that ``np.float32`` does NOT subclass ``float``
+    (only ``np.float64`` does), so a float32 NaN would survive the
+    isinstance check and hit the ``allow_nan=False`` raise.
     """
-    if isinstance(value, float):
-        if value != value or value in (math.inf, -math.inf):  # noqa: PLR0124 — NaN!=NaN trick
+    import numpy as np  # noqa: PLC0415  — deferred, only needed here
+
+    if isinstance(value, float | np.floating):
+        v = float(value)
+        if v != v or v in (math.inf, -math.inf):  # noqa: PLR0124 — NaN!=NaN trick
             return None
-        return value
+        return v
     if isinstance(value, Mapping):
         return {str(k): _sanitize_for_json(v) for k, v in value.items()}
     if isinstance(value, list | tuple):
@@ -1838,16 +1845,27 @@ def write_studio_scenario_files(
     # the ensemble + calibration runners reload the YAML, see no cohorts,
     # and collapse the 3-species ExampleB population back to a single
     # default_species. (2026-05-28 follow-up to multi-species fix.)
+    # Apply the same interactive caps as run_studio_scenario so the
+    # ensemble + calibration paths can't hang a request thread by
+    # POSTing days=10000 × many seeds (2026-05-28 triple-review A3,
+    # Claude #1). MAX_STUDIO_DAYS / MAX_STUDIO_INITIAL_ABUNDANCE
+    # are the same numbers; headless workflow runners that need
+    # longer horizons should call the runner library directly.
     return _write_studio_scenario_files(
         Path(output_dir),
         scenario_id=_as_str(config.get("scenario_id"), "agent-studio-demo"),
         reach_id=_as_str(config.get("reach_id"), "reach-1"),
         species=species,
-        days=_as_int(config.get("days"), 45, min_value=0),
+        days=_as_int(
+            config.get("days"), 45, min_value=0, max_value=MAX_STUDIO_DAYS,
+        ),
         seed=_as_int(config.get("seed"), 42),
         stochastic=_as_bool(config.get("stochastic"), True),
         record_history=_as_bool(config.get("record_individual_history"), True),
-        initial_abundance=_as_int(config.get("initial_abundance"), 80, min_value=0),
+        initial_abundance=_as_int(
+            config.get("initial_abundance"), 80,
+            min_value=0, max_value=MAX_STUDIO_INITIAL_ABUNDANCE,
+        ),
         initial_length_mm=_as_float(config.get("initial_length_mm"), 115.0, min_value=1.0),
         profile=profile,
         cells=_cells_from_payload(payload.get("cells", default["cells"])),

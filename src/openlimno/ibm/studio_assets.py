@@ -482,7 +482,12 @@ function bindState(){
   $('calibration_tolerance').value=cal.tolerance ?? '';
 }
 function collectState(){
-  const config={scenario_id:$('scenario_id').value,reach_id:$('reach_id').value,species:$('species').value,initial_abundance:Number($('initial_abundance').value),initial_length_mm:Number($('initial_length_mm').value),days:Number($('days').value),seed:Number($('seed').value),stochastic:$('stochastic').checked,record_individual_history:$('record_individual_history').checked};
+  /* Preserve population_cohorts coming from /api/default (real inSTREAM 7
+     archive). The form has no cohort editor, so we copy the field through
+     from state.config rather than letting it default to undefined; without
+     this the immediate runModel() after loadDefault drops the cohorts and
+     reverts to a uniform initial population (2026-05-28 review A1). */
+  const config={scenario_id:$('scenario_id').value,reach_id:$('reach_id').value,species:$('species').value,initial_abundance:Number($('initial_abundance').value),initial_length_mm:Number($('initial_length_mm').value),days:Number($('days').value),seed:Number($('seed').value),stochastic:$('stochastic').checked,record_individual_history:$('record_individual_history').checked,population_cohorts:Array.isArray(state.config?.population_cohorts)?state.config.population_cohorts:undefined};
   const river={...riverDefaults(), name:$('river_name').value, reach_name:$('river_reach_name').value, length_m:Number($('river_length_m').value), flow_m3s:Number($('river_flow_m3s').value), display_note:state.river?.display_note || '', geometry:state.river?.geometry || null};
   const profile={...state.profile};
   document.querySelectorAll('[data-profile]').forEach(input=>{const key=input.getAttribute('data-profile'); profile[key]=input.type==='checkbox'?input.checked:num(input.value);});

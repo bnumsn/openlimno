@@ -174,7 +174,14 @@ def build_studio_scenario_from_instream7_archive(
             f"inSTREAM 7 case '{target.case_id}' has no species — "
             "cannot build a Studio scenario."
         )
+    # Pick a single reach (multi-reach scenarios are loaded one reach at a
+    # time; the Studio is single-reach by design). Initial-population
+    # cohorts will be filtered to this reach below so the abundance and
+    # biomass numbers stay consistent — triple-AI review A5 (Codex P2)
+    # caught that the previous build pulled cohorts from ALL reaches and
+    # implicitly piled them into reaches[0].
     reach = target.reaches[0]
+    selected_reach_id = reach.reach_id
 
     ts = pd.read_csv(reach.time_series_file, comment=";")
     q_med = float(ts["flow"].median())
@@ -328,6 +335,16 @@ def build_studio_scenario_from_instream7_archive(
     # weight by abundance so the dominant cohort (300 age-0 fry at 6.1 cm)
     # drives the mean, not an unweighted average of cohort modes.
     initial_population = read_official_initial_population(target.initial_population_file)
+    # Filter cohorts to the loaded reach when the official table is keyed
+    # by reach. ExampleA has 1 reach so this is a no-op; ExampleB has 3
+    # and the file lists 9 cohorts per reach — without filtering, all 27
+    # would pile into the single loaded reach, inflating abundance 3×.
+    if "Reach" in initial_population.columns:
+        reach_filtered = initial_population[
+            initial_population["Reach"].astype(str) == str(selected_reach_id)
+        ]
+        if not reach_filtered.empty:
+            initial_population = reach_filtered
     total_init = int(initial_population["Number"].sum())
     if total_init <= 0:
         raise ValueError(

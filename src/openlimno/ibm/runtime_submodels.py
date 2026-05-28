@@ -795,11 +795,18 @@ class ReddRecruitmentModel:
             redds.at[idx, "eggs_remaining"] = 0
             if recruits <= 0:
                 continue
+            # Inherit the parent redd's species so multi-species recruits
+            # are tagged correctly. The redd already carries its spawner's
+            # species (per the 2026-05-28 fix to spawn_redds); without
+            # propagating here, every fry hatched in mixed-species runs
+            # gets profile.species (typically rainbow_trout). Triple-AI
+            # review P2 (Codex).
+            recruit_species = str(redd.get("species", profile.species))
             recruit_frames.append(
                 pd.DataFrame(
                     {
                         "fish_id": np.arange(next_fish_id, next_fish_id + recruits, dtype=int),
-                        "species": profile.species,
+                        "species": recruit_species,
                         "age_days": np.zeros(recruits, dtype=int),
                         "length_mm": np.full(recruits, profile.fry_length_mm),
                         "mass_g": np.full(recruits, profile.fry_mass_g),
