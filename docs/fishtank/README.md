@@ -50,6 +50,7 @@ python -m openlimno.fishtank run examples/fishtank/mature_stocked_tank.yaml
 |---|---|
 | [`SPEC.md`](./SPEC.md) | 技术规范:状态向量、ODE 系统、过程方程、参数表、模块契约 |
 | [`COURSE_PLAN.md`](./COURSE_PLAN.md) | 4 学时分钟级教案(每节课时间表 + 板书 + 代码片段) |
+| [`TEACHING_RUNSHEET.md`](./TEACHING_RUNSHEET.md) | 4 学时全流程实操单:PPT 页 × 学生填空 TODO × CHECKPOINT × Studio 逐节对照(数字已实跑验证) |
 | [`INSTRUCTOR_GUIDE.md`](./INSTRUCTOR_GUIDE.md) | 导师备课:易错点、提问脚本、应急预案、评估 |
 | [`OPENSOURCE_GUIDE.md`](./OPENSOURCE_GUIDE.md) | 学生 fork/PR 异步教程(课程作业) |
 | [`notebooks/`](./notebooks/) | 两条轨道:01–04 导读演示 + **`build_along_student.ipynb` 从零搭建**(学生填 5 个 TODO 写出科学核心)+ 答案钥匙 |
