@@ -1,9 +1,8 @@
 # OpenLimno Fishtank — Technical Specification
 
-> `openlimno.fishtank` — a mechanistic ODE model of a closed/semi-closed
-> freshwater aquarium (a microcosm). Doubles as the worked example for a
-> 4-hour Master's "Aquatic Ecology Models" lab. See
-> [`COURSE_PLAN.md`](./COURSE_PLAN.md) for the teaching schedule.
+> `openlimno.fishtank` — a mechanistic ODE + ABM model of a closed/semi-closed
+> freshwater aquarium (a microcosm): nitrogen cycle, attached biofilm
+> colonisation, dissolved oxygen, and optional Tier-2 carbonate/pH.
 
 Status: **Implemented v0.4 (2026-05-29)** — Tier-1 core, Hour-3 events /
 calibration, Hour-4 carbonate diagnostics, agent-based model, scenario IO,
@@ -411,7 +410,7 @@ exposes. **The course must NOT present a "few-day" cycle** (a v0.1 error).
   (`limno` = open waters/macrocosm; `fishtank` = closed microcosm).
 
 ## See also
-- [`COURSE_PLAN.md`](./COURSE_PLAN.md) — the 4-hour teaching schedule.
+- [`README.md`](./README.md) — module overview and quick start.
 - ASM1: Henze, M. et al. (1987) *Activated Sludge Model No. 1*, IWA.
 - Emerson, K. et al. (1975) ammonia pKa(T), *J. Fish. Res. Board Can.*
 - 2026-05-28 Codex pre-implementation review: `reviews/e0e77d1.codex-fishtank-spec.md`.

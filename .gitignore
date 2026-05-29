@@ -85,3 +85,16 @@ tmp/
 # users provide their own copy via $OPENLIMNO_INSTREAM7_ARCHIVE or
 # ~/.cache/openlimno/instream7_official/. Dev fetch dumps it here.
 /output/instream7_official/
+
+# fishtank 教学/课程材料 — 仅本地保留,不纳入公开软件仓库
+# (软件必要文件只含 src/tests/examples/pyproject + docs/fishtank/{README,SPEC}.md)
+docs/fishtank/slides/
+docs/fishtank/notebooks/
+docs/fishtank/exercises/
+docs/fishtank/COURSE_PLAN.md
+docs/fishtank/TEACHING_RUNSHEET.md
+docs/fishtank/INSTRUCTOR_GUIDE.md
+docs/fishtank/CLASS_SIMULATION.md
+docs/fishtank/QUICKSTART.md
+docs/fishtank/USAGE_WALKTHROUGH.md
+docs/fishtank/OPENSOURCE_GUIDE.md
