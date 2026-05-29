@@ -63,6 +63,9 @@ docs = [
     "mkdocs-material>=9.5",
     "mkdocstrings[python]>=0.25",
 ]
+fishtank = [
+    "python-pptx>=0.6.23",
+]
 schism = [
     "pyschism",
 ]
@@ -80,6 +83,7 @@ Changelog = "https://github.com/openlimno/openlimno/blob/main/CHANGELOG.md"
 
 [project.scripts]
 openlimno = "openlimno.cli:main"
+fishtank = "openlimno.fishtank.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/openlimno"]
@@ -87,6 +91,10 @@ packages = ["src/openlimno"]
 [tool.hatch.build.targets.wheel.shared-data]
 "src/openlimno/wedm/schemas" = "openlimno/wedm/schemas"
 "src/openlimno/ibm/schemas" = "openlimno/ibm/schemas"
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/openlimno/fishtank/vendor/three.module.min.js" = "openlimno/fishtank/vendor/three.module.min.js"
+"src/openlimno/fishtank/vendor/THREE_LICENSE" = "openlimno/fishtank/vendor/THREE_LICENSE"
 
 # ---------------------------------------------------------------
 # ruff

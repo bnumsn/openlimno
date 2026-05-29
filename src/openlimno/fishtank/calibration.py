@@ -90,6 +90,10 @@ def fit(
     """Fit ``fit_names`` parameters to minimise normalised RMSE vs the
     observed log. Defaults fit the two most-sensitive nitrification
     growth rates (Hour-3 sensitivity lesson)."""
+    if "day" not in observation.columns:
+        raise ValueError("observation frame needs a 'day' column")
+    if len(fit_names) != len(bounds):
+        raise ValueError("fit_names and bounds must have the same length")
     chem = chemistry or Chemistry()
     base = base_params or Params()
     horizon = days if days is not None else float(observation["day"].max())
@@ -102,7 +106,10 @@ def fit(
         sim = simulate(chem, p, days=horizon).timeseries
         return rmse(align(sim, observation))
 
-    x0 = np.array([base.with_overrides().__dict__[name] for name in fit_names], dtype=float)
+    try:
+        x0 = np.array([getattr(base, name) for name in fit_names], dtype=float)
+    except AttributeError as exc:
+        raise ValueError(f"unknown fit parameter: {exc}") from exc
     res = minimize(objective, x0, method="L-BFGS-B", bounds=list(bounds))
     return CalibrationResult(
         best_params=dict(zip(fit_names, (float(v) for v in res.x), strict=True)),

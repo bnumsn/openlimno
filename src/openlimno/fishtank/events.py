@@ -9,9 +9,10 @@ the segment loop.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
-from .state import Chemistry, Params
+from .state import STATE_ORDER, Chemistry, Params
 
 # Dissolved species that a water change dilutes toward tap values. The
 # attached biofilm states (X_AOB, X_NOB) are deliberately absent — they
@@ -22,6 +23,7 @@ _DISSOLVED = ("TAN", "NO2", "NO3", "DO")
 # baseline), then feed, then dose; ammonia_dose alongside dose. Lower
 # number applies earlier.
 _PRIORITY = {"water_change": 0, "feed": 1, "dose": 2, "ammonia_dose": 2}
+_VALID_EVENT_KINDS = frozenset(_PRIORITY)
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,24 @@ class Event:
     value: float
     target: str = ""        # for kind="dose": which state to bump
     repeat_days: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.kind not in _VALID_EVENT_KINDS:
+            raise ValueError(f"unknown event kind: {self.kind!r}")
+        if not math.isfinite(self.day) or self.day < 0.0:
+            raise ValueError(f"event day must be finite and non-negative, got {self.day!r}")
+        if not math.isfinite(self.value):
+            raise ValueError(f"event value must be finite, got {self.value!r}")
+        if self.repeat_days < 0.0 or not math.isfinite(self.repeat_days):
+            raise ValueError(
+                f"repeat_days must be finite and non-negative, got {self.repeat_days!r}"
+            )
+        if self.kind == "water_change" and not 0.0 <= self.value <= 1.0:
+            raise ValueError(f"water_change fraction must be in [0, 1], got {self.value!r}")
+        if self.kind in {"ammonia_dose", "feed"} and self.value < 0.0:
+            raise ValueError(f"{self.kind} value must be non-negative, got {self.value!r}")
+        if self.kind == "dose" and self.target not in STATE_ORDER:
+            raise ValueError(f"dose target must be one of {STATE_ORDER}, got {self.target!r}")
 
     @property
     def priority(self) -> int:
@@ -113,7 +133,7 @@ def apply_event(
     p = params
 
     if event.kind == "water_change":
-        f = max(0.0, min(1.0, event.value))
+        f = event.value
         for name in _DISSOLVED:
             old = getattr(c, name)
             setattr(c, name, old * (1.0 - f) + tap.get(name) * f)
@@ -127,8 +147,7 @@ def apply_event(
         dose = params.a_exc * event.value / params.volume_l * 1000.0
         p = params.with_overrides(ammonia_dose_mg_n_l_day=dose)
     elif event.kind == "dose":
-        if event.target:
-            setattr(c, event.target, getattr(c, event.target) + event.value)
+        setattr(c, event.target, getattr(c, event.target) + event.value)
     else:
         raise ValueError(f"unknown event kind: {event.kind!r}")
     return c, p

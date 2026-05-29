@@ -1,0 +1,36 @@
+fishtank_version: "0.2"
+scenario_id: fishless-cycle-default
+
+tank:
+  volume_l: 120.0
+  temperature_c: 25.0
+  ph: 7.4
+
+chemistry:
+  tan_mg_n_l: 0.0
+  no2_mg_n_l: 0.0
+  no3_mg_n_l: 5.0
+  x_aob_mg_l: 0.02
+  x_nob_mg_l: 0.02
+  do_mg_l: 7.5
+
+run:
+  days: 42
+  dt_output_hours: 6
+  tier: 1
+
+events:
+  - day: 0
+    type: ammonia_dose
+    rate_mg_n_l_day: 2.0
+  - day: 21
+    type: water_change
+    fraction: 0.25
+
+tap_water:
+  tan_mg_n_l: 0.0
+  no2_mg_n_l: 0.0
+  no3_mg_n_l: 5.0
+  do_mg_l: 8.5
+
+parameters: {}

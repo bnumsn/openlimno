@@ -8,11 +8,22 @@ minimal.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import hashlib
+import json
+import platform
+import socket
+import subprocess
+import sys
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
 from scipy.integrate import solve_ivp
+
+from openlimno import __version__
 
 from .events import EventSchedule, apply_event
 from .processes import derivatives
@@ -26,6 +37,8 @@ class Result:
     timeseries: pd.DataFrame          # day + state columns + NH3_free + pH
     params: Params
     warnings: list[str]
+    events_log: pd.DataFrame          # one row per instantaneous event application
+    provenance: dict[str, Any]        # reproducibility fingerprint + run context
 
 
 # Toxicity thresholds (literature, SPEC §9)
@@ -72,8 +85,13 @@ def simulate(
     Returns a Result whose timeseries has one row per output step with
     the six state variables plus the derived NH3_free and (fixed) pH.
     """
+    _validate_run_args(days=days, dt_output_hours=dt_output_hours)
+
     chem = chemistry or Chemistry()
     p = params or Params()
+    initial_chem = Chemistry(**vars(chem))
+    initial_params = Params(**vars(p))
+    event_rows: list[dict[str, Any]] = []
 
     n_out = int(round(days * 24.0 / dt_output_hours)) + 1
     full_grid = np.linspace(0.0, days, n_out)
@@ -85,6 +103,35 @@ def simulate(
         same = [e for e in expanded if e.day == day]
         return sorted(same, key=lambda e: e.priority)
 
+    def apply_events_at(day: float, event_chem: Chemistry, event_params: Params) -> tuple[Chemistry, Params]:
+        for ev in events_on(day):
+            before = Chemistry(**vars(event_chem))
+            before_params = event_params
+            event_chem, event_params = apply_event(
+                event_chem, event_params, ev, schedule.tap_water  # type: ignore[union-attr]
+            )
+            event_rows.append(
+                {
+                    "day": float(day),
+                    "kind": ev.kind,
+                    "target": ev.target,
+                    "value": float(ev.value),
+                    "repeat_days": float(ev.repeat_days),
+                    "priority": ev.priority,
+                    "TAN_before": before.TAN,
+                    "NO2_before": before.NO2,
+                    "NO3_before": before.NO3,
+                    "DO_before": before.DO,
+                    "TAN_after": event_chem.TAN,
+                    "NO2_after": event_chem.NO2,
+                    "NO3_after": event_chem.NO3,
+                    "DO_after": event_chem.DO,
+                    "ammonia_dose_before": before_params.ammonia_dose_mg_n_l_day,
+                    "ammonia_dose_after": event_params.ammonia_dose_mg_n_l_day,
+                }
+            )
+        return event_chem, event_params
+
     boundaries = sorted({e.day for e in expanded if 0.0 < e.day < days})
     seg_edges = [0.0, *boundaries, days]
 
@@ -93,8 +140,30 @@ def simulate(
     # since segment boundaries are strictly inside (0, days).
     if schedule:
         chem = Chemistry(**vars(chem))
-        for ev in events_on(0.0):
-            chem, p = apply_event(chem, p, ev, schedule.tap_water)
+        chem, p = apply_events_at(0.0, chem, p)
+
+    if days == 0.0:
+        df = _build_timeseries([0.0], [chem.to_vector()], p)
+        warnings = _build_warnings(df)
+        events_log = _build_events_log(event_rows)
+        provenance = _build_provenance(
+            initial_chem=initial_chem,
+            initial_params=initial_params,
+            final_params=p,
+            days=days,
+            dt_output_hours=dt_output_hours,
+            schedule=schedule,
+            timeseries=df,
+            events_log=events_log,
+            warnings=warnings,
+        )
+        return Result(
+            timeseries=df,
+            params=p,
+            warnings=warnings,
+            events_log=events_log,
+            provenance=provenance,
+        )
 
     y = chem.to_vector()
     times: list[float] = []
@@ -122,23 +191,179 @@ def simulate(
         y = seg_y[:, -1].tolist()
         if schedule and not is_last:
             chem_end = Chemistry.from_vector(y)
-            for ev in events_on(t1):
-                chem_end, p = apply_event(chem_end, p, ev, schedule.tap_water)
+            chem_end, p = apply_events_at(t1, chem_end, p)
             y = chem_end.to_vector()
 
     arr = np.concatenate(states, axis=1)
-    df = pd.DataFrame(arr.T, columns=list(STATE_ORDER))
+    # Events landing exactly on the final day are never segment boundaries
+    # (those are strictly inside (0, days)) and the days==0 case already
+    # returned above — so apply any final-day events to the last state here,
+    # with no risk of double-application. (events_on returns [] when there is
+    # no schedule, so the `schedule and` guard just skips the work.)
+    if schedule and events_on(days):
+        chem_end = Chemistry.from_vector(arr[:, -1].tolist())
+        chem_end, p = apply_events_at(days, chem_end, p)
+        arr[:, -1] = chem_end.to_vector()
+
+    df = _build_timeseries(times, arr.T.tolist(), p)
+    warnings = _build_warnings(df)
+    events_log = _build_events_log(event_rows)
+    provenance = _build_provenance(
+        initial_chem=initial_chem,
+        initial_params=initial_params,
+        final_params=p,
+        days=days,
+        dt_output_hours=dt_output_hours,
+        schedule=schedule,
+        timeseries=df,
+        events_log=events_log,
+        warnings=warnings,
+    )
+    return Result(
+        timeseries=df,
+        params=p,
+        warnings=warnings,
+        events_log=events_log,
+        provenance=provenance,
+    )
+
+
+def _validate_run_args(*, days: float, dt_output_hours: float) -> None:
+    if not np.isfinite(days) or days < 0.0:
+        raise ValueError(f"days must be finite and non-negative, got {days!r}")
+    if not np.isfinite(dt_output_hours) or dt_output_hours <= 0.0:
+        raise ValueError(
+            f"dt_output_hours must be finite and greater than zero, got {dt_output_hours!r}"
+        )
+
+
+def _build_timeseries(times: list[float], states: list[list[float]], p: Params) -> pd.DataFrame:
+    df = pd.DataFrame(states, columns=list(STATE_ORDER))
     df.insert(0, "day", times)
     f_free = nh3_free_fraction(p.ph, p.temperature_c)
     df["NH3_free"] = (df["TAN"].clip(lower=0.0) * f_free).round(6)
     df["pH"] = p.ph
+    return df
 
+
+def _build_warnings(df: pd.DataFrame) -> list[str]:
     warnings: list[str] = []
-    _flag(warnings, df, "NH3_free", _NH3_FREE_STRESS, "free NH3 > 0.05 mg/L (chronic fish stress)")
+    _flag(
+        warnings,
+        df,
+        "NH3_free",
+        _NH3_FREE_STRESS,
+        "free NH3 > 0.05 mg/L (chronic fish stress)",
+    )
     _flag(warnings, df, "NO2", _NO2_STRESS, "NO2 > 0.5 mg-N/L (brown-blood risk)")
     _flag(warnings, df, "NO3", _NO3_WC_DUE, "NO3 > 50 mg-N/L (water change due)")
+    return warnings
 
-    return Result(timeseries=df, params=p, warnings=warnings)
+
+def _build_events_log(rows: list[dict[str, Any]]) -> pd.DataFrame:
+    columns = [
+        "day",
+        "kind",
+        "target",
+        "value",
+        "repeat_days",
+        "priority",
+        "TAN_before",
+        "NO2_before",
+        "NO3_before",
+        "DO_before",
+        "TAN_after",
+        "NO2_after",
+        "NO3_after",
+        "DO_after",
+        "ammonia_dose_before",
+        "ammonia_dose_after",
+    ]
+    return pd.DataFrame(rows, columns=columns)
+
+
+def _git_sha() -> str:
+    repo = Path(__file__).resolve().parents[3]
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return "unknown"
+    return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else "unknown"
+
+
+def _stable_json_sha(payload: Any) -> str:
+    encoded = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _schedule_payload(schedule: EventSchedule | None) -> list[dict[str, Any]]:
+    if schedule is None:
+        return []
+    return [
+        {
+            "day": event.day,
+            "kind": event.kind,
+            "value": event.value,
+            "target": event.target,
+            "repeat_days": event.repeat_days,
+        }
+        for event in schedule.events
+    ]
+
+
+def _build_provenance(
+    *,
+    initial_chem: Chemistry,
+    initial_params: Params,
+    final_params: Params,
+    days: float,
+    dt_output_hours: float,
+    schedule: EventSchedule | None,
+    timeseries: pd.DataFrame,
+    events_log: pd.DataFrame,
+    warnings: list[str],
+) -> dict[str, Any]:
+    fingerprint_payload = {
+        "chemistry": asdict(initial_chem),
+        "params": asdict(initial_params),
+        "days": days,
+        "dt_output_hours": dt_output_hours,
+        "schedule": _schedule_payload(schedule),
+    }
+    parameter_fingerprint = _stable_json_sha(fingerprint_payload)
+    return {
+        "openlimno_version": __version__,
+        "schema": "openlimno-provenance/0.1+fishtank",
+        "run_at": datetime.now(UTC).isoformat(),
+        "git_sha": _git_sha(),
+        "machine": {
+            "host": socket.gethostname(),
+            "platform": platform.platform(),
+            "python": sys.version,
+        },
+        "parameter_fingerprint": parameter_fingerprint,
+        "inputs": {
+            "chemistry": asdict(initial_chem),
+            "params": asdict(initial_params),
+            "days": days,
+            "dt_output_hours": dt_output_hours,
+            "events": _schedule_payload(schedule),
+        },
+        "outputs": {
+            "timeseries_rows": int(len(timeseries)),
+            "events": int(len(events_log)),
+            "final_day": float(timeseries["day"].iloc[-1]) if len(timeseries) else 0.0,
+            "final_params": asdict(final_params),
+        },
+        "warnings": list(warnings),
+    }
 
 
 def _flag(warnings: list[str], df: pd.DataFrame, col: str, thresh: float, msg: str) -> None:

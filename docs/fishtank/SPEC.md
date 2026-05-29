@@ -5,9 +5,12 @@
 > 4-hour Master's "Aquatic Ecology Models" lab. See
 > [`COURSE_PLAN.md`](./COURSE_PLAN.md) for the teaching schedule.
 
-Status: **DRAFT v0.2 (2026-05-28)** — design document, pre-implementation.
-v0.2 fixes the dimensional / stoichiometric / biofilm errors raised by the
-2026-05-28 Codex pre-implementation review (see `reviews/e0e77d1.codex-fishtank-spec.md`).
+Status: **Implemented v0.4 (2026-05-29)** — Tier-1 core, Hour-3 events /
+calibration, Hour-4 carbonate diagnostics, agent-based model, scenario IO,
+CLI, provenance, browser Studio, 3D virtual tank, and course assets are shipped.
+v0.2 fixed the dimensional / stoichiometric /
+biofilm errors raised by the 2026-05-28 Codex pre-implementation review
+(see `reviews/e0e77d1.codex-fishtank-spec.md`).
 
 ## 0. Scope and non-goals
 
@@ -20,12 +23,14 @@ v0.2 fixes the dimensional / stoichiometric / biofilm errors raised by the
 - Optional tiers (taught as extensions): carbonate/pH dynamics, plant
   nutrient uptake, denitrification, fish bioenergetics + mortality.
 - Calibration of rate parameters against a measured aquarium log.
+- Agent-based model (ABM) for fish individuals and attached AOB/NOB biofilm
+  patches, used to compare individual/patch mechanisms with the ODE model.
+- Local browser Studio with charts, ABM visualization, and a 3-D virtual tank.
 
 ### Out of scope (v0.1)
 - Spatial structure (substrate depth gradients, flow fields).
 - Marine/reef carbonate precipitation (non-equilibrium CaCO₃ kinetics — hard).
 - Disease/pathogen dynamics.
-- 3-D rendering / game-like visuals.
 
 ### Design rule — teaching-first
 When readability and generality conflict, readability wins: plain
@@ -176,6 +181,21 @@ below measurement noise. §10's conservation test therefore checks the
 documented as the closure tolerance. (Tier-2 may add an explicit
 assimilation sink `i_N_biomass·growth` for full closure as an exercise.)
 
+### 4.1 Agent-based companion model
+
+`agent.py` runs the same tank state variables with explicit agents:
+
+- fish individuals: biomass, 3-D position, activity, stress, alive/dead state;
+- AOB biofilm patches: attached biomass, media position, local activity factor;
+- NOB biofilm patches: same patch structure, using NO₂ substrate kinetics.
+
+At each ABM time step, fish feeding/excretion adds TAN, fish respiration
+consumes DO, AOB patches oxidise TAN→NO₂, NOB patches oxidise NO₂→NO₃, and
+events reuse the same `Event` semantics as the ODE solver. The ABM is seeded
+and deterministic for reproducible teaching comparisons. It is not a spatial
+CFD model; patch coordinates are teaching/visualization coordinates used to
+make heterogeneity explicit.
+
 ### 4.5 Carbonate / pH (Tier-2, Hour 4 exercise)
 pH from charge balance given (DIC, Alk, T), root-solved on [H⁺] ∈ bracket:
 ```
@@ -249,15 +269,16 @@ range, §11). All overridable per-scenario.
 
 | module | tag | holds | exposes |
 |---|---|---|---|
-| `state.py` | core | `Tank`, `Chemistry`, `Biota` dataclasses | `.to_vector()/.from_vector()` |
-| `processes.py` | core | (stateless) | `monod()`, `oxidation_aob/nob()`, `excretion()`, `oxygen_balance()`, `derivatives(t,y,p)` |
-| `solver.py` | core | (stateless) | `simulate(scenario)->Result`: segment loop over events + `solve_ivp` |
-| `events.py` | core | `EventSchedule` | `apply(state,event)`, `segments(t_span)` |
-| `library.py` | core | static dicts | `default_params()`, `species()`, `equipment()`, `tap_water()` |
-| `calibration.py` | core | (stateless) | `align(sim,obs)`, `rmse()`, `fit(scenario,obs,params)->profile` (Hour 3) |
+| `state.py` | core | `Chemistry`, `Params` dataclasses | `.to_vector()/.from_vector()`, `nh3_free_fraction()` |
+| `processes.py` | core | (stateless) | `monod()`, `oxidation_fluxes()`, `derivatives(t,y,p)` |
+| `solver.py` | core | (stateless) | `simulate(chemistry, params, days, schedule)->Result`: segment loop over events + `solve_ivp` |
+| `events.py` | core | `Event`, `EventSchedule`, `TapWater` | `apply_event(chemistry, params, event, tap)` |
+| `agent.py` | core | `FishAgent`, `MicrobePatch` | `simulate_agent_based_model(scenario)->dict`: seeded ABM over fish individuals + AOB/NOB patches |
+| `library.py` | core | static dicts | `default_params()`, `species()`, `equipment()`, `tap_water()`, `scenarios()`/`scenario_payload()` (typical-case library, §8) |
+| `calibration.py` | core | (stateless) | `align(sim,obs)`, `rmse()`, `fit(observation, chemistry, base_params)->CalibrationResult` |
 | `io.py` | release | (stateless) | `load_scenario/write_scenario`, `read_observation`, `write_result` + `provenance.json` |
-| `studio.py` | release | Streamlit/HTTP app | `run_app()` |
-| `cli.py` | release | argparse/click | `fishtank run/validate/calibrate/studio` |
+| `studio.py` / `studio_http.py` | release | local browser Studio + ABM Agents + 3D virtual tank | `run_app()`, `run_fishtank_studio()` |
+| `cli.py` | release | click | `python -m openlimno.fishtank ...`, `openlimno fishtank ...`, `fishtank ...` |
 
 `derivatives(t,y,p)` is the pedagogical heart — the whole model dynamics
 readable in one ~30-line function.
@@ -276,6 +297,7 @@ chemistry:                       # initial conditions
   do_mg_l: 7.5
 media: {area_m2: 1.0}
 run: {days: 42, dt_output_hours: 6, seed: 20260528, tier: 1}
+agents: {seed: 42, dt_days: 0.25, fish_count: 6, fish_biomass_g: 4.0, feed_g_day: 0.3, aob_agents: 36, nob_agents: 36}
 events:
   - {day: 0, type: ammonia_dose, rate_mg_n_l_day: 2.0}    # fishless cycle source (Hour 2)
   - {day: 14, type: water_change, fraction: 0.25, repeat_days: 7}
@@ -284,14 +306,38 @@ parameters: {}                   # optional overrides of library defaults
 profile_uri: ""                  # optional fitted-parameter file
 ```
 
+### 8.1 Typical-scenario library
+
+`library.scenarios()` ships one coherent payload per typical aquarium
+situation; the Studio's **Preset** dropdown (GET `/api/scenarios`) and
+`examples/fishtank/*.yaml` are generated from it. Each payload is coherent for
+**both** the ODE and ABM panels — the binding constraint is that a fishless
+nitrogen spike is lethal, so a single payload cannot show *both* an instructive
+ammonia spike *and* surviving fish. Therefore fish-in scenarios drive nitrogen
+through `feed` events (the ODE folds food into an equivalent ammonia dose; the
+ABM converts it to per-fish excretion scaled by the live fraction — so as ABM
+fish die its nitrate falls below the ODE's, a deliberate teaching contrast),
+abiotic fishless cycles use `ammonia_dose`, and stocked tanks meant to survive
+start from an established biofilm.
+
+| scenario | teaching point |
+|---|---|
+| `fishless_cycle` (default) | classic TAN→NO₂→NO₃ cascade; no fish at risk |
+| `seeded_instant_cycle` | mature seeded media suppresses the spike |
+| `fish_in_disaster` | fish stocked into an uncycled tank → ammonia toxicity, mass mortality |
+| `mature_stocked_tank` | established filter + moderate feeding + weekly water changes → all fish survive |
+| `old_tank_syndrome` | low-alkalinity heavy load → carbonate buffer exhausted → pH crash (Hour-4 capstone) |
+
 ## 9. Output contract
 
 `simulate()` returns a `Result`:
 - `timeseries`: DataFrame [day, TAN, NO2, NO3, X_AOB, X_NOB, DO, NH3_free, pH]
   (pH is the fixed input in Tier-1, solved in Tier-2)
-- `events_log`: which events fired when
+- `events_log`: DataFrame showing which events fired when, plus before/after
+  dissolved state and TAN-source values
 - `warnings`: e.g. "NH3_free > 0.05 mg/L (chronic fish stress) on day 3"
-- `provenance`: scenario hash + parameter fingerprint + git sha + library version
+- `provenance`: scenario hash (when loaded from YAML), parameter fingerprint,
+  git sha, machine metadata, output summary, and warning list
 
 Toxicity flags (literature): free NH₃ > 0.05 mg/L = chronic stress;
 NO₂ > 0.5 mg-N/L = "brown blood"; NO₃ > 50 = water-change due.

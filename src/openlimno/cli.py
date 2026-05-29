@@ -11,6 +11,8 @@ from pathlib import Path
 import click
 from rich.console import Console
 
+from openlimno.fishtank.cli import main as fishtank_cli
+
 console = Console()
 
 
@@ -22,6 +24,9 @@ def main() -> None:
     Connects field data, hydraulic-model outputs, habitat suitability, passage
     analysis, provenance, and regulatory reporting.
     """
+
+
+main.add_command(fishtank_cli, "fishtank")
 
 
 @main.command()

@@ -7,6 +7,9 @@ regress. See docs/fishtank/SPEC.md §10 validation strategy.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from openlimno.fishtank import (
@@ -129,6 +132,28 @@ def test_higher_dose_gives_higher_nitrate() -> None:
     assert float(high.timeseries["NO3"].iloc[-1]) > float(low.timeseries["NO3"].iloc[-1])
 
 
+def test_result_carries_events_log_and_provenance() -> None:
+    r = simulate(Chemistry(), Params(), days=1)
+    assert list(r.events_log.columns)[:4] == ["day", "kind", "target", "value"]
+    assert r.provenance["schema"] == "openlimno-provenance/0.1+fishtank"
+    assert r.provenance["outputs"]["timeseries_rows"] == len(r.timeseries)
+    assert r.provenance["parameter_fingerprint"]
+
+
+def test_simulate_rejects_invalid_run_window() -> None:
+    with pytest.raises(ValueError, match="days"):
+        simulate(days=-1)
+    with pytest.raises(ValueError, match="dt_output_hours"):
+        simulate(days=1, dt_output_hours=0)
+
+
+def test_zero_day_run_returns_initial_state() -> None:
+    r = simulate(Chemistry(TAN=1.2), Params(), days=0)
+    assert len(r.timeseries) == 1
+    assert float(r.timeseries["day"].iloc[0]) == 0.0
+    assert float(r.timeseries["TAN"].iloc[0]) == pytest.approx(1.2)
+
+
 # --- Hour-3: events + calibration ---------------------------------------
 
 
@@ -185,6 +210,15 @@ def test_repeat_days_expands_events() -> None:
     assert expanded_days == [7.0, 14.0, 21.0, 28.0, 35.0]   # < 42, every 7
 
 
+def test_invalid_event_rejected() -> None:
+    from openlimno.fishtank.events import Event
+
+    with pytest.raises(ValueError, match="unknown event kind"):
+        Event(day=1.0, kind="typo", value=1.0)
+    with pytest.raises(ValueError, match="fraction"):
+        Event(day=1.0, kind="water_change", value=1.5)
+
+
 def test_day_zero_event_applies() -> None:
     """An event scheduled on day 0 must apply to the initial state
     (previously dropped because boundaries were strictly inside (0,days))."""
@@ -212,6 +246,33 @@ def test_feed_event_changes_ammonia_source() -> None:
     # 1000x unit bug that this test previously encoded).
     assert p2.ammonia_dose_mg_n_l_day == pytest.approx(0.0276 * 2.0 / 100.0 * 1000.0)
     assert p2.ammonia_dose_mg_n_l_day == pytest.approx(0.552)
+
+
+def test_scenario_io_and_cli(tmp_path: Path) -> None:
+    from click.testing import CliRunner
+
+    from openlimno.fishtank.cli import main
+    from openlimno.fishtank.io import load_scenario, write_result
+
+    scenario_path = Path("examples/fishless_cycle.yaml")
+    scenario = load_scenario(scenario_path)
+    result = scenario.run()
+    assert result.provenance["scenario"]["sha256"]
+    assert len(result.events_log) == 2
+
+    paths = write_result(result, tmp_path)
+    assert paths["timeseries"].exists()
+    assert paths["events_log"].exists()
+    prov = json.loads(paths["provenance"].read_text())
+    assert prov["schema"] == "openlimno-provenance/0.1+fishtank"
+    assert "timeseries" in prov["outputs"]["files"]
+
+    runner = CliRunner()
+    validate = runner.invoke(main, ["validate", str(scenario_path)])
+    assert validate.exit_code == 0, validate.output
+    run = runner.invoke(main, ["run", str(scenario_path), "--out-dir", str(tmp_path / "cli")])
+    assert run.exit_code == 0, run.output
+    assert (tmp_path / "cli" / "provenance.json").exists()
 
 
 def test_calibration_recovers_known_truth() -> None:
@@ -295,3 +356,213 @@ def test_plot_result_returns_figure_without_streamlit() -> None:
     fig = plot_result(r)
     assert fig is not None
     assert len(fig.axes) == 2        # two stacked panels
+
+
+def test_browser_studio_payload_contract() -> None:
+    """The commercial browser Studio backend should run without Streamlit."""
+    from openlimno.fishtank.studio_assets import INDEX_HTML
+    from openlimno.fishtank.studio_http import (
+        default_studio_payload,
+        run_agent_based_studio_payload,
+        run_studio_payload,
+    )
+
+    payload = default_studio_payload()
+    payload["run"]["days"] = 7
+    payload["agents"]["fish_count"] = 6   # default scenario is fishless; add fish to exercise the snapshot
+    result = run_studio_payload(payload)
+    abm = run_agent_based_studio_payload(payload)
+    assert result["ok"] is True
+    assert result["summary"]["final_NO3"] >= 5.0
+    assert result["timeseries"]
+    assert result["ph_diagnostic"]
+    assert result["provenance"]["schema"] == "openlimno-provenance/0.1+fishtank"
+    assert abm["ok"] is True
+    assert abm["schema"] == "openlimno-fishtank-abm/0.1"
+    assert abm["timeseries"]
+    assert abm["agents"]["fish"]
+    assert abm["agents"]["microbes"]
+    assert 'id="tankCanvas"' in INDEX_HTML
+    assert "ABM Agents" in INDEX_HTML
+    assert "/api/agents" in INDEX_HTML
+    assert "three.module.min.js" in INDEX_HTML
+    assert "fishtank:result" in INDEX_HTML
+
+
+def test_agent_based_model_is_seeded_and_agent_explicit() -> None:
+    from openlimno.fishtank import simulate_agent_based_model
+    from openlimno.fishtank.studio_http import default_studio_payload
+
+    payload = default_studio_payload()
+    payload["run"]["days"] = 5
+    payload["agents"].update(
+        {
+            "seed": 123,
+            "fish_count": 4,
+            "feed_g_day": 1.6,
+            "aob_agents": 6,
+            "nob_agents": 6,
+            "dt_days": 0.25,
+        }
+    )
+    first = simulate_agent_based_model(payload)
+    second = simulate_agent_based_model(payload)
+    assert first["summary"] == second["summary"]
+    assert first["agents"]["fish"][0] == second["agents"]["fish"][0]
+    assert len(first["agents"]["fish"]) == 4
+    assert len(first["agents"]["microbes"]) == 12
+    assert first["timeseries"][0]["fish_alive"] == 4
+    assert first["summary"]["AOB_biomass"] > payload["chemistry"]["X_AOB"]
+    assert first["summary"]["NOB_biomass"] > 0.0
+
+
+def test_abm_fishless_dissolved_n_conserved() -> None:
+    """ABM mirror of test_fishless_cycle_dissolved_n_conserved: with no fish
+    the only N source is the ammonia dose and oxidation is an internal
+    transfer, so dissolved N (TAN+NO2+NO3) must close to dose × days. Pins
+    that the ABM doesn't silently create/destroy N through its clamps."""
+    from openlimno.fishtank import simulate_agent_based_model
+
+    days = 42.0
+    payload = {
+        "tank": {"volume_l": 120.0, "temperature_c": 25.0, "ph": 7.4},
+        "run": {"days": days, "dt_output_hours": 6.0},
+        "chemistry": {"TAN": 0.0, "NO2": 0.0, "NO3": 5.0, "X_AOB": 0.02, "X_NOB": 0.02, "DO": 7.5},
+        "parameters": {"ammonia_dose_mg_n_l_day": 2.0},
+        "agents": {"seed": 1, "dt_days": 0.25, "fish_count": 0, "aob_agents": 12, "nob_agents": 12,
+                   "feed_g_day": 0.0},
+    }
+    ts = simulate_agent_based_model(payload)["timeseries"]
+    n0 = 0.0 + 0.0 + 5.0
+    n_end = ts[-1]["TAN"] + ts[-1]["NO2"] + ts[-1]["NO3"]
+    assert n_end == pytest.approx(n0 + 2.0 * days, rel=1e-3)
+
+
+def test_abm_applies_ammonia_dose_with_fish_present() -> None:
+    """Regression: the ABM must keep applying the abiotic ammonia dose even
+    when fish are stocked (the old either/or logic dropped it whenever any
+    fish existed, starving the ABM of its main N source). A dosed tank with
+    fish must accumulate far more nitrate than the same fish with no dose."""
+    from openlimno.fishtank import simulate_agent_based_model
+
+    base = {
+        "tank": {"volume_l": 120.0, "temperature_c": 25.0, "ph": 7.4},
+        "run": {"days": 30.0, "dt_output_hours": 6.0},
+        "chemistry": {"TAN": 0.0, "NO2": 0.0, "NO3": 5.0, "X_AOB": 0.02, "X_NOB": 0.02, "DO": 7.5},
+        "agents": {"seed": 7, "dt_days": 0.25, "fish_count": 4, "fish_biomass_g": 4.0,
+                   "feed_g_day": 0.3, "aob_agents": 12, "nob_agents": 12},
+    }
+    dosed = {**base, "parameters": {"ammonia_dose_mg_n_l_day": 2.0}}
+    undosed = {**base, "parameters": {"ammonia_dose_mg_n_l_day": 0.0}}
+    no3_dosed = simulate_agent_based_model(dosed)["summary"]["final_NO3"]
+    no3_undosed = simulate_agent_based_model(undosed)["summary"]["final_NO3"]
+    assert no3_dosed > no3_undosed * 3.0
+
+
+# --- Scenario library: a coherent case for each typical situation ----------
+
+
+def test_scenario_library_default_is_fishless() -> None:
+    from openlimno.fishtank.library import scenario_payload, scenarios
+    from openlimno.fishtank.studio_http import DEFAULT_SCENARIO, default_studio_payload
+
+    lib = scenarios()
+    assert set(lib) == {
+        "fishless_cycle",
+        "seeded_instant_cycle",
+        "fish_in_disaster",
+        "mature_stocked_tank",
+        "old_tank_syndrome",
+    }
+    assert DEFAULT_SCENARIO == "fishless_cycle"
+    assert default_studio_payload() == scenario_payload("fishless_cycle")
+    # Returned payloads are deep copies — mutating one must not corrupt the lib.
+    p = scenario_payload("fishless_cycle")
+    p["tank"]["volume_l"] = 999.0
+    assert scenario_payload("fishless_cycle")["tank"]["volume_l"] == 120.0
+
+
+def test_scenario_library_unknown_name_raises() -> None:
+    from openlimno.fishtank.library import scenario_payload
+
+    with pytest.raises(ValueError, match="unknown scenario"):
+        scenario_payload("not_a_scenario")
+
+
+def test_every_scenario_runs_ode_and_abm() -> None:
+    """Each library scenario must be coherent for BOTH Studio panels."""
+    from openlimno.fishtank.library import scenarios
+    from openlimno.fishtank.studio_http import run_agent_based_studio_payload, run_studio_payload
+
+    for name, entry in scenarios().items():
+        ode = run_studio_payload(entry["payload"])
+        abm = run_agent_based_studio_payload(entry["payload"])
+        assert ode["ok"] is True, name
+        assert abm["ok"] is True, name
+        assert ode["timeseries"], name
+        assert abm["timeseries"], name
+
+
+def test_scenario_contracts_match_their_teaching_point() -> None:
+    """Pin the qualitative behaviour each scenario is supposed to demonstrate
+    so a parameter drift can't silently turn a healthy tank lethal etc."""
+    from openlimno.fishtank.library import scenario_payload
+    from openlimno.fishtank.studio_http import run_agent_based_studio_payload, run_studio_payload
+
+    def ode(name: str) -> dict:
+        return run_studio_payload(scenario_payload(name))
+
+    def abm(name: str) -> dict:
+        return run_agent_based_studio_payload(scenario_payload(name))["summary"]
+
+    # Fishless cycle: no fish, but a clear toxic ammonia spike (the cascade).
+    fishless = ode("fishless_cycle")
+    assert fishless["summary"]["max_NH3_free"] > 0.05
+    assert abm("fishless_cycle")["fish_mortality"] == 0
+    assert abm("fishless_cycle")["fish_alive"] == 0
+
+    # Seeded media suppresses the spike (instant cycle).
+    assert ode("seeded_instant_cycle")["summary"]["max_NH3_free"] < 0.03
+
+    # Fish-in disaster: toxic ammonia and most fish die.
+    disaster = abm("fish_in_disaster")
+    assert disaster["fish_mortality"] >= 5
+    assert ode("fish_in_disaster")["summary"]["max_NH3_free"] > 0.05
+
+    # Mature stocked tank: every fish survives and ammonia stays safe.
+    mature = abm("mature_stocked_tank")
+    assert mature["fish_alive"] == 6
+    assert mature["fish_mortality"] == 0
+    assert ode("mature_stocked_tank")["summary"]["max_NH3_free"] < 0.01
+
+    # Old-tank syndrome: the carbonate buffer is eaten and pH crashes.
+    ph = ode("old_tank_syndrome")["ph_diagnostic"]
+    assert ph[-1]["ph_dynamic"] < ph[0]["ph_dynamic"] - 1.5
+
+
+def test_api_scenarios_listing() -> None:
+    from openlimno.fishtank.studio_assets import INDEX_HTML
+    from openlimno.fishtank.studio_http import list_studio_scenarios
+
+    listing = list_studio_scenarios()
+    assert next(s["id"] for s in listing) == "fishless_cycle"
+    assert all({"id", "label", "description", "payload"} <= set(s) for s in listing)
+    # The preset dropdown + loader are wired into the shipped UI.
+    assert 'id="scenarioPreset"' in INDEX_HTML
+    assert "/api/scenarios" in INDEX_HTML
+
+
+def test_example_scenario_files_validate() -> None:
+    from openlimno.fishtank.io import load_scenario, validate_scenario
+
+    files = sorted(Path("examples/fishtank").glob("*.yaml"))
+    assert {p.stem for p in files} == {
+        "fishless_cycle",
+        "seeded_instant_cycle",
+        "fish_in_disaster",
+        "mature_stocked_tank",
+        "old_tank_syndrome",
+    }
+    for path in files:
+        assert validate_scenario(path) == [], path
+        load_scenario(path).run()
