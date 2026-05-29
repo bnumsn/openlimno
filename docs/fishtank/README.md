@@ -52,7 +52,7 @@ python -m openlimno.fishtank run examples/fishtank/mature_stocked_tank.yaml
 | [`COURSE_PLAN.md`](./COURSE_PLAN.md) | 4 学时分钟级教案(每节课时间表 + 板书 + 代码片段) |
 | [`INSTRUCTOR_GUIDE.md`](./INSTRUCTOR_GUIDE.md) | 导师备课:易错点、提问脚本、应急预案、评估 |
 | [`OPENSOURCE_GUIDE.md`](./OPENSOURCE_GUIDE.md) | 学生 fork/PR 异步教程(课程作业) |
-| [`notebooks/`](./notebooks/) | 4 节课的 Jupyter notebook(实跑验证) |
+| [`notebooks/`](./notebooks/) | 两条轨道:01–04 导读演示 + **`build_along_student.ipynb` 从零搭建**(学生填 5 个 TODO 写出科学核心)+ 答案钥匙 |
 | [`exercises/`](./exercises/) | 课后练习 + 参考解答 |
 
 ## 代码模块(`src/openlimno/fishtank/`)

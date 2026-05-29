@@ -595,6 +595,27 @@ def test_api_scenarios_listing() -> None:
     assert "/api/scenarios" in INDEX_HTML
 
 
+def test_build_along_solution_checkpoints_pass() -> None:
+    """Guard the teaching answer-key: docs/fishtank/notebooks/build_along_solution.py
+    rebuilds the [core] from scratch (no openlimno import) and self-asserts its 4
+    CHECKPOINTs. Run it here so the build-along stays teachable as the science
+    evolves — a drift in defaults/kinetics that breaks the lesson fails CI."""
+    import importlib.util
+    import sys
+
+    sol = Path("docs/fishtank/notebooks/build_along_solution.py")
+    assert sol.exists(), sol
+    spec = importlib.util.spec_from_file_location("build_along_solution", sol)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod   # dataclasses needs the module registered to resolve
+    try:
+        spec.loader.exec_module(mod)
+        mod.run_checkpoints()   # raises AssertionError if any checkpoint regresses
+    finally:
+        sys.modules.pop(spec.name, None)
+
+
 def test_example_scenario_files_validate() -> None:
     from openlimno.fishtank.io import load_scenario, validate_scenario
 
