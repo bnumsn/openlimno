@@ -49,10 +49,11 @@ python -m openlimno.fishtank run examples/fishtank/mature_stocked_tank.yaml
 | 文件 | 用途 |
 |---|---|
 | [`QUICKSTART.md`](./QUICKSTART.md) | 学生 5 分钟上手:装环境、跑通三条命令、打开 build-along 本子 |
+| [`USAGE_WALKTHROUGH.md`](./USAGE_WALKTHROUGH.md) | **软件使用全过程**(学时 1 后半,只用不写):装/CLI/五场景/Studio 四面板/读四产物——先会用,下节再开发 |
 | [`SPEC.md`](./SPEC.md) | 技术规范:状态向量、ODE 系统、过程方程、参数表、模块契约 |
 | [`COURSE_PLAN.md`](./COURSE_PLAN.md) | 4 学时分钟级教案(每节课时间表 + 板书 + 代码片段) |
 | [`TEACHING_RUNSHEET.md`](./TEACHING_RUNSHEET.md) | 4 学时全流程实操单:PPT 页 × 学生填空 TODO × CHECKPOINT × Studio 逐节对照(数字已实跑验证) |
-| [`CLASS_SIMULATION.md`](./CLASS_SIMULATION.md) | 1 师 6 生的课堂全程模拟(按真实时间线,带时间戳);试讲复盘用,数字与 RUNSHEET 对齐 |
+| [`CLASS_SIMULATION.md`](./CLASS_SIMULATION.md) | 1 师 6 生的课堂全程模拟(按真实时间线,带时间戳);试讲复盘用。**注**:按旧结构记录,三段式重排后待按新时间线重新生成(见文件顶部提示) |
 | [`INSTRUCTOR_GUIDE.md`](./INSTRUCTOR_GUIDE.md) | 导师备课:易错点、提问脚本、应急预案、评估 |
 | [`OPENSOURCE_GUIDE.md`](./OPENSOURCE_GUIDE.md) | 学生 fork/PR 异步教程(课程作业) |
 | [`notebooks/`](./notebooks/) | 两条轨道:01–04 导读演示 + **`build_along_student.ipynb` 从零搭建**(学生填 5 个 TODO 写出科学核心)+ 答案钥匙 |
@@ -77,10 +78,12 @@ python -m openlimno.fishtank run examples/fishtank/mature_stocked_tank.yaml
 
 ## 4 学时一览
 
-1. **问题与数学** — 概念图 + ODE 推导 + Monod + 手写欧拉
-2. **实现** — `simulate()` 跑出 spike-and-fall
-3. **校验与校准** — 换水事件 + 拟合恢复真值
-4. **应用与发布** — pH 模块 + ABM/3D 浏览器 Studio + 开源流程
+课程三段式:**① 理论 → ② 先学会用成品软件 → ③ 拆开自己开发**。
+
+1. **理论 + 先学会用** — 生态学基础理论(微宇宙/氮循环/生物膜/毒性/种群动态)+ 把成品当黑箱用通一遍(CLI/五场景/Studio 四面板/读四产物)
+2. **数学化 + 写引擎** — 栽 ρ 量纲跟头 → 亲手写 `derivatives()` → `simulate()` 跑出 spike-and-fall
+3. **校验与校准** — 换水事件 + 拟合恢复真值 + 灵敏度/可识别性
+4. **应用与发布** — pH 模块 + **自写引擎接管 ABM/3D 浏览器 Studio**(两次见 Studio)+ 开源流程
 
 ## 跑测试
 
