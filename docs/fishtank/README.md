@@ -48,13 +48,14 @@ python -m openlimno.fishtank run examples/fishtank/mature_stocked_tank.yaml
 
 | 文件 | 用途 |
 |---|---|
+| [`QUICKSTART.md`](./QUICKSTART.md) | 学生 5 分钟上手:装环境、跑通三条命令、打开 build-along 本子 |
 | [`SPEC.md`](./SPEC.md) | 技术规范:状态向量、ODE 系统、过程方程、参数表、模块契约 |
 | [`COURSE_PLAN.md`](./COURSE_PLAN.md) | 4 学时分钟级教案(每节课时间表 + 板书 + 代码片段) |
 | [`TEACHING_RUNSHEET.md`](./TEACHING_RUNSHEET.md) | 4 学时全流程实操单:PPT 页 × 学生填空 TODO × CHECKPOINT × Studio 逐节对照(数字已实跑验证) |
 | [`INSTRUCTOR_GUIDE.md`](./INSTRUCTOR_GUIDE.md) | 导师备课:易错点、提问脚本、应急预案、评估 |
 | [`OPENSOURCE_GUIDE.md`](./OPENSOURCE_GUIDE.md) | 学生 fork/PR 异步教程(课程作业) |
 | [`notebooks/`](./notebooks/) | 两条轨道:01–04 导读演示 + **`build_along_student.ipynb` 从零搭建**(学生填 5 个 TODO 写出科学核心)+ 答案钥匙 |
-| [`exercises/`](./exercises/) | 课后练习 + 参考解答 |
+| [`exercises/`](./exercises/) | 每学时 Lab 工作单 + 参考解答:`lab1`(概念/方程,含 ρ 量纲检查)、`lab3`(事件+校准)、`01_sensitivity`(灵敏度) |
 
 ## 代码模块(`src/openlimno/fishtank/`)
 

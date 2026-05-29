@@ -616,6 +616,22 @@ def test_build_along_solution_checkpoints_pass() -> None:
         sys.modules.pop(spec.name, None)
 
 
+def test_lab1_dimension_check_runs() -> None:
+    """Guard the Hour-1 'ρ dimension' teaching demo: the worked check that
+    contrasts correct ρ=(μ/Y)XMMθ with the buggy ρ=μX must keep producing the
+    'tank never cycles' symptom (it self-asserts). Restores the patched
+    module global via the script's own try/finally."""
+    import importlib.util
+
+    path = Path("docs/fishtank/exercises/lab1_dimension_check.py")
+    assert path.exists(), path
+    spec = importlib.util.spec_from_file_location("lab1_dimension_check", path)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod.main()   # raises AssertionError if the correct/buggy contrast regresses
+
+
 def test_example_scenario_files_validate() -> None:
     from openlimno.fishtank.io import load_scenario, validate_scenario
 
