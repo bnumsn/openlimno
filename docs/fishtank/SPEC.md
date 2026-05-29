@@ -120,10 +120,12 @@ N flux, which was dimensionally a biomass rate (the bug Codex caught).
 
 ### 3.2 Excretion (TAN source from fish feeding)
 ```
-E_TAN = a_exc · F(t) / V            [mg-N/L/day]
+E_TAN = 1000 · a_exc · F(t) / V     [mg-N/L/day]
 ```
 `F(t)` = feeding rate [g food/day] (piecewise-constant between feed events,
-§5), `a_exc ≈ 0.0276 g-N/g-food`, `V` = volume [L].
+§5), `a_exc ≈ 0.0276 g-N/g-food`, `V` = volume [L]. The `1000` is the g→mg
+unit conversion (`a_exc·F/V` alone is g-N/L/day); the ABM applies it in
+`agent.py`.
 
 ### 3.3 Biomass dynamics — with media carrying capacity
 Logistic cap ties biofilm to finite media surface; first-order decay:
@@ -264,8 +266,9 @@ Kinetic FORMS are from the Activated Sludge Model (ASM1, Henze et al. 1987);
 the **magnitudes here are re-scaled to aquarium biofilm**, NOT used raw from
 wastewater (where suspended biomass is far denser). The colonisation
 timescale is governed jointly by `X_seed`, `X_max`, `μ`, temperature, and
-substrate — calibrate against a real log (Hour 3) rather than trusting
-defaults blindly.
+substrate — calibrate against an observed log (Hour 3; the course ships a
+synthetic log with known truth, see §"Calibration target") rather than
+trusting defaults blindly.
 
 | param | symbol | default | unit | note |
 |---|---|---|---|---|
@@ -281,9 +284,9 @@ defaults blindly.
 | NOB decay | `b_NOB` | 0.10 | /day | |
 | AOB seed | `X_AOB_seed` | 0.02 | mg/L | tiny inoculum → weeks-long cycle |
 | NOB seed | `X_NOB_seed` | 0.02 | mg/L | |
-| AOB capacity | `X_AOB_max` | `c_media·media_area_m2/V` | mg/L | media-limited |
-| NOB capacity | `X_NOB_max` | `c_media·media_area_m2/V` | mg/L | |
-| media biomass dens. | `c_media` | 0.5 | mg/m² | per m² filter media |
+| AOB capacity | `X_AOB_max` | `1000·c_media·media_area_m2/V` (≈5.0) | mg/L | media-limited |
+| NOB capacity | `X_NOB_max` | `1000·c_media·media_area_m2/V` (≈5.0) | mg/L | |
+| media biomass dens. | `c_media` | 0.5 | g/m² | per m² filter media (×1000 → mg/L) |
 | media area | `media_area_m2` | 1.0 | m² | filter+surfaces |
 | reaeration | `k_a` | 2.0 | /day | filter-dependent |
 | Arrhenius θ | `theta` | 1.07 | — | per °C from 20 |
@@ -382,7 +385,9 @@ NO₂ > 0.5 mg-N/L = "brown blood"; NO₃ > 50 = water-change due.
    "ammonia spike → nitrite spike (lagged, NOB slower) → nitrate
    accumulation" sequence over **3–6 weeks**.
 3. **Calibration target**: fit `mu_AOB, mu_NOB` (most-sensitive params) to a
-   bundled real aquarium log; report RMSE. Logs in `data/aquarium_logs/`.
+   bundled **synthetic teaching log** (generated from known truth
+   `mu_AOB=0.62 / mu_NOB=0.35` + noise, so calibration can be checked against
+   ground truth); report RMSE. Logs in `data/aquarium_logs/`.
 4. **Sensitivity**: ±10% OAT on each param; rank by effect on day-30 NO₃.
 
 ## 11. Why fishless cycling takes weeks (teaching note)
