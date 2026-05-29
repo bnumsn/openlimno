@@ -63,8 +63,9 @@ class Params:
     a_exc: float = 0.0276      # N excreted per g food           [g-N/g-food]
     volume_l: float = 120.0    # tank volume                     [L]
     ph: float = 7.4            # fixed pH in Tier-1              [-]
-    # --- Tier-1 fishless-cycle ammonia source (scalar, NOT the event system) ---
-    ammonia_dose_mg_n_l_day: float = 2.0   # bottled-ammonia dose [mg-N/L/day]
+    # --- Tier-1 TAN sources (additive: total source = abiotic dose + feed) ---
+    ammonia_dose_mg_n_l_day: float = 2.0   # abiotic bottled-ammonia dose [mg-N/L/day]
+    feed_dose_mg_n_l_day: float = 0.0      # feed-derived TAN source (set by feed events) [mg-N/L/day]
 
     def with_overrides(self, **kw: float) -> Params:
         valid = {f.name for f in fields(self)}

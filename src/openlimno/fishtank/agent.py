@@ -63,7 +63,12 @@ def simulate_agent_based_model(scenario: dict[str, Any]) -> dict[str, Any]:
     agent_doc = _mapping(scenario.get("agents", {}), "agents")
 
     days = _float(run.get("days", 42.0), "run.days")
-    output_dt_days = _float(run.get("dt_output_hours", 6.0), "run.dt_output_hours") / 24.0
+    dt_output_hours = _float(run.get("dt_output_hours", 6.0), "run.dt_output_hours")
+    if days < 0.0:
+        raise ValueError(f"run.days must be non-negative, got {days!r}")
+    if dt_output_hours <= 0.0:
+        raise ValueError(f"run.dt_output_hours must be greater than zero, got {dt_output_hours!r}")
+    output_dt_days = dt_output_hours / 24.0
     dt_days = _bounded(
         _float(agent_doc.get("dt_days", min(0.25, output_dt_days)), "agents.dt_days"),
         "agents.dt_days",
@@ -81,15 +86,17 @@ def simulate_agent_based_model(scenario: dict[str, Any]) -> dict[str, Any]:
         X_NOB=_float(chemistry_doc.get("X_NOB", 0.02), "chemistry.X_NOB"),
         DO=_float(chemistry_doc.get("DO", 7.5), "chemistry.DO"),
     )
-    params = Params().with_overrides(
-        volume_l=_float(tank.get("volume_l", 120.0), "tank.volume_l"),
-        temperature_c=_float(tank.get("temperature_c", 25.0), "tank.temperature_c"),
-        ph=_float(tank.get("ph", 7.4), "tank.ph"),
-        ammonia_dose_mg_n_l_day=_float(
-            params_doc.get("ammonia_dose_mg_n_l_day", 2.0),
-            "parameters.ammonia_dose_mg_n_l_day",
-        ),
-    )
+    # Ingest the FULL parameter set (mirrors io.scenario_from_mapping) so the
+    # ABM honours k_a, DO_sat and every kinetic constant from the scenario —
+    # not just volume/temp/pH/dose. Otherwise the ABM is "islanded" from
+    # calibration and equipment overrides while the ODE responds to them.
+    param_overrides: dict[str, float] = {}
+    for key in ("volume_l", "temperature_c", "ph", "DO_sat", "k_a"):
+        if key in tank:
+            param_overrides[key] = _float(tank[key], f"tank.{key}")
+    for key, value in params_doc.items():
+        param_overrides[str(key)] = _float(value, f"parameters.{key}")
+    params = Params().with_overrides(**param_overrides)
     tap = TapWater(
         TAN=_float(tap_doc.get("TAN", 0.0), "tap_water.TAN"),
         NO2=_float(tap_doc.get("NO2", 0.0), "tap_water.NO2"),

@@ -211,15 +211,15 @@ def _payload_to_model(
         X_NOB=_float(chemistry_doc.get("X_NOB", 0.02), "chemistry.X_NOB"),
         DO=_float(chemistry_doc.get("DO", 7.5), "chemistry.DO"),
     )
-    params = Params().with_overrides(
-        volume_l=_float(tank.get("volume_l", 120.0), "tank.volume_l"),
-        temperature_c=_float(tank.get("temperature_c", 25.0), "tank.temperature_c"),
-        ph=_float(tank.get("ph", 7.4), "tank.ph"),
-        ammonia_dose_mg_n_l_day=_float(
-            params_doc.get("ammonia_dose_mg_n_l_day", 2.0),
-            "parameters.ammonia_dose_mg_n_l_day",
-        ),
-    )
+    # Ingest the full parameter set (matches io.scenario_from_mapping and the
+    # ABM) so DO_sat / k_a / kinetic overrides from the scenario reach the ODE.
+    param_overrides: dict[str, float] = {}
+    for key in ("volume_l", "temperature_c", "ph", "DO_sat", "k_a"):
+        if key in tank:
+            param_overrides[key] = _float(tank[key], f"tank.{key}")
+    for key, value in params_doc.items():
+        param_overrides[str(key)] = _float(value, f"parameters.{key}")
+    params = Params().with_overrides(**param_overrides)
     days = _float(run.get("days", 42.0), "run.days")
     dt_hours = _float(run.get("dt_output_hours", 6.0), "run.dt_output_hours")
     tap = TapWater(

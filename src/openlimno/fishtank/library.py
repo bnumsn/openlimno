@@ -152,11 +152,13 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
         ),
     },
     "old_tank_syndrome": {
-        "label": "Old-tank syndrome (pH crash)",
+        "label": "Old-tank syndrome (fishless pH crash)",
         "description": (
-            "A heavily-loaded, low-alkalinity tank run for 60 days with no water "
-            "changes. Cumulative nitrification eats the carbonate buffer and pH "
-            "crashes — the Hour-4 carbonate capstone."
+            "A fishless carbonate-exhaustion demo: a heavily-dosed, "
+            "low-alkalinity tank run for 60 days with no water changes. "
+            "Cumulative nitrification eats the carbonate buffer and pH crashes "
+            "— the Hour-4 carbonate capstone. (No fish: it isolates the "
+            "chemistry; in a real stocked old tank the crash also stresses fish.)"
         ),
         "payload": _scenario(
             "old-tank-syndrome",

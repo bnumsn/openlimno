@@ -196,6 +196,37 @@ and deterministic for reproducible teaching comparisons. It is not a spatial
 CFD model; patch coordinates are teaching/visualization coordinates used to
 make heterogeneity explicit.
 
+**TAN source is additive in both models** (v0.4): total source = abiotic
+`ammonia_dose` + feed-derived source. The ODE keeps `ammonia_dose` and
+`feed_dose` as separate `Params` fields (a `feed` event sets `feed_dose`, it
+does **not** overwrite the dose); the ABM sums `ammonia_dose` with per-fish
+excretion scaled by the live-biomass fraction. So dosing and feeding add
+rather than replace, and a dosed tank with fish stays comparable across both
+models.
+
+#### Known ABM↔ODE divergences (intentional Tier-1 simplifications)
+
+These are documented teaching caveats, **not** bugs — they follow from the
+Tier-1 scope (§0) and the ABM's explicit, stepped formulation:
+
+- **Fish O₂ demand**: the ODE uses a constant `R_fish` (default 0); the ABM
+  derives O₂ demand from live fish biomass. A stocked-tank ABM run can show a
+  DO dip the ODE misses unless `R_fish` is set. Set `R_fish` in the scenario
+  to align them.
+- **pH**: fixed in both models' integration (Tier-1, §1). The carbonate pH
+  crash is a **post-hoc ODE diagnostic** (`diagnostic_ph_trajectory`); the ABM
+  has no live pH feedback, so at a fixed high pH it can over-stress fish that
+  a falling pH would protect. Full DIC/Alk coupling is the Tier-2 exercise.
+- **Event timing**: the ABM applies an event on the first step that reaches
+  `event.day` (exact at the default `dt_days=0.25`; up to one step late at
+  coarse `dt_days`). The ODE solver splits segments exactly at event days.
+- **Per-step O₂ / substrate**: the ABM throttles nitrification by `M(DO)` but
+  does not enforce a per-step O₂ budget, so very coarse `dt_days` can oxidise
+  slightly more N than the step's oxygen supports. Keep `dt_days ≤ 0.25`.
+- **Within-step ordering**: the ABM computes AOB then NOB fluxes sequentially
+  within a step (NO₂ from AOB is available to NOB the same step); the ODE
+  evaluates all fluxes simultaneously. A small, expected numerical difference.
+
 ### 4.5 Carbonate / pH (Tier-2, Hour 4 exercise)
 pH from charge balance given (DIC, Alk, T), root-solved on [H⁺] ∈ bracket:
 ```

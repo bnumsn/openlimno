@@ -141,11 +141,14 @@ def apply_event(
     elif event.kind == "ammonia_dose":
         p = params.with_overrides(ammonia_dose_mg_n_l_day=event.value)
     elif event.kind == "feed":
-        # Tier-1: convert g-food/day to an ammonia-equivalent dose.
+        # Tier-1: convert g-food/day to an ammonia-equivalent dose, stored in
+        # the SEPARATE feed_dose source (NOT overwriting the abiotic
+        # ammonia_dose) so dosing and feeding ADD rather than replace — this
+        # is the source the agent-based model also sums (per-fish excretion).
         #   a_exc [g-N/g-food] · value [g-food/day] / V [L] → g-N/L/day
-        #   × 1000 → mg-N/L/day (the unit ammonia_dose_mg_n_l_day expects).
+        #   × 1000 → mg-N/L/day.
         dose = params.a_exc * event.value / params.volume_l * 1000.0
-        p = params.with_overrides(ammonia_dose_mg_n_l_day=dose)
+        p = params.with_overrides(feed_dose_mg_n_l_day=dose)
     elif event.kind == "dose":
         setattr(c, event.target, getattr(c, event.target) + event.value)
     else:

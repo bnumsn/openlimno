@@ -41,8 +41,12 @@ def derivatives(t: float, y: list[float], p: Params) -> list[float]:
     _TAN, _NO2, _NO3, X_AOB, X_NOB, DO = y
     rho1, rho2 = oxidation_fluxes(y, p)
 
-    # Dissolved nitrogen pool
-    E = p.ammonia_dose_mg_n_l_day          # Tier-1 fishless-cycle source
+    # Dissolved nitrogen pool. The TAN source is ADDITIVE: the abiotic
+    # bottled-ammonia dose (fishless cycle) plus any feed-derived source set
+    # by a feed event (events.apply_event). Keeping them separate lets a
+    # scenario dose AND feed without one silently overwriting the other, and
+    # mirrors the agent-based model's dose + excretion sum.
+    E = p.ammonia_dose_mg_n_l_day + p.feed_dose_mg_n_l_day
     dTAN = E - rho1
     dNO2 = rho1 - rho2
     dNO3 = rho2

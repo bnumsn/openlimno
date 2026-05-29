@@ -234,18 +234,28 @@ def test_day_zero_event_applies() -> None:
     assert total_with > total_without * 1.3
 
 
-def test_feed_event_changes_ammonia_source() -> None:
+def test_feed_event_sets_additive_feed_dose() -> None:
+    """A feed event sets the SEPARATE feed_dose source and leaves the abiotic
+    ammonia_dose intact, so dosing + feeding ADD (they no longer overwrite
+    each other). This keeps the ODE consistent with the ABM, which sums the
+    abiotic dose and per-fish excretion."""
     from openlimno.fishtank.events import Event, TapWater, apply_event
+    from openlimno.fishtank.processes import derivatives
 
-    p = Params(volume_l=100.0, a_exc=0.0276)
+    p = Params(volume_l=100.0, a_exc=0.0276, ammonia_dose_mg_n_l_day=1.0)
     c = Chemistry()
     ev = Event(day=5.0, kind="feed", value=2.0)   # 2 g food/day
     _c2, p2 = apply_event(c, p, ev, TapWater())
-    # dose = a_exc[g-N/g] * F[g/day] / V[L] * 1000 → mg-N/L/day
-    # = 0.0276 * 2 / 100 * 1000 = 0.552 mg-N/L/day (NOT 0.000552 — the
-    # 1000x unit bug that this test previously encoded).
-    assert p2.ammonia_dose_mg_n_l_day == pytest.approx(0.0276 * 2.0 / 100.0 * 1000.0)
-    assert p2.ammonia_dose_mg_n_l_day == pytest.approx(0.552)
+    # feed_dose = a_exc[g-N/g] * F[g/day] / V[L] * 1000 → mg-N/L/day
+    # = 0.0276 * 2 / 100 * 1000 = 0.552 mg-N/L/day
+    assert p2.feed_dose_mg_n_l_day == pytest.approx(0.552)
+    # The abiotic dose is NOT overwritten by feeding.
+    assert p2.ammonia_dose_mg_n_l_day == pytest.approx(1.0)
+    # derivatives() uses the SUM as the TAN source (1.0 + 0.552, minus rho1≈0
+    # at the tiny seed/zero substrate start).
+    y = Chemistry(TAN=0.0, X_AOB=0.0, X_NOB=0.0).to_vector()
+    dTAN = derivatives(0.0, y, p2)[0]
+    assert dTAN == pytest.approx(1.0 + 0.552, rel=1e-9)
 
 
 def test_scenario_io_and_cli(tmp_path: Path) -> None:
@@ -457,6 +467,39 @@ def test_abm_applies_ammonia_dose_with_fish_present() -> None:
     no3_dosed = simulate_agent_based_model(dosed)["summary"]["final_NO3"]
     no3_undosed = simulate_agent_based_model(undosed)["summary"]["final_NO3"]
     assert no3_dosed > no3_undosed * 3.0
+
+
+def test_abm_rejects_invalid_run_window() -> None:
+    """ABM mirrors the ODE solver's run-arg validation (no silent no-op runs)."""
+    from openlimno.fishtank import simulate_agent_based_model
+
+    with pytest.raises(ValueError, match="run.days"):
+        simulate_agent_based_model({"run": {"days": -1.0}})
+    with pytest.raises(ValueError, match="dt_output_hours"):
+        simulate_agent_based_model({"run": {"days": 1.0, "dt_output_hours": 0.0}})
+
+
+def test_abm_honours_full_parameter_overrides() -> None:
+    """The ABM must ingest the whole Params set (not just volume/temp/pH/dose),
+    so a kinetic override from the scenario actually changes the ABM — it used
+    to be silently ignored, islanding the ABM from calibration/equipment."""
+    from openlimno.fishtank import simulate_agent_based_model
+
+    base = {
+        "tank": {"volume_l": 120.0, "temperature_c": 25.0, "ph": 7.4},
+        "run": {"days": 20.0, "dt_output_hours": 6.0},
+        "chemistry": {"TAN": 0.0, "NO2": 0.0, "NO3": 5.0, "X_AOB": 0.02, "X_NOB": 0.02, "DO": 7.5},
+        "agents": {"seed": 3, "dt_days": 0.25, "fish_count": 0, "aob_agents": 12, "nob_agents": 12,
+                   "feed_g_day": 0.0},
+    }
+    fast = {**base, "parameters": {"ammonia_dose_mg_n_l_day": 2.0, "mu_AOB": 1.2}}
+    slow = {**base, "parameters": {"ammonia_dose_mg_n_l_day": 2.0, "mu_AOB": 0.25}}
+    aob_fast = simulate_agent_based_model(fast)["summary"]["AOB_biomass"]
+    aob_slow = simulate_agent_based_model(slow)["summary"]["AOB_biomass"]
+    assert aob_fast > aob_slow      # faster AOB growth ⇒ more biofilm by day 20
+    # Unknown parameter keys are rejected, matching io.scenario_from_mapping.
+    with pytest.raises(ValueError, match="unknown parameter"):
+        simulate_agent_based_model({**base, "parameters": {"not_a_param": 1.0}})
 
 
 # --- Scenario library: a coherent case for each typical situation ----------
