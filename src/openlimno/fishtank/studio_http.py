@@ -87,15 +87,45 @@ def calibrate_studio_payload(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _port_available(host: str, port: int) -> bool:
+    """True if ``port`` can be bound right now (no ``SO_REUSEADDR``, so it gives
+    a truthful answer even against an existing Studio that set it)."""
+
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        try:
+            probe.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+
 def run_fishtank_studio(
     *,
     host: str = "127.0.0.1",
     port: int = 8768,
     open_browser: bool = True,
 ) -> None:
-    """Serve the local browser Studio until interrupted."""
+    """Serve the local browser Studio until interrupted.
 
+    If ``port`` is already taken — e.g. several students sharing one host over
+    RDP, or a previous Studio window left open — fall back to an OS-assigned
+    free port so each instance gets its own. We probe first because the server
+    sets ``SO_REUSEADDR`` (needed for quick restarts), which on Windows would
+    otherwise let a second instance silently bind the same port.
+    """
+
+    requested = port
+    if port and not _port_available(host, port):
+        port = 0  # already in use — let the OS pick a free port
     server = _FishtankStudioServer((host, port), _FishtankStudioHandler)
+    if requested and server.server_port != requested:
+        print(
+            f"OpenLimno Fishtank Studio: port {requested} is busy, using free "
+            f"port {server.server_port} instead",
+            flush=True,
+        )
     url = f"http://{host}:{server.server_port}/"
     print(f"OpenLimno Fishtank Studio serving {url}", flush=True)
     if open_browser:
