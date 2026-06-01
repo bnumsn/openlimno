@@ -12,11 +12,17 @@
 
 ## 快速上手
 
+只跑 fishtank 教学模块时,推荐用轻量依赖 + `PYTHONPATH=src`;
+这样不会安装 OpenLimno 主项目的 GIS 依赖栈。完整开发整个 OpenLimno
+项目时再使用 `pip install -e .`。
+
 ```bash
-pip install -e ".[fishtank]"          # 在 repo 根目录
-python -m openlimno.fishtank run examples/fishless_cycle.yaml
-# 或: openlimno fishtank run examples/fishless_cycle.yaml
+python -m venv .venv && source .venv/bin/activate       # Windows: .venv\Scripts\activate
+pip install -r docs/fishtank/student_bundle/requirements-fishtank.txt
+PYTHONPATH=src python -m openlimno.fishtank run examples/fishtank/fishless_cycle.yaml
 ```
+
+Windows PowerShell 对应命令:`$env:PYTHONPATH="src"; python -m openlimno.fishtank ...`。
 
 经典 fishless cycle:氨峰(~day 7)→ 亚硝峰(~day 15,滞后)→ 硝酸盐累积,
 整体跨 **3-4 周**。

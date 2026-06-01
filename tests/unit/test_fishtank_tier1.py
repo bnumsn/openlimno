@@ -140,11 +140,39 @@ def test_result_carries_events_log_and_provenance() -> None:
     assert r.provenance["parameter_fingerprint"]
 
 
+def test_provenance_fingerprint_includes_tap_water() -> None:
+    from openlimno.fishtank.events import Event, EventSchedule, TapWater
+
+    event = Event(day=1.0, kind="water_change", value=0.5)
+    low_tap = EventSchedule(events=[event], tap_water=TapWater(NO3=0.0))
+    high_tap = EventSchedule(events=[event], tap_water=TapWater(NO3=100.0))
+    low = simulate(Chemistry(NO3=50.0), Params(ammonia_dose_mg_n_l_day=0.0), days=2, schedule=low_tap)
+    high = simulate(
+        Chemistry(NO3=50.0),
+        Params(ammonia_dose_mg_n_l_day=0.0),
+        days=2,
+        schedule=high_tap,
+    )
+
+    assert float(low.timeseries["NO3"].iloc[-1]) != float(high.timeseries["NO3"].iloc[-1])
+    assert low.provenance["parameter_fingerprint"] != high.provenance["parameter_fingerprint"]
+    assert high.provenance["inputs"]["tap_water"]["NO3"] == 100.0
+
+
 def test_simulate_rejects_invalid_run_window() -> None:
     with pytest.raises(ValueError, match="days"):
         simulate(days=-1)
     with pytest.raises(ValueError, match="dt_output_hours"):
         simulate(days=1, dt_output_hours=0)
+
+
+def test_dt_output_hours_preserves_requested_cadence() -> None:
+    r = simulate(days=1.0, dt_output_hours=7.0)
+    days = r.timeseries["day"].tolist()
+    assert days == pytest.approx([0.0, 7.0 / 24.0, 14.0 / 24.0, 21.0 / 24.0, 1.0])
+    assert (r.timeseries["day"].diff().dropna() * 24.0).tolist() == pytest.approx(
+        [7.0, 7.0, 7.0, 3.0]
+    )
 
 
 def test_zero_day_run_returns_initial_state() -> None:
@@ -397,6 +425,30 @@ def test_browser_studio_payload_contract() -> None:
     assert "/api/agents" in INDEX_HTML
     assert "three.module.min.js" in INDEX_HTML
     assert "fishtank:result" in INDEX_HTML
+
+
+def test_event_aliases_are_shared_by_studio_and_abm() -> None:
+    from openlimno.fishtank.studio_http import (
+        run_agent_based_studio_payload,
+        run_studio_payload,
+    )
+
+    payload = {
+        "tank": {"volume_l": 120.0, "temperature_c": 25.0, "ph": 7.4},
+        "run": {"days": 2.0, "dt_output_hours": 12.0},
+        "chemistry": {"TAN": 0.0, "NO2": 0.0, "NO3": 50.0, "X_AOB": 0.02, "X_NOB": 0.02, "DO": 7.5},
+        "parameters": {"ammonia_dose_mg_n_l_day": 0.0},
+        "tap_water": {"TAN": 0.0, "NO2": 0.0, "NO3": 0.0, "DO": 8.5},
+        "agents": {"seed": 4, "dt_days": 0.25, "fish_count": 0, "aob_agents": 4, "nob_agents": 4},
+        "events": [{"day": 1.0, "type": "water_change", "fraction": 0.5}],
+    }
+    ode = run_studio_payload(payload)
+    abm = run_agent_based_studio_payload(payload)
+
+    assert ode["events_log"][0]["kind"] == "water_change"
+    assert abm["event_log"][0]["kind"] == "water_change"
+    assert ode["summary"]["final_NO3"] < 30.0
+    assert abm["summary"]["final_NO3"] < 30.0
 
 
 def test_agent_based_model_is_seeded_and_agent_explicit() -> None:

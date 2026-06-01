@@ -13,7 +13,7 @@ from typing import Any
 from .agent import simulate_agent_based_model
 from .calibration import fit
 from .carbonate import diagnostic_ph_trajectory
-from .events import Event, EventSchedule, TapWater
+from .events import EventSchedule, TapWater, event_from_mapping
 from .io import read_observation
 from .library import scenario_payload, scenarios
 from .solver import Result, simulate
@@ -258,7 +258,7 @@ def _payload_to_model(
         NO3=_float(tap_doc.get("NO3", 5.0), "tap_water.NO3"),
         DO=_float(tap_doc.get("DO", 8.5), "tap_water.DO"),
     )
-    events = [_event_from_payload(item, i) for i, item in enumerate(events_doc)]
+    events = [event_from_mapping(item, i) for i, item in enumerate(events_doc)]
     return chemistry, params, EventSchedule(events=events, tap_water=tap, horizon=days), days, dt_hours
 
 
@@ -283,17 +283,6 @@ def _result_payload(result: Result, ph_df: Any) -> dict[str, Any]:
         "ph_diagnostic": ph_records,
         "provenance": result.provenance,
     }
-
-
-def _event_from_payload(value: Any, index: int) -> Event:
-    doc = _mapping(value, f"events[{index}]")
-    return Event(
-        day=_float(doc.get("day", 0.0), f"events[{index}].day"),
-        kind=str(doc.get("kind", "")),
-        value=_float(doc.get("value", 0.0), f"events[{index}].value"),
-        target=str(doc.get("target", "")),
-        repeat_days=_float(doc.get("repeat_days", 0.0), f"events[{index}].repeat_days"),
-    )
 
 
 def _mapping(value: Any, label: str) -> dict[str, Any]:

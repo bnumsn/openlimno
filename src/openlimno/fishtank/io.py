@@ -11,7 +11,7 @@ from typing import Any
 import pandas as pd
 import yaml
 
-from .events import Event, EventSchedule, TapWater
+from .events import EventSchedule, TapWater, event_from_mapping
 from .solver import Result, simulate
 from .state import Chemistry, Params
 
@@ -110,7 +110,7 @@ def scenario_from_mapping(raw: dict[str, Any], *, source_path: Path | None = Non
     events_doc = raw.get("events", []) or []
     if not isinstance(events_doc, list):
         raise ValueError("events must be a list")
-    events = [_event_from_mapping(item, i) for i, item in enumerate(events_doc)]
+    events = [event_from_mapping(item, i) for i, item in enumerate(events_doc)]
     schedule = EventSchedule(events=events, tap_water=tap_water, horizon=days)
     return Scenario(
         chemistry=chemistry,
@@ -232,33 +232,6 @@ def _first_present(doc: dict[str, Any], keys: tuple[str, ...]) -> Any:
         if key in doc:
             return doc[key]
     return None
-
-
-def _event_from_mapping(value: Any, index: int) -> Event:
-    doc = _mapping(value, f"events[{index}]")
-    kind = str(doc.get("kind", doc.get("type", "")))
-    day = _finite_float(doc.get("day", 0.0), f"events[{index}].day")
-    repeat_days = _finite_float(doc.get("repeat_days", 0.0), f"events[{index}].repeat_days")
-    target = str(doc.get("target", doc.get("chemical", "")))
-    if kind == "water_change":
-        event_value = doc.get("value", doc.get("fraction"))
-    elif kind == "ammonia_dose":
-        event_value = doc.get("value", doc.get("rate_mg_n_l_day"))
-    elif kind == "feed":
-        event_value = doc.get("value", doc.get("amount_g"))
-    elif kind == "dose":
-        event_value = doc.get("value", doc.get("amount"))
-    else:
-        event_value = doc.get("value")
-    if event_value is None:
-        raise ValueError(f"events[{index}] missing value for kind {kind!r}")
-    return Event(
-        day=day,
-        kind=kind,
-        value=_finite_float(event_value, f"events[{index}].value"),
-        target=target,
-        repeat_days=repeat_days,
-    )
 
 
 def _finite_float(value: Any, label: str) -> float:

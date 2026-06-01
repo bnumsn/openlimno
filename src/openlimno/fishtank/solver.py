@@ -93,8 +93,7 @@ def simulate(
     initial_params = Params(**vars(p))
     event_rows: list[dict[str, Any]] = []
 
-    n_out = int(round(days * 24.0 / dt_output_hours)) + 1
-    full_grid = np.linspace(0.0, days, n_out)
+    full_grid = _output_grid(days, dt_output_hours)
 
     # Expand repeats ONCE so boundaries + per-day lookup are consistent.
     expanded: list = schedule.expand(days) if schedule else []
@@ -237,6 +236,27 @@ def _validate_run_args(*, days: float, dt_output_hours: float) -> None:
         )
 
 
+def _output_grid(days: float, dt_output_hours: float) -> np.ndarray:
+    """Output times in days, with spacing no larger than ``dt_output_hours``.
+
+    The previous implementation used ``linspace`` after rounding the number
+    of points, which silently changed a requested 7-hour output cadence into
+    8-hour rows over a 1-day run. Here the requested step is preserved and the
+    final run horizon is appended when it falls off-cadence.
+    """
+
+    if days == 0.0:
+        return np.array([0.0], dtype=float)
+    step_days = dt_output_hours / 24.0
+    grid = np.arange(0.0, days, step_days, dtype=float)
+    if grid.size == 0:
+        grid = np.array([0.0], dtype=float)
+    if np.isclose(grid[-1], days, rtol=0.0, atol=1e-12):
+        grid[-1] = days
+        return grid
+    return np.append(grid, days)
+
+
 def _build_timeseries(times: list[float], states: list[list[float]], p: Params) -> pd.DataFrame:
     df = pd.DataFrame(states, columns=list(STATE_ORDER))
     df.insert(0, "day", times)
@@ -318,6 +338,18 @@ def _schedule_payload(schedule: EventSchedule | None) -> list[dict[str, Any]]:
     ]
 
 
+def _tap_water_payload(schedule: EventSchedule | None) -> dict[str, float] | None:
+    if schedule is None:
+        return None
+    tap = schedule.tap_water
+    return {
+        "TAN": float(tap.TAN),
+        "NO2": float(tap.NO2),
+        "NO3": float(tap.NO3),
+        "DO": float(tap.DO),
+    }
+
+
 def _build_provenance(
     *,
     initial_chem: Chemistry,
@@ -336,6 +368,7 @@ def _build_provenance(
         "days": days,
         "dt_output_hours": dt_output_hours,
         "schedule": _schedule_payload(schedule),
+        "tap_water": _tap_water_payload(schedule),
     }
     parameter_fingerprint = _stable_json_sha(fingerprint_payload)
     return {
@@ -355,6 +388,7 @@ def _build_provenance(
             "days": days,
             "dt_output_hours": dt_output_hours,
             "events": _schedule_payload(schedule),
+            "tap_water": _tap_water_payload(schedule),
         },
         "outputs": {
             "timeseries_rows": int(len(timeseries)),

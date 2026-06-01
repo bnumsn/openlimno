@@ -14,7 +14,7 @@ import random
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from .events import Event, EventSchedule, TapWater, apply_event
+from .events import Event, EventSchedule, TapWater, apply_event, event_from_mapping
 from .processes import monod
 from .state import Chemistry, Params, nh3_free_fraction
 
@@ -501,16 +501,7 @@ def _schedule_from_payload(value: Any, tap: TapWater, days: float) -> EventSched
         raise ValueError("events must be a list")
     events: list[Event] = []
     for index, item in enumerate(value):
-        doc = _mapping(item, f"events[{index}]")
-        events.append(
-            Event(
-                day=_float(doc.get("day", 0.0), f"events[{index}].day"),
-                kind=str(doc.get("kind", "")),
-                value=_float(doc.get("value", 0.0), f"events[{index}].value"),
-                target=str(doc.get("target", "")),
-                repeat_days=_float(doc.get("repeat_days", 0.0), f"events[{index}].repeat_days"),
-            )
-        )
+        events.append(event_from_mapping(item, index))
     return EventSchedule(events=events, tap_water=tap, horizon=days)
 
 

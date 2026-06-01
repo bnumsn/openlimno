@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Any
 
 from .state import STATE_ORDER, Chemistry, Params
 
@@ -154,3 +155,57 @@ def apply_event(
     else:
         raise ValueError(f"unknown event kind: {event.kind!r}")
     return c, p
+
+
+def event_from_mapping(value: Any, index: int = 0) -> Event:
+    """Parse one scenario/Studio event mapping.
+
+    All public entry points use this function so YAML files, browser payloads,
+    and ABM runs accept the same field aliases:
+    ``kind``/``type``, ``value``/``fraction``/``rate_mg_n_l_day``/
+    ``amount_g``/``amount``, and ``target``/``chemical``.
+    """
+
+    doc = _mapping(value, f"events[{index}]")
+    kind = str(doc.get("kind", doc.get("type", "")))
+    day = _finite_float(doc.get("day", 0.0), f"events[{index}].day")
+    repeat_days = _finite_float(doc.get("repeat_days", 0.0), f"events[{index}].repeat_days")
+    target = str(doc.get("target", doc.get("chemical", "")))
+    event_value = _event_value(doc, kind)
+    if event_value is None:
+        raise ValueError(f"events[{index}] missing value for kind {kind!r}")
+    return Event(
+        day=day,
+        kind=kind,
+        value=_finite_float(event_value, f"events[{index}].value"),
+        target=target,
+        repeat_days=repeat_days,
+    )
+
+
+def _event_value(doc: dict[str, Any], kind: str) -> Any:
+    if kind == "water_change":
+        return doc.get("value", doc.get("fraction"))
+    if kind == "ammonia_dose":
+        return doc.get("value", doc.get("rate_mg_n_l_day"))
+    if kind == "feed":
+        return doc.get("value", doc.get("amount_g"))
+    if kind == "dose":
+        return doc.get("value", doc.get("amount"))
+    return doc.get("value")
+
+
+def _mapping(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be a mapping")
+    return value
+
+
+def _finite_float(value: Any, label: str) -> float:
+    try:
+        out = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} must be numeric, got {value!r}") from exc
+    if not math.isfinite(out):
+        raise ValueError(f"{label} must be finite, got {value!r}")
+    return out
