@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import socket
 import webbrowser
 from http import HTTPStatus
@@ -21,6 +22,15 @@ from .state import Chemistry, Params
 from .studio_assets import INDEX_HTML
 
 _VENDOR_DIR = Path(__file__).resolve().parent / "vendor"
+_REQUEST_BODY_LIMIT_BYTES = 256 * 1024
+_STUDIO_ODE_MAX_DAYS = 365.0
+_STUDIO_ABM_MAX_DAYS = 120.0
+_STUDIO_MAX_LITERAL_EVENTS = 200
+_STUDIO_MAX_EXPANDED_EVENTS = 1000
+_STUDIO_MIN_REPEAT_DAYS = 0.25
+_STUDIO_MAX_OUTPUT_ROWS = 5000
+_STUDIO_MAX_ABM_STEPS = 6500
+_LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 # The Studio opens on the fishless cycle — a coherent scenario with no fish at
 # risk. The rest of the typical cases ship in the scenario library (§8) and are
@@ -46,7 +56,10 @@ def list_studio_scenarios() -> list[dict[str, Any]]:
 def run_studio_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Run a Studio payload and return JSON-safe result data."""
 
-    chemistry, params, schedule, days, dt_hours = _payload_to_model(payload)
+    chemistry, params, schedule, days, dt_hours = _payload_to_model(
+        payload,
+        max_days=_STUDIO_ODE_MAX_DAYS,
+    )
     result = simulate(chemistry, params, days=days, dt_output_hours=dt_hours, schedule=schedule)
     carbonate = _mapping(payload.get("carbonate", {}), "carbonate")
     ph_df = diagnostic_ph_trajectory(
@@ -60,13 +73,22 @@ def run_studio_payload(payload: dict[str, Any]) -> dict[str, Any]:
 def run_agent_based_studio_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Run the Studio agent-based model payload."""
 
+    _validate_studio_payload_limits(
+        payload,
+        max_days=_STUDIO_ABM_MAX_DAYS,
+        model_label="agent-based Studio run",
+        validate_abm_steps=True,
+    )
     return simulate_agent_based_model(payload)
 
 
 def calibrate_studio_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Calibrate default nitrification rates from the bundled observation log."""
 
-    chemistry, params, _schedule, days, _dt_hours = _payload_to_model(payload)
+    chemistry, params, _schedule, days, _dt_hours = _payload_to_model(
+        payload,
+        max_days=_STUDIO_ODE_MAX_DAYS,
+    )
     obs_path = Path(__file__).resolve().parents[3] / "data" / "aquarium_logs" / "tank_A_fishless.csv"
     obs = read_observation(obs_path)
     result = fit(
@@ -127,6 +149,12 @@ def run_fishtank_studio(
             flush=True,
         )
     url = f"http://{host}:{server.server_port}/"
+    if host not in _LOCAL_HOSTS:
+        print(
+            "Warning: OpenLimno Fishtank Studio is intended for trusted local use; "
+            "do not expose it directly to the public internet.",
+            flush=True,
+        )
     print(f"OpenLimno Fishtank Studio serving {url}", flush=True)
     if open_browser:
         webbrowser.open(url)
@@ -178,6 +206,11 @@ class _FishtankStudioHandler(BaseHTTPRequestHandler):
                 self._send_json(calibrate_studio_payload(payload))
                 return
             self.send_error(HTTPStatus.NOT_FOUND)
+        except _PayloadTooLargeError as exc:
+            self._send_json(
+                {"ok": False, "error": str(exc)},
+                status=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+            )
         except Exception as exc:  # noqa: BLE001 - convert model errors into browser JSON
             self._send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
 
@@ -185,7 +218,18 @@ class _FishtankStudioHandler(BaseHTTPRequestHandler):
         return
 
     def _read_json(self) -> dict[str, Any]:
-        n_bytes = int(self.headers.get("Content-Length", "0"))
+        raw_length = self.headers.get("Content-Length", "0")
+        try:
+            n_bytes = int(raw_length)
+        except ValueError as exc:
+            raise ValueError(f"Content-Length must be an integer, got {raw_length!r}") from exc
+        if n_bytes < 0:
+            raise ValueError(f"Content-Length must be non-negative, got {raw_length!r}")
+        if n_bytes > _REQUEST_BODY_LIMIT_BYTES:
+            raise _PayloadTooLargeError(
+                f"request body too large: {n_bytes} bytes "
+                f"(max {_REQUEST_BODY_LIMIT_BYTES} bytes)"
+            )
         raw = self.rfile.read(n_bytes) if n_bytes else b"{}"
         data = json.loads(raw.decode("utf-8"))
         if not isinstance(data, dict):
@@ -223,15 +267,18 @@ class _FishtankStudioHandler(BaseHTTPRequestHandler):
 
 def _payload_to_model(
     payload: dict[str, Any],
+    *,
+    max_days: float,
 ) -> tuple[Chemistry, Params, EventSchedule, float, float]:
     tank = _mapping(payload.get("tank", {}), "tank")
-    run = _mapping(payload.get("run", {}), "run")
     chemistry_doc = _mapping(payload.get("chemistry", {}), "chemistry")
     params_doc = _mapping(payload.get("parameters", {}), "parameters")
     tap_doc = _mapping(payload.get("tap_water", {}), "tap_water")
-    events_doc = payload.get("events", [])
-    if not isinstance(events_doc, list):
-        raise ValueError("events must be a list")
+    days, dt_hours, events = _validate_studio_payload_limits(
+        payload,
+        max_days=max_days,
+        model_label="ODE Studio run",
+    )
 
     chemistry = Chemistry(
         TAN=_float(chemistry_doc.get("TAN", 0.0), "chemistry.TAN"),
@@ -250,15 +297,12 @@ def _payload_to_model(
     for key, value in params_doc.items():
         param_overrides[str(key)] = _float(value, f"parameters.{key}")
     params = Params().with_overrides(**param_overrides)
-    days = _float(run.get("days", 42.0), "run.days")
-    dt_hours = _float(run.get("dt_output_hours", 6.0), "run.dt_output_hours")
     tap = TapWater(
         TAN=_float(tap_doc.get("TAN", 0.0), "tap_water.TAN"),
         NO2=_float(tap_doc.get("NO2", 0.0), "tap_water.NO2"),
         NO3=_float(tap_doc.get("NO3", 5.0), "tap_water.NO3"),
         DO=_float(tap_doc.get("DO", 8.5), "tap_water.DO"),
     )
-    events = [event_from_mapping(item, i) for i, item in enumerate(events_doc)]
     return chemistry, params, EventSchedule(events=events, tap_water=tap, horizon=days), days, dt_hours
 
 
@@ -299,6 +343,77 @@ def _float(value: Any, label: str) -> float:
     if out != out or out in (float("inf"), float("-inf")):
         raise ValueError(f"{label} must be finite, got {value!r}")
     return out
+
+
+class _PayloadTooLargeError(ValueError):
+    """Request exceeds the local Studio API body limit."""
+
+
+def _validate_studio_payload_limits(
+    payload: dict[str, Any],
+    *,
+    max_days: float,
+    model_label: str,
+    validate_abm_steps: bool = False,
+) -> tuple[float, float, list[Any]]:
+    run = _mapping(payload.get("run", {}), "run")
+    days = _float(run.get("days", 42.0), "run.days")
+    dt_hours = _float(run.get("dt_output_hours", 6.0), "run.dt_output_hours")
+    if days < 0.0:
+        raise ValueError(f"run.days must be non-negative, got {days!r}")
+    if days > max_days:
+        raise ValueError(f"run.days must be <= {max_days:g} for {model_label}, got {days!r}")
+    if dt_hours <= 0.0:
+        raise ValueError(f"run.dt_output_hours must be greater than zero, got {dt_hours!r}")
+
+    output_rows = math.floor(days / (dt_hours / 24.0)) + 2 if days else 1
+    if output_rows > _STUDIO_MAX_OUTPUT_ROWS:
+        raise ValueError(
+            "requested output grid is too large; increase run.dt_output_hours "
+            f"or shorten run.days (max {_STUDIO_MAX_OUTPUT_ROWS} rows)"
+        )
+
+    events_doc = payload.get("events", []) or []
+    if not isinstance(events_doc, list):
+        raise ValueError("events must be a list")
+    if len(events_doc) > _STUDIO_MAX_LITERAL_EVENTS:
+        raise ValueError(f"events must contain at most {_STUDIO_MAX_LITERAL_EVENTS} entries")
+    events = [event_from_mapping(item, i) for i, item in enumerate(events_doc)]
+    _validate_event_expansion(events, days)
+
+    if validate_abm_steps:
+        agents = _mapping(payload.get("agents", {}), "agents")
+        default_dt_days = min(0.25, dt_hours / 24.0)
+        dt_days = _float(agents.get("dt_days", default_dt_days), "agents.dt_days")
+        if dt_days <= 0.0:
+            raise ValueError(f"agents.dt_days must be greater than zero, got {dt_days!r}")
+        abm_steps = math.floor(days / dt_days) + 2 if days else 1
+        if abm_steps > _STUDIO_MAX_ABM_STEPS:
+            raise ValueError(
+                "agent-based Studio run has too many steps; increase agents.dt_days "
+                f"or shorten run.days (max {_STUDIO_MAX_ABM_STEPS} steps)"
+            )
+    return days, dt_hours, events
+
+
+def _validate_event_expansion(events: list[Any], days: float) -> None:
+    expanded = 0
+    for event in events:
+        if event.repeat_days > 0.0:
+            if event.repeat_days < _STUDIO_MIN_REPEAT_DAYS:
+                raise ValueError(
+                    f"events repeat_days must be 0 or >= {_STUDIO_MIN_REPEAT_DAYS:g} days "
+                    "for Studio runs"
+                )
+            if event.day < days:
+                expanded += max(0, math.ceil((days - event.day) / event.repeat_days))
+        else:
+            expanded += 1
+        if expanded > _STUDIO_MAX_EXPANDED_EVENTS:
+            raise ValueError(
+                "events expand to too many applications for a Studio run "
+                f"(max {_STUDIO_MAX_EXPANDED_EVENTS})"
+            )
 
 
 def find_free_port(host: str = "127.0.0.1") -> int:

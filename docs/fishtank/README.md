@@ -10,6 +10,16 @@
 并提供鱼个体 + AOB/NOB 生物膜斑块的 agent-based model。可选 Tier-2
 碳酸盐/pH 诊断。技术规范见 [`SPEC.md`](./SPEC.md)。
 
+## 发布边界
+
+Fishtank 面向课堂、演示和模型构建训练。默认参数是教学参数,不是实际养殖、
+兽医或水产管理建议。Tier-1 ODE 使用固定 pH; carbonate/pH 是基于已完成
+氮循环结果的诊断轨迹,不是完全耦合的碳酸盐状态方程。
+
+Studio 默认绑定 `127.0.0.1`,定位为本地浏览器工具,不应直接暴露到公网。
+HTTP API 对请求体大小、`run.days`、事件数量、重复事件展开量和输出行数做
+发布级限制;需要远程共享时,请放在受信任网络或受控反向代理之后。
+
 ## 快速上手
 
 只跑 fishtank 教学模块时,推荐用轻量依赖 + `PYTHONPATH=src`;
@@ -76,6 +86,12 @@ python -m openlimno.fishtank run examples/fishtank/mature_stocked_tank.yaml
 ```bash
 pytest tests/unit/test_fishtank_tier1.py
 ruff check src/openlimno/fishtank tests/unit/test_fishtank_tier1.py
+```
+
+发布前建议跑完整 fishtank 门禁:
+
+```bash
+bash scripts/fishtank_release_check.sh
 ```
 
 ## 与 OpenLimno 主项目的关系

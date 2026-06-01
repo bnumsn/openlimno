@@ -451,6 +451,73 @@ def test_event_aliases_are_shared_by_studio_and_abm() -> None:
     assert abm["summary"]["final_NO3"] < 30.0
 
 
+def test_studio_payload_limits_reject_expensive_runs() -> None:
+    from openlimno.fishtank.studio_http import (
+        default_studio_payload,
+        run_agent_based_studio_payload,
+        run_studio_payload,
+    )
+
+    payload = default_studio_payload()
+    payload["run"]["days"] = 366.0
+    with pytest.raises(ValueError, match="run.days must be <= 365"):
+        run_studio_payload(payload)
+
+    payload = default_studio_payload()
+    payload["run"]["days"] = 121.0
+    with pytest.raises(ValueError, match="run.days must be <= 120"):
+        run_agent_based_studio_payload(payload)
+
+    payload = default_studio_payload()
+    payload["run"]["dt_output_hours"] = 0.01
+    with pytest.raises(ValueError, match="output grid is too large"):
+        run_studio_payload(payload)
+
+    payload = default_studio_payload()
+    payload["events"] = [
+        {"day": 0.0, "kind": "ammonia_dose", "value": 2.0}
+        for _ in range(201)
+    ]
+    with pytest.raises(ValueError, match="at most 200"):
+        run_studio_payload(payload)
+
+    payload = default_studio_payload()
+    payload["events"] = [
+        {"day": 0.0, "kind": "water_change", "value": 0.1, "repeat_days": 0.01}
+    ]
+    with pytest.raises(ValueError, match="repeat_days"):
+        run_studio_payload(payload)
+
+
+def test_studio_http_rejects_oversized_body() -> None:
+    import http.client
+    import threading
+
+    from openlimno.fishtank.studio_http import (
+        _REQUEST_BODY_LIMIT_BYTES,
+        _FishtankStudioHandler,
+        _FishtankStudioServer,
+        find_free_port,
+    )
+
+    port = find_free_port()
+    server = _FishtankStudioServer(("127.0.0.1", port), _FishtankStudioHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("POST", "/api/run", body=b"x" * (_REQUEST_BODY_LIMIT_BYTES + 1))
+        response = conn.getresponse()
+        body = response.read()
+        conn.close()
+        assert response.status == 413
+        assert b"request body too large" in body
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+
 def test_agent_based_model_is_seeded_and_agent_explicit() -> None:
     from openlimno.fishtank import simulate_agent_based_model
     from openlimno.fishtank.studio_http import default_studio_payload
