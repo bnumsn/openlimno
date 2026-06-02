@@ -425,6 +425,32 @@ def test_browser_studio_payload_contract() -> None:
     assert "/api/agents" in INDEX_HTML
     assert "three.module.min.js" in INDEX_HTML
     assert "fishtank:result" in INDEX_HTML
+    assert "Click Calibrate to fit bundled tank_A_fishless.csv" in INDEX_HTML
+    assert "rows omitted" in INDEX_HTML
+    assert "table-note" in INDEX_HTML
+
+
+def test_studio_partial_payloads_use_browser_default_baseline() -> None:
+    from openlimno.fishtank.studio_http import (
+        default_studio_payload,
+        run_agent_based_studio_payload,
+        run_studio_payload,
+    )
+
+    default_payload = default_studio_payload()
+    empty_ode = run_studio_payload({})
+    default_ode = run_studio_payload(default_payload)
+    assert empty_ode["summary"] == default_ode["summary"]
+    assert empty_ode["ph_diagnostic"][-1]["ph_dynamic"] == default_ode["ph_diagnostic"][-1]["ph_dynamic"]
+
+    empty_abm = run_agent_based_studio_payload({})
+    default_abm = run_agent_based_studio_payload(default_payload)
+    assert empty_abm["summary"] == default_abm["summary"]
+
+    partial = {"run": {"days": 7.0}}
+    expected = default_studio_payload()
+    expected["run"]["days"] = 7.0
+    assert run_studio_payload(partial)["summary"] == run_studio_payload(expected)["summary"]
 
 
 def test_event_aliases_are_shared_by_studio_and_abm() -> None:

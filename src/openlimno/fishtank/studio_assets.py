@@ -143,6 +143,8 @@ th { color: #536377; font-size: 12px; background: #f8fafc; }
 .event-row [data-k="repeat_days"] { grid-area: repeat; }
 .event-row button { grid-area: remove; align-self: stretch; padding: 0; }
 .muted { color: var(--muted); }
+.table-note { margin-top: 8px; font-size: 12px; color: var(--muted); }
+.table-gap td { text-align: center; color: var(--muted); font-weight: 700; background: #f8fafc; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 @media (max-width: 1050px) {
   .shell { grid-template-columns: 1fr; }
@@ -306,7 +308,7 @@ th { color: #536377; font-size: 12px; background: #f8fafc; }
       <div class="panel"><div class="panel-head"><div class="panel-title">Applied event log</div></div><div class="panel-body"><div id="eventsTable"></div></div></div>
     </section>
     <section id="calibration" class="view">
-      <div class="panel"><div class="panel-head"><div class="panel-title">Bundled calibration</div></div><div class="panel-body" id="calibrationPanel"></div></div>
+      <div class="panel"><div class="panel-head"><div class="panel-title">Bundled calibration</div></div><div class="panel-body" id="calibrationPanel"><div class="muted">Click Calibrate to fit bundled tank_A_fishless.csv against mu_AOB and mu_NOB.</div></div></div>
     </section>
     <section id="exportView" class="view">
       <div class="panel"><div class="panel-head"><div class="panel-title">Scenario JSON</div></div><div class="panel-body"><pre id="scenarioJson" class="mono"></pre></div></div>
@@ -449,14 +451,33 @@ function legend(id, series) {
   $(id).innerHTML = series.map(s => `<span><i class="swatch" style="background:${s.color}"></i>${s.label}</span>`).join('');
 }
 
-function table(id, rows, columns) {
+function table(id, rows, columns, opts={}) {
   if (!rows || rows.length === 0) {
     $(id).innerHTML = '<div class="muted">No rows</div>';
     return;
   }
+  const limit = opts.limit ?? 160;
+  const compact = opts.compact && rows.length > limit;
+  let displayRows = rows.slice(0, limit);
+  if (compact) {
+    const edge = Math.floor(limit / 2);
+    displayRows = [
+      ...rows.slice(0, edge),
+      {__gap: `${rows.length - limit} rows omitted`},
+      ...rows.slice(-edge),
+    ];
+  }
   const head = columns.map(c => `<th>${c}</th>`).join('');
-  const body = rows.slice(0, 160).map(row => `<tr>${columns.map(c => `<td>${row[c] ?? ''}</td>`).join('')}</tr>`).join('');
-  $(id).innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  const body = displayRows.map(row => {
+    if (row.__gap) return `<tr class="table-gap"><td colspan="${columns.length}">${row.__gap}</td></tr>`;
+    return `<tr>${columns.map(c => `<td>${row[c] ?? ''}</td>`).join('')}</tr>`;
+  }).join('');
+  const note = compact
+    ? `<div class="table-note">Showing first ${Math.floor(limit / 2)} and last ${Math.floor(limit / 2)} of ${rows.length} rows. Full output is available through CLI/export artifacts.</div>`
+    : rows.length > displayRows.length
+      ? `<div class="table-note">Showing first ${displayRows.length} of ${rows.length} rows.</div>`
+      : '';
+  $(id).innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>${note}`;
 }
 
 function render(result) {
@@ -492,7 +513,7 @@ function render(result) {
   lineChart($('nitrogenChart'), result.timeseries, nSeries, 'mg-N/L');
   lineChart($('bioChart'), result.timeseries, bSeries, 'mg/L');
   lineChart($('phChart'), result.ph_diagnostic, pSeries, 'pH / Alk');
-  table('timeseriesTable', result.timeseries, ['day','TAN','NO2','NO3','DO','NH3_free','pH']);
+  table('timeseriesTable', result.timeseries, ['day','TAN','NO2','NO3','DO','NH3_free','pH'], {compact: true, limit: 80});
   table('eventsTable', result.events_log, ['day','kind','value','target','TAN_before','TAN_after','NO3_before','NO3_after','ammonia_dose_after']);
   $('scenarioJson').textContent = JSON.stringify(collect(), null, 2);
   $('provenanceJson').textContent = JSON.stringify(result.provenance, null, 2);

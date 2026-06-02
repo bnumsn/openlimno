@@ -56,6 +56,7 @@ def list_studio_scenarios() -> list[dict[str, Any]]:
 def run_studio_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Run a Studio payload and return JSON-safe result data."""
 
+    payload = _payload_with_defaults(payload)
     chemistry, params, schedule, days, dt_hours = _payload_to_model(
         payload,
         max_days=_STUDIO_ODE_MAX_DAYS,
@@ -73,6 +74,7 @@ def run_studio_payload(payload: dict[str, Any]) -> dict[str, Any]:
 def run_agent_based_studio_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Run the Studio agent-based model payload."""
 
+    payload = _payload_with_defaults(payload)
     _validate_studio_payload_limits(
         payload,
         max_days=_STUDIO_ABM_MAX_DAYS,
@@ -85,6 +87,7 @@ def run_agent_based_studio_payload(payload: dict[str, Any]) -> dict[str, Any]:
 def calibrate_studio_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Calibrate default nitrification rates from the bundled observation log."""
 
+    payload = _payload_with_defaults(payload)
     chemistry, params, _schedule, days, _dt_hours = _payload_to_model(
         payload,
         max_days=_STUDIO_ODE_MAX_DAYS,
@@ -304,6 +307,30 @@ def _payload_to_model(
         DO=_float(tap_doc.get("DO", 8.5), "tap_water.DO"),
     )
     return chemistry, params, EventSchedule(events=events, tap_water=tap, horizon=days), days, dt_hours
+
+
+def _payload_with_defaults(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return ``payload`` overlaid on the Studio default scenario.
+
+    Browser calls send a complete payload, but API users often send small
+    partial objects such as ``{"run": {"days": 7}}``. Treat omitted fields as
+    the same fishless-cycle defaults that the browser gets from ``/api/default``
+    so direct API calls cannot drift onto a different implicit carbonate/tank
+    baseline.
+    """
+
+    return _deep_merge(default_studio_payload(), payload)
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = dict(base)
+    for key, value in override.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(current, value)
+        else:
+            merged[key] = value
+    return merged
 
 
 def _result_payload(result: Result, ph_df: Any) -> dict[str, Any]:

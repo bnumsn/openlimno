@@ -39,6 +39,7 @@ ENV/
 
 .mypy_cache/
 .ruff_cache/
+.playwright-cli/
 .dmypy.json
 
 .idea/
