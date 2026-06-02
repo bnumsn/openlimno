@@ -173,7 +173,10 @@ th { color: #536377; font-size: 12px; background: #f8fafc; }
 <body>
 <header class="topbar">
   <div class="brand"><div class="mark">OL</div><div>OpenLimno Fishtank Studio</div></div>
-  <div id="status" class="status">Ready</div>
+  <div style="display:flex;align-items:center;gap:14px">
+    <button id="langToggle" class="btn" type="button">中文 / EN</button>
+    <div id="status" class="status">Ready</div>
+  </div>
 </header>
 <div class="shell">
   <aside class="sidebar">
@@ -695,6 +698,43 @@ window.__fishtankAgentStatus = () => ({
   microbes: lastAgents?.agents?.microbes?.length || 0,
   summary: lastAgents?.summary || null,
 });
+
+// ---- 中英文切换(i18n):翻译静态界面文案;科学符号/预设名/状态栏/数据表保持原样 ----
+const ZH = {
+  "Scenario":"场景","Initial chemistry":"初始水质","Events":"事件",
+  "Water and carbonate":"换水与碳酸盐","Agent-based model":"个体模型(ABM)",
+  "Preset":"预设案例","Volume L":"缸体积 L","Days":"天数","Output hours":"输出间隔(小时)",
+  "Temperature C":"温度 ℃","Fixed pH":"固定 pH","Ammonia dose":"投氨速率",
+  "Tap NO3":"自来水 NO3","Tap DO":"自来水 DO","Alk meq/L":"碱度 meq/L","DIC mmol/L":"DIC mmol/L",
+  "Seed":"随机种子","ABM step days":"ABM 步长(天)","Fish agents":"鱼数量","g per fish":"每条鱼克数",
+  "Feed g/day":"投喂 g/天","AOB patches":"AOB 斑块数","NOB patches":"NOB 斑块数",
+  "Add event":"加事件","Run":"运行","Calibrate":"校准","Export scenario":"导出场景","Reset":"重置",
+  "Run ABM":"运行 ABM",
+  "3D Tank":"3D 鱼缸","ABM Agents":"个体(ABM)","Dashboard":"仪表盘","Chemistry":"水化学",
+  "Calibration":"校准","Export":"导出",
+  "Agent tank map":"个体分布图","Population dynamics":"种群动态","ABM event log":"ABM 事件日志",
+  "Nitrogen":"氮","Biofilm and oxygen":"生物膜与溶氧","pH diagnostic":"pH 诊断",
+  "Timeseries":"时间序列","Applied event log":"已应用事件日志","Bundled calibration":"内置校准",
+  "Scenario JSON":"场景 JSON","Provenance":"溯源信息",
+  "fish individuals":"鱼个体","AOB/NOB patches":"AOB/NOB 斑块","3D renderer unavailable":"3D 渲染不可用",
+  "Click Calibrate to fit bundled tank_A_fishless.csv against mu_AOB and mu_NOB.":
+    "点「校准」用内置 tank_A_fishless.csv 拟合 mu_AOB 和 mu_NOB。"
+};
+const I18N_SEL = '.section h2, .tabs .tab, .panel-title, .sidebar label, .actions .btn, #calibrationPanel .muted, .tank-fallback, .agent-pill';
+function applyLang(lang) {
+  document.querySelectorAll(I18N_SEL).forEach(el => {
+    if (el.dataset.en === undefined) el.dataset.en = el.textContent.trim();
+    const en = el.dataset.en;
+    el.textContent = (lang === 'zh' && ZH[en]) ? ZH[en] : en;
+  });
+  const t = $('langToggle');
+  if (t) t.textContent = lang === 'zh' ? 'EN / 中文' : '中文 / EN';
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+  try { localStorage.setItem('fishtank_lang', lang); } catch (e) {}
+}
+let __lang = (() => { try { return localStorage.getItem('fishtank_lang'); } catch (e) { return null; } })() || 'zh';
+$('langToggle').addEventListener('click', () => { __lang = __lang === 'zh' ? 'en' : 'zh'; applyLang(__lang); });
+applyLang(__lang);
 
 (async function init() {
   await loadPresets();
