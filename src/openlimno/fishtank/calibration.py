@@ -93,10 +93,12 @@ def fit(
     observed log. Defaults fit the two most-sensitive nitrification
     growth rates (Hour-3 sensitivity lesson).
 
-    ``schedule`` MUST mirror the keeper actions behind the observed log
-    (water changes, feeding, dose changes). A real aquarium log always
-    carries such events; omitting them aligns an event-free simulation
-    against event-affected observations and silently biases the fit."""
+    ``schedule`` should mirror the keeper actions behind the observed log
+    (water changes, feeding, dose changes). It defaults to ``None`` — an
+    event-free simulation, correct only for a steady fishless cycle. A real
+    aquarium log always carries such events; omitting them then aligns an
+    event-free simulation against event-affected observations and silently
+    biases the fit."""
     if "day" not in observation.columns:
         raise ValueError("observation frame needs a 'day' column")
     if len(fit_names) != len(bounds):

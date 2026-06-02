@@ -358,7 +358,7 @@ def test_calibration_honours_event_schedule() -> None:
     from openlimno.fishtank.events import Event, EventSchedule
     from openlimno.fishtank.solver import simulate
 
-    base = Params(ammonia_dose_mg_n_l_day=2.0)
+    truth = Params(ammonia_dose_mg_n_l_day=2.0)  # mu_AOB=0.55, mu_NOB=0.40
     schedule = EventSchedule(
         events=[
             Event(day=0.0, kind="ammonia_dose", value=2.0),
@@ -366,16 +366,24 @@ def test_calibration_honours_event_schedule() -> None:
         ],
     )
     # Synthetic "observed" log generated WITH the water change.
-    truth = simulate(Chemistry(), base, days=30, schedule=schedule).timeseries
-    obs = truth[truth["day"].isin([5, 10, 14, 20, 25, 30])][["day", "TAN", "NO2", "NO3"]]
+    obs_df = simulate(Chemistry(), truth, days=30, schedule=schedule).timeseries
+    obs = obs_df[obs_df["day"].isin([5, 10, 14, 20, 25, 30])][["day", "TAN", "NO2", "NO3"]]
 
-    # Fitting WITH the schedule reproduces the log near-perfectly...
-    with_sched = fit(obs, base_params=base, schedule=schedule, days=30.0)
-    # ...while dropping it leaves a visibly worse fit (the post-WC NO3 drop
-    # is missing), confirming the schedule actually drives the objective.
-    without_sched = fit(obs, base_params=base, days=30.0)
-    assert with_sched.best_rmse < without_sched.best_rmse
+    # Start the optimiser AWAY from the truth so the test proves recovery, not
+    # just that the truth is a fixed point (Gemini review point 4).
+    start = truth.with_overrides(mu_AOB=0.40, mu_NOB=0.30)
+
+    # WITH the schedule the fit recovers the generating parameters near-exactly.
+    with_sched = fit(obs, base_params=start, schedule=schedule, days=30.0)
+    assert with_sched.best_params["mu_AOB"] == pytest.approx(0.55, abs=0.05)
+    assert with_sched.best_params["mu_NOB"] == pytest.approx(0.40, abs=0.05)
     assert with_sched.best_rmse < 0.05
+
+    # Dropping the schedule (the pre-fix behaviour) aligns an event-free run
+    # against the post-water-change observations, biasing the objective: the
+    # error stays large and mu_NOB is pulled off the true value.
+    without_sched = fit(obs, base_params=start, days=30.0)
+    assert without_sched.best_rmse > 10.0 * with_sched.best_rmse + 0.05
 
 
 # --- Hour-4: carbonate / pH (Tier-2) ------------------------------------
