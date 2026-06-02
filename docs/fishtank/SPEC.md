@@ -13,6 +13,13 @@ biofilm errors raised by the 2026-05-28 Codex pre-implementation review
 v0.4.1 (2026-06-02) fixed `calibration.fit()` silently dropping the scenario
 event schedule, which biased fits against any log involving water changes or
 feeding (see §10.3 + `reviews/8209f80`).
+v0.5 (2026-06-02) added two keeper events (`wipe_biofilm`, `set_param`),
+**implemented** the Tier-2 ODE extensions that earlier shipped only as
+exercises — plant nitrogen uptake, denitrification, and **opt-in fully-coupled
+pH** (DIC/Alk integrated, nitrification eats alkalinity, solved pH feeds back
+into the rates) — and grew the scenario library from 5 to 16 typical aquarium
+situations. All Tier-2 terms are off by default (`mu_plant=k_denit=couple_ph=0`),
+so Tier-1 is byte-identical.
 
 ## 0. Scope and non-goals
 
@@ -69,17 +76,25 @@ dilution** (§5). Dissolved species (TAN/NO₂/NO₃/DO) DO dilute on a water ch
 under-colonised filter has tiny `X` and takes weeks to reach `X_max`
 (this is *why* fishless cycling is slow; see §11).
 
-**Tier-2 extension state** (Hour 4, optional):
+**Tier-2 extension state** (implemented v0.5; appended after the Tier-1 core
+in `state.STATE_ORDER`, all inert at the defaults so Tier-1 is unchanged):
 
-| idx | symbol | meaning | unit |
-|---|---|---|---|
-| 6 | `DIC` | dissolved inorganic carbon | mmol/L |
-| 7 | `Alk` | carbonate alkalinity | meq/L |
-| 8 | `B_fish` | total live fish biomass | g |
-| 9 | `B_plant` | total plant biomass | g |
+| idx | symbol | meaning | unit | active when |
+|---|---|---|---|---|
+| 6 | `B_plant` | plant nitrogen pool | mg-N/L | `mu_plant>0` |
+| 7 | `DIC` | dissolved inorganic carbon | mmol/L | `couple_ph>0` |
+| 8 | `Alk` | carbonate alkalinity | meq/L | `couple_ph>0` |
+
+`B_fish` (live fish biomass) is tracked only in the **agent-based model**
+(`agent.py`), not in the ODE state — the ODE represents fish load through the
+`feed`/`R_fish` forcing instead.
 
 In **Tier-1, pH is a fixed scenario input** (constant), so `NH3_free`
-(§2) is still computable. **In Tier-2, pH is solved** from (DIC, Alk, T).
+(§2) is still computable. **With `couple_ph` on, pH is solved** each step from
+(DIC, Alk, T): nitrification consumes Alk (2 H⁺/N ≈ 7.14 g-CaCO₃/g-N), the
+falling pH throttles the nitrifiers via `nitrification_ph_factor`, and the
+dynamic pH drives `NH3_free`. DIC is held constant (CO₂ gas exchange is out of
+scope, §0).
 
 ## 2. Auxiliary (derived, not integrated)
 
@@ -140,13 +155,24 @@ dX_NOB/dt = growth_NOB · (1 − X_NOB/X_NOB_max) − b_NOB · X_NOB
 colonisation S-curve: tiny seed → weeks of logistic growth → plateau.
 Oxidation flux ρ is **not** capped (a mature filter keeps oxidising at full rate).
 
-### 3.4 NO₃ sinks (Tier-2)
+### 3.4 N sinks (Tier-2, implemented v0.5)
+Plant uptake (`processes.plant_uptake`) — macrophytes/algae assimilate N,
+preferring ammonium; logistic-capped at `B_plant_max`, decay mineralises back
+to TAN (so dissolved + plant N is **conserved**):
 ```
-U_plant = θ · v_plant · B_plant · M(NO3, K_NO3) · light(t) / V           [mg-N/L/day]
-r_denit = θ · k_denit · M(NO3, K_NO3d) · [K_O_inh/(K_O_inh + DO)]        [mg-N/L/day]
+base   = mu_plant · B_plant · (1 − B_plant/B_plant_max)
+U_TAN  = base · M(TAN, K_plant_N)
+U_NO3  = base · f_no3_pref · M(NO3, K_plant_N)         [mg-N/L/day]
+dB_plant = (U_TAN + U_NO3) − b_plant·B_plant
 ```
-Denitrification is O₂-inhibited — small in a well-aerated tank (a teaching
-caveat on model assumptions).
+Denitrification (`processes.denitrification_flux`) — first-order in nitrate,
+O₂-**inhibited** (anoxic microsites); this nitrogen leaves as N₂ gas and is the
+one process that genuinely breaks dissolved-N conservation:
+```
+r_denit = k_denit · NO3 · [K_O_denit/(K_O_denit + DO)]   [mg-N/L/day]
+```
+Both vanish at the defaults (`mu_plant=0`, `k_denit=0`). Light forcing is not
+modelled (a teaching caveat — uptake is light-implicit).
 
 ### 3.5 Oxygen balance (v0.2 stoichiometry fix)
 Mass-based O₂ demand of nitrification: **3.43 g-O₂/g-N** for NH₄-N→NO₂-N,
@@ -241,6 +267,14 @@ Nitrification consumes **7.14 g CaCO₃ alkalinity per g-N** — so high feeding
 → nitrification → alkalinity drop → pH drop → NH₃-fraction shift. This closes
 the toxicity loop and is the Hour-4 capstone.
 
+**Two modes (v0.5):** by default this runs *diagnostically* (post-hoc on a
+finished Tier-1 run, `carbonate.diagnostic_ph_trajectory`) — pH does not feed
+back. With **`couple_ph>0`** it runs *fully coupled*: DIC/Alk are integrated
+state (§1), Alk is consumed inside the RHS, pH is solved each step and throttles
+nitrification (`nitrification_ph_factor`), so a crashing buffer self-limits the
+cycle (nitrate plateaus instead of running away). The coupled mode was the
+SPEC's deferred research step; it is now an opt-in capability, not the default.
+
 ## 5. Discrete events — solver segmentation
 
 The continuous ODE is integrated **between** event times; at each event
@@ -253,9 +287,13 @@ boundary the solver stops, applies an instantaneous state map, and restarts
 | `ammonia_dose(rate_mg_n_l_day)` | sets a constant TAN source for the segment (fishless cycle; Hour 2) |
 | `feed(amount_g, repeat_days)` | sets `F(t)` daily rate → drives `E_TAN` (Hour 3) |
 | `water_change(fraction f)` | dissolved `c ← c·(1−f) + c_tap·f` for TAN/NO2/NO3/DO; **attached X unchanged** |
-| `add_fish(species,n,length)` | `B_fish +=`, raises baseline excretion/respiration |
-| `add_plants(species,mass)` | `B_plant +=` |
-| `dose(chemical,amount)` | bumps the relevant state (e.g. `Alk +=` for buffer) |
+| `wipe_biofilm(fraction f)` | attached `X_AOB,X_NOB ← X·(1−f)`; **dissolved pool unchanged** — the mirror of a water change (washed media / medication) |
+| `set_param(target, value)` | retargets one physical/forcing param (`k_a`, `DO_sat`, `temperature_c`, `R_fish`, `ph`) for the next segment — time-varying drivers (power outage, heat wave). Kinetic constants are not settable. |
+| `dose(chemical,amount)` | bumps the relevant state (e.g. `Alk +=` for buffer dosing) |
+
+`add_fish`/`add_plants` are not separate event kinds: fish load is set through
+`feed`/`R_fish` and the ABM `fish_count`; plant biomass is seeded via the
+`B_plant` initial state.
 
 **Mechanics specified**: events sort by `(day, priority)`; same-day events
 apply in priority order (water_change before feed before dose); `c_tap` is
@@ -306,7 +344,7 @@ range, §11). All overridable per-scenario.
 | module | tag | holds | exposes |
 |---|---|---|---|
 | `state.py` | core | `Chemistry`, `Params` dataclasses | `.to_vector()/.from_vector()`, `nh3_free_fraction()` |
-| `processes.py` | core | (stateless) | `monod()`, `oxidation_fluxes()`, `derivatives(t,y,p)` |
+| `processes.py` | core | (stateless) | `monod()`, `oxidation_fluxes()`, `derivatives(t,y,p)`, `plant_uptake()`, `denitrification_flux()`, `effective_ph()`, `nitrification_ph_factor()` |
 | `solver.py` | core | (stateless) | `simulate(chemistry, params, days, schedule)->Result`: segment loop over events + `solve_ivp` |
 | `events.py` | core | `Event`, `EventSchedule`, `TapWater` | `apply_event(chemistry, params, event, tap)` |
 | `agent.py` | core | `FishAgent`, `MicrobePatch` | `simulate_agent_based_model(scenario)->dict`: seeded ABM over fish individuals + AOB/NOB patches |
@@ -356,13 +394,28 @@ fish die its nitrate falls below the ODE's, a deliberate teaching contrast),
 abiotic fishless cycles use `ammonia_dose`, and stocked tanks meant to survive
 start from an established biofilm.
 
+The library has **16** scenarios (v0.5): the 5 nitrogen-cycle lifecycle cases,
+4 operations/failure modes exercising the new events, and 4 Tier-2 ecology
+cases (the rest below). Every preset has a matching `examples/fishtank/*.yaml`.
+
 | scenario | teaching point |
 |---|---|
 | `fishless_cycle` (default) | classic TAN→NO₂→NO₃ cascade; no fish at risk |
 | `seeded_instant_cycle` | mature seeded media suppresses the spike |
 | `fish_in_disaster` | fish stocked into an uncycled tank → ammonia toxicity, mass mortality |
 | `mature_stocked_tank` | established filter + moderate feeding + weekly water changes → all fish survive |
-| `old_tank_syndrome` | low-alkalinity heavy load → carbonate buffer exhausted → pH crash (Hour-4 capstone) |
+| `old_tank_syndrome` | low-alkalinity heavy load → carbonate buffer exhausted → pH crash (diagnostic) |
+| `low_oxygen` | under-aeration (`k_a`↓) → O₂-limited nitrification stalls (NO₃ ~6.6 not ~88) |
+| `staged_stocking` | feeding ramped in steps → biofilm keeps pace, free NH₃ stays safe |
+| `nitrate_control` | weekly water changes export nitrate (~45 vs ~88) |
+| `filter_crash` | `wipe_biofilm` (washed media / medication) → ammonia rebound then recolonise |
+| `power_outage` | `set_param k_a` blackout then restore → DO crashes and recovers |
+| `heat_wave` | `set_param temperature_c` 25→32 → free-NH₃ fraction jumps (~0.14→0.23) |
+| `overfeeding` | thin biofilm + heavy feed → ammonia/oxygen stress |
+| `planted_tank` | plant uptake on → N sink draws nitrate down (partial); plants grow |
+| `denitrification_substrate` | `k_denit` on, low O₂ → NO₃→N₂ removed (~5 vs ~38) |
+| `ph_crash_coupled` | `couple_ph` on → pH self-limits nitrification (NO₃ ~13 vs ~184 diagnostic) |
+| `buffer_dosing` | `dose→Alk` weekly holds the buffer → nitrification sustained (NO₃ ~30) |
 
 ## 9. Output contract
 
