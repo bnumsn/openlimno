@@ -74,11 +74,16 @@ def calibrate_cmd(observation: str, scenario_yaml: str | None, fit_names: tuple[
     chemistry = Chemistry()
     params = Params()
     days = None
+    schedule = None
     if scenario_yaml:
         scenario = load_scenario(scenario_yaml)
         chemistry = scenario.chemistry
         params = scenario.params
         days = scenario.days
+        # Honour the scenario's keeper events (water changes, feeding) during
+        # the fit — a real aquarium log was produced under those actions, so
+        # the simulated trajectory must replay them or the fit is biased.
+        schedule = scenario.schedule
     bounds = tuple((0.1, 1.5) for _ in fit_names)
     result = fit(
         obs,
@@ -87,6 +92,7 @@ def calibrate_cmd(observation: str, scenario_yaml: str | None, fit_names: tuple[
         fit_names=fit_names,
         bounds=bounds,
         days=days,
+        schedule=schedule,
     )
     best = ", ".join(f"{name}={value:.4g}" for name, value in result.best_params.items())
     status = "converged" if result.converged else f"not converged: {result.message}"

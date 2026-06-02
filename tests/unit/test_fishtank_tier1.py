@@ -349,6 +349,35 @@ def test_calibration_rmse_normalises_across_variables() -> None:
     assert rmse(merged) == pytest.approx(1.0, abs=0.01)
 
 
+def test_calibration_honours_event_schedule() -> None:
+    """A real aquarium log is produced under keeper events (water changes,
+    feeding). The fit's simulated trajectory must replay the supplied
+    ``schedule`` — otherwise it aligns an event-free run against
+    event-affected observations and the objective is silently wrong."""
+    from openlimno.fishtank.calibration import fit
+    from openlimno.fishtank.events import Event, EventSchedule
+    from openlimno.fishtank.solver import simulate
+
+    base = Params(ammonia_dose_mg_n_l_day=2.0)
+    schedule = EventSchedule(
+        events=[
+            Event(day=0.0, kind="ammonia_dose", value=2.0),
+            Event(day=15.0, kind="water_change", value=0.9),  # 90% change
+        ],
+    )
+    # Synthetic "observed" log generated WITH the water change.
+    truth = simulate(Chemistry(), base, days=30, schedule=schedule).timeseries
+    obs = truth[truth["day"].isin([5, 10, 14, 20, 25, 30])][["day", "TAN", "NO2", "NO3"]]
+
+    # Fitting WITH the schedule reproduces the log near-perfectly...
+    with_sched = fit(obs, base_params=base, schedule=schedule, days=30.0)
+    # ...while dropping it leaves a visibly worse fit (the post-WC NO3 drop
+    # is missing), confirming the schedule actually drives the objective.
+    without_sched = fit(obs, base_params=base, days=30.0)
+    assert with_sched.best_rmse < without_sched.best_rmse
+    assert with_sched.best_rmse < 0.05
+
+
 # --- Hour-4: carbonate / pH (Tier-2) ------------------------------------
 
 

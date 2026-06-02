@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
+from .events import EventSchedule
 from .solver import simulate
 from .state import Chemistry, Params
 
@@ -86,10 +87,16 @@ def fit(
     fit_names: Sequence[str] = ("mu_AOB", "mu_NOB"),
     bounds: Sequence[tuple[float, float]] = ((0.1, 1.5), (0.1, 1.5)),
     days: float | None = None,
+    schedule: EventSchedule | None = None,
 ) -> CalibrationResult:
     """Fit ``fit_names`` parameters to minimise normalised RMSE vs the
     observed log. Defaults fit the two most-sensitive nitrification
-    growth rates (Hour-3 sensitivity lesson)."""
+    growth rates (Hour-3 sensitivity lesson).
+
+    ``schedule`` MUST mirror the keeper actions behind the observed log
+    (water changes, feeding, dose changes). A real aquarium log always
+    carries such events; omitting them aligns an event-free simulation
+    against event-affected observations and silently biases the fit."""
     if "day" not in observation.columns:
         raise ValueError("observation frame needs a 'day' column")
     if len(fit_names) != len(bounds):
@@ -103,7 +110,7 @@ def fit(
         nonlocal n_eval
         n_eval += 1
         p = base.with_overrides(**dict(zip(fit_names, (float(v) for v in x), strict=True)))
-        sim = simulate(chem, p, days=horizon).timeseries
+        sim = simulate(chem, p, days=horizon, schedule=schedule).timeseries
         return rmse(align(sim, observation))
 
     try:
