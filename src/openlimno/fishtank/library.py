@@ -344,6 +344,48 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
             events=[{"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0}],
         ),
     },
+    "ph_crash_coupled": {
+        "label": "pH crash — fully coupled (Tier-2 research)",
+        "description": (
+            "The old-tank crash with pH FULLY COUPLED (couple_ph on): "
+            "nitrification eats alkalinity, the solved pH falls from ~7.4 to "
+            "~6.0, and the low pH then throttles the nitrifiers — so nitrate "
+            "self-limits at ~13 mg-N/L instead of running to ~184 in the "
+            "diagnostic-only old_tank_syndrome. This is the feedback the "
+            "diagnostic version omits, and the SPEC's research-grade step."
+        ),
+        "payload": _scenario(
+            "ph-crash-coupled",
+            days=60.0,
+            chemistry={"X_AOB": 2.5, "X_NOB": 2.5, "DIC": 2.0, "Alk": 1.85},
+            ammonia_dose=3.0,
+            extra_params={"couple_ph": 1.0},
+            carbonate=(1.85, 2.0),
+            events=[{"day": 0.0, "kind": "ammonia_dose", "value": 3.0, "target": "", "repeat_days": 0.0}],
+        ),
+    },
+    "buffer_dosing": {
+        "label": "Buffer dosing (rescue the pH crash, Tier-2)",
+        "description": (
+            "The same coupled crash, but the keeper doses alkalinity (+0.5 "
+            "meq/L weekly via a dose→Alk event). Holding the buffer up keeps "
+            "nitrification running: nitrate sustains ~30 mg-N/L vs ~13 with no "
+            "dosing — the management fix for old-tank pH collapse, and a demo "
+            "of dosing a Tier-2 carbonate state directly."
+        ),
+        "payload": _scenario(
+            "buffer-dosing",
+            days=60.0,
+            chemistry={"X_AOB": 2.5, "X_NOB": 2.5, "DIC": 2.0, "Alk": 1.85},
+            ammonia_dose=3.0,
+            extra_params={"couple_ph": 1.0},
+            carbonate=(1.85, 2.0),
+            events=[
+                {"day": 0.0, "kind": "ammonia_dose", "value": 3.0, "target": "", "repeat_days": 0.0},
+                {"day": 7.0, "kind": "dose", "value": 0.5, "target": "Alk", "repeat_days": 7.0},
+            ],
+        ),
+    },
 }
 
 

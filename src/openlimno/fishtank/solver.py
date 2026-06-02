@@ -260,10 +260,34 @@ def _output_grid(days: float, dt_output_hours: float) -> np.ndarray:
 def _build_timeseries(times: list[float], states: list[list[float]], p: Params) -> pd.DataFrame:
     df = pd.DataFrame(states, columns=list(STATE_ORDER))
     df.insert(0, "day", times)
-    f_free = nh3_free_fraction(p.ph, p.temperature_c)
-    df["NH3_free"] = (df["TAN"].clip(lower=0.0) * f_free).round(6)
-    df["pH"] = p.ph
+    if p.couple_ph > 0.0:
+        # Coupled Tier-2: pH is the integrated carbonate state, solved per row
+        # from (DIC, Alk, T), so the toxic free-NH3 fraction tracks the drift.
+        from .carbonate import ph_from_dic_alk
+
+        ph_series = [
+            _safe_ph(ph_from_dic_alk, float(dic), float(alk), p.temperature_c, p.ph)
+            for dic, alk in zip(df["DIC"], df["Alk"], strict=True)
+        ]
+        df["pH"] = [round(v, 4) for v in ph_series]
+        df["NH3_free"] = [
+            round(max(tan, 0.0) * nh3_free_fraction(ph, p.temperature_c), 6)
+            for tan, ph in zip(df["TAN"], ph_series, strict=True)
+        ]
+    else:
+        f_free = nh3_free_fraction(p.ph, p.temperature_c)
+        df["NH3_free"] = (df["TAN"].clip(lower=0.0) * f_free).round(6)
+        df["pH"] = p.ph
     return df
+
+
+def _safe_ph(solver: Any, dic: float, alk: float, temperature_c: float, fallback: float) -> float:
+    """pH from the carbonate solver, falling back to the scenario pH if the
+    buffer is driven outside the solvable bracket (mirrors processes)."""
+    try:
+        return solver(dic, alk, temperature_c)
+    except ValueError:
+        return fallback
 
 
 def _build_warnings(df: pd.DataFrame) -> list[str]:

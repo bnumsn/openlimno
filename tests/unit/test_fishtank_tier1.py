@@ -119,9 +119,13 @@ def test_params_with_overrides_rejects_unknown() -> None:
 
 
 def test_state_vector_roundtrip() -> None:
-    c = Chemistry(TAN=1.5, NO2=0.3, NO3=12.0, X_AOB=2.0, X_NOB=1.0, DO=6.5, B_plant=4.0)
+    c = Chemistry(
+        TAN=1.5, NO2=0.3, NO3=12.0, X_AOB=2.0, X_NOB=1.0, DO=6.5,
+        B_plant=4.0, DIC=2.2, Alk=1.8,
+    )
     v = c.to_vector()
-    assert v == [1.5, 0.3, 12.0, 2.0, 1.0, 6.5, 4.0]   # B_plant (Tier-2) appended
+    # Tier-2 pools (B_plant, DIC, Alk) appended after the Tier-1 core.
+    assert v == [1.5, 0.3, 12.0, 2.0, 1.0, 6.5, 4.0, 2.2, 1.8]
     assert Chemistry.from_vector(v) == c
 
 
@@ -491,6 +495,47 @@ def test_denitrification_removes_nitrogen_as_gas() -> None:
     assert n_end < 5.0 + 2.0 * 42.0          # N genuinely lost (no B_plant here)
 
 
+def test_coupled_ph_self_limits_nitrification() -> None:
+    """With couple_ph on, nitrification eats alkalinity, the solved pH falls,
+    and the low pH throttles the nitrifiers — so nitrate self-limits far below
+    the diagnostic (uncoupled) run where pH never feeds back."""
+    chem = Chemistry(X_AOB=2.5, X_NOB=2.5, DIC=2.0, Alk=1.85)
+    coupled = simulate(chem, Params(ammonia_dose_mg_n_l_day=3.0, couple_ph=1.0), days=60)
+    uncoupled = simulate(chem, Params(ammonia_dose_mg_n_l_day=3.0), days=60)
+    dc = coupled.timeseries
+    # pH is now a solved, falling trajectory (not the fixed scenario pH).
+    assert dc["pH"].iloc[0] > 7.0 > dc["pH"].iloc[-1]
+    assert (dc["pH"].diff().dropna() <= 1e-6).all()          # monotone crash
+    # Self-limiting: coupled nitrate ends far below the uncoupled run.
+    assert float(dc["NO3"].iloc[-1]) < 0.3 * float(uncoupled.timeseries["NO3"].iloc[-1])
+    # The free-NH3 column tracks the dynamic (not fixed) pH.
+    assert dc["NH3_free"].iloc[-1] != pytest.approx(
+        dc["TAN"].iloc[-1] * nh3_free_fraction(7.4, 25.0)
+    )
+
+
+def test_buffer_dosing_sustains_nitrification() -> None:
+    """Dosing alkalinity (a dose→Alk event) into the coupled crash holds the
+    buffer up enough to keep nitrification running — more nitrate than the
+    un-dosed coupled crash."""
+    from openlimno.fishtank.events import Event, EventSchedule, TapWater
+
+    chem = Chemistry(X_AOB=2.5, X_NOB=2.5, DIC=2.0, Alk=1.85)
+    p = Params(ammonia_dose_mg_n_l_day=3.0, couple_ph=1.0)
+    dosed = simulate(
+        chem, p, days=60,
+        schedule=EventSchedule(
+            events=[Event(0.0, "ammonia_dose", 3.0), Event(7.0, "dose", 0.5, target="Alk", repeat_days=7.0)],
+            tap_water=TapWater(),
+        ),
+    )
+    crash = simulate(
+        chem, p, days=60,
+        schedule=EventSchedule(events=[Event(0.0, "ammonia_dose", 3.0)], tap_water=TapWater()),
+    )
+    assert float(dosed.timeseries["NO3"].iloc[-1]) > 1.5 * float(crash.timeseries["NO3"].iloc[-1])
+
+
 # --- Hour-4: carbonate / pH (Tier-2) ------------------------------------
 
 
@@ -812,9 +857,11 @@ def test_scenario_library_default_is_fishless() -> None:
         "power_outage",
         "heat_wave",
         "overfeeding",
-        # Tier-2 ecology (plant uptake / denitrification)
+        # Tier-2 ecology (plant uptake / denitrification / coupled pH)
         "planted_tank",
         "denitrification_substrate",
+        "ph_crash_coupled",
+        "buffer_dosing",
     }
     assert DEFAULT_SCENARIO == "fishless_cycle"
     assert default_studio_payload() == scenario_payload("fishless_cycle")
@@ -993,6 +1040,8 @@ def test_example_scenario_files_validate() -> None:
         "overfeeding",
         "planted_tank",
         "denitrification_substrate",
+        "ph_crash_coupled",
+        "buffer_dosing",
     }
     # Every library preset must ship a matching CLI example file (and vice
     # versa) so "open in the Studio" and "run from the CLI" stay in lockstep.
