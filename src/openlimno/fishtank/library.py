@@ -308,6 +308,42 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
             events=[{"day": 0.0, "kind": "feed", "value": 8.0, "target": "", "repeat_days": 0.0}],
         ),
     },
+    "planted_tank": {
+        "label": "Planted tank (plants as a nitrogen sink, Tier-2)",
+        "description": (
+            "A dosed tank with live plants (Tier-2 plant uptake on): the plant "
+            "nitrogen pool grows from 3 toward its ~15 mg-N/L cap, drawing the "
+            "final nitrate down to ~77 vs ~88 with no plants. Plants prefer "
+            "ammonium, so they also shave the free-NH3 peak. The lesson: plants "
+            "are a real N sink, but a partial one — they reduce, not erase, "
+            "nitrate. Only the ODE models plants; the ABM panel has none."
+        ),
+        "payload": _scenario(
+            "planted-tank",
+            chemistry={"X_AOB": 2.5, "X_NOB": 2.5, "NO3": 10.0, "B_plant": 3.0},
+            ammonia_dose=2.0,
+            extra_params={"mu_plant": 1.0, "B_plant_max": 15.0},
+            events=[{"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0}],
+        ),
+    },
+    "denitrification_substrate": {
+        "label": "Denitrification (anoxic substrate removes nitrate, Tier-2)",
+        "description": (
+            "A deep-substrate / low-flow tank where anoxic microsites host "
+            "denitrifiers (Tier-2 k_denit on). With reaeration low, NO3 is "
+            "converted to N2 gas and leaves the system: final nitrate falls to "
+            "~5 vs ~38 mg-N/L. This is the one process that genuinely removes "
+            "nitrogen from a closed tank — the chemistry behind a working "
+            "deep-sand-bed or planted-substrate refugium."
+        ),
+        "payload": _scenario(
+            "denitrification-substrate",
+            chemistry={"X_AOB": 2.5, "X_NOB": 2.5},
+            ammonia_dose=2.0,
+            extra_params={"k_denit": 0.15, "k_a": 0.6},
+            events=[{"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0}],
+        ),
+    },
 }
 
 

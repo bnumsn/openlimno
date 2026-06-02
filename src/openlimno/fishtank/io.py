@@ -60,6 +60,7 @@ _CHEMISTRY_ALIASES = {
     "X_AOB": ("X_AOB", "x_aob", "x_aob_mg_l"),
     "X_NOB": ("X_NOB", "x_nob", "x_nob_mg_l"),
     "DO": ("DO", "do", "do_mg_l"),
+    "B_plant": ("B_plant", "b_plant", "b_plant_mg_n_l"),
 }
 
 _TAP_ALIASES = {

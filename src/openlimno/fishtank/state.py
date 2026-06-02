@@ -10,7 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 
 # Fixed state-vector order. processes.derivatives unpacks in THIS order.
-STATE_ORDER = ("TAN", "NO2", "NO3", "X_AOB", "X_NOB", "DO")
+# Indices 0-5 are the Tier-1 nitrogen/oxygen core; B_plant (idx 6) is the
+# Tier-2 plant nitrogen pool, inert unless mu_plant>0 (SPEC §4). DIC/Alk are
+# added by the Tier-2 carbonate-coupling extension; B_fish stays ABM-only.
+STATE_ORDER = ("TAN", "NO2", "NO3", "X_AOB", "X_NOB", "DO", "B_plant")
 
 
 @dataclass
@@ -24,6 +27,7 @@ class Chemistry:
     X_AOB: float = 0.02   # ammonia-oxidiser biomass (attached)  [mg/L]
     X_NOB: float = 0.02   # nitrite-oxidiser biomass (attached)  [mg/L]
     DO: float = 7.5       # dissolved oxygen                     [mg-O2/L]
+    B_plant: float = 0.0  # plant nitrogen pool (Tier-2)         [mg-N/L]
 
     def to_vector(self) -> list[float]:
         return [getattr(self, name) for name in STATE_ORDER]
@@ -66,6 +70,15 @@ class Params:
     # --- Tier-1 TAN sources (additive: total source = abiotic dose + feed) ---
     ammonia_dose_mg_n_l_day: float = 2.0   # abiotic bottled-ammonia dose [mg-N/L/day]
     feed_dose_mg_n_l_day: float = 0.0      # feed-derived TAN source (set by feed events) [mg-N/L/day]
+    # --- Tier-2 plant nitrogen uptake (all 0 ⇒ no plants, Tier-1 unchanged) ---
+    mu_plant: float = 0.0      # plant N-uptake max specific rate [1/day]
+    K_plant_N: float = 0.3     # half-sat for plant N uptake      [mg-N/L]
+    B_plant_max: float = 8.0   # plant N pool carrying capacity   [mg-N/L]
+    b_plant: float = 0.02      # plant decay → mineralised to TAN [1/day]
+    f_no3_pref: float = 0.4    # NO3 uptake relative to NH4 (plants prefer NH4) [-]
+    # --- Tier-2 denitrification (k_denit=0 ⇒ no anoxic N loss, Tier-1) ---
+    k_denit: float = 0.0       # 1st-order NO3→N2 loss rate       [1/day]
+    K_O_denit: float = 0.3     # O2 half-INHIBITION for denit     [mg-O2/L]
 
     def with_overrides(self, **kw: float) -> Params:
         valid = {f.name for f in fields(self)}

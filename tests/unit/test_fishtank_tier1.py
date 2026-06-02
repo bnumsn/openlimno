@@ -119,9 +119,9 @@ def test_params_with_overrides_rejects_unknown() -> None:
 
 
 def test_state_vector_roundtrip() -> None:
-    c = Chemistry(TAN=1.5, NO2=0.3, NO3=12.0, X_AOB=2.0, X_NOB=1.0, DO=6.5)
+    c = Chemistry(TAN=1.5, NO2=0.3, NO3=12.0, X_AOB=2.0, X_NOB=1.0, DO=6.5, B_plant=4.0)
     v = c.to_vector()
-    assert v == [1.5, 0.3, 12.0, 2.0, 1.0, 6.5]
+    assert v == [1.5, 0.3, 12.0, 2.0, 1.0, 6.5, 4.0]   # B_plant (Tier-2) appended
     assert Chemistry.from_vector(v) == c
 
 
@@ -442,6 +442,53 @@ def test_calibration_honours_event_schedule() -> None:
     # error stays large and mu_NOB is pulled off the true value.
     without_sched = fit(obs, base_params=start, days=30.0)
     assert without_sched.best_rmse > 10.0 * with_sched.best_rmse + 0.05
+
+
+# --- Tier-2 ODE: plant uptake + denitrification -------------------------
+
+
+def test_tier1_unchanged_when_tier2_terms_off() -> None:
+    """The Tier-2 state/params must be inert at their defaults: a default
+    run reproduces the historical Tier-1 cascade exactly and B_plant stays 0."""
+    df = simulate(Chemistry(), Params(), days=42).timeseries
+    assert "B_plant" in df.columns
+    assert (df["B_plant"] == 0.0).all()
+    assert float(df["TAN"].max()) == pytest.approx(10.04, abs=0.1)
+    assert float(df["NO3"].iloc[-1]) == pytest.approx(88.3, abs=0.5)
+
+
+def test_plant_uptake_is_a_conserving_nitrogen_sink() -> None:
+    """Plants draw nitrate down vs the no-plant baseline, and total nitrogen
+    (dissolved + plant pool) is still conserved (uptake only moves N between
+    pools — it is NOT a loss term, unlike denitrification)."""
+    c = Chemistry(X_AOB=2.5, X_NOB=2.5, NO3=10.0, B_plant=3.0)
+    planted = simulate(c, Params(ammonia_dose_mg_n_l_day=2.0, mu_plant=1.0, B_plant_max=15.0), days=42)
+    bare = simulate(
+        Chemistry(X_AOB=2.5, X_NOB=2.5, NO3=10.0),
+        Params(ammonia_dose_mg_n_l_day=2.0), days=42,
+    )
+    dfp = planted.timeseries
+    assert float(dfp["NO3"].iloc[-1]) < float(bare.timeseries["NO3"].iloc[-1]) - 5.0
+    assert float(dfp["B_plant"].iloc[-1]) > 5.0                       # plants grew
+    assert float(dfp["B_plant"].max()) <= 15.0 + 1e-6                 # capped
+    # Conservation: N_in = dose·days; final total N = initial + N_in.
+    n0 = c.TAN + c.NO2 + c.NO3 + c.B_plant
+    n_end = float(dfp[["TAN", "NO2", "NO3", "B_plant"]].iloc[-1].sum())
+    assert n_end == pytest.approx(n0 + 2.0 * 42.0, rel=1e-3)
+
+
+def test_denitrification_removes_nitrogen_as_gas() -> None:
+    """Denitrification is the one process that genuinely VOIDS nitrogen (N2
+    outgassing), so final dissolved N falls below initial + dose — the
+    conservation law that holds for every other Tier-1/2 path is broken here,
+    on purpose. It needs low oxygen (anoxic) to switch on."""
+    p = Params(ammonia_dose_mg_n_l_day=2.0, k_denit=0.15, k_a=0.6)
+    r = simulate(Chemistry(X_AOB=2.5, X_NOB=2.5), p, days=42)
+    df = r.timeseries
+    bare = simulate(Chemistry(X_AOB=2.5, X_NOB=2.5), Params(ammonia_dose_mg_n_l_day=2.0, k_a=0.6), days=42)
+    assert float(df["NO3"].iloc[-1]) < float(bare.timeseries["NO3"].iloc[-1]) - 10.0
+    n_end = float(df[["TAN", "NO2", "NO3"]].iloc[-1].sum())
+    assert n_end < 5.0 + 2.0 * 42.0          # N genuinely lost (no B_plant here)
 
 
 # --- Hour-4: carbonate / pH (Tier-2) ------------------------------------
@@ -765,6 +812,9 @@ def test_scenario_library_default_is_fishless() -> None:
         "power_outage",
         "heat_wave",
         "overfeeding",
+        # Tier-2 ecology (plant uptake / denitrification)
+        "planted_tank",
+        "denitrification_substrate",
     }
     assert DEFAULT_SCENARIO == "fishless_cycle"
     assert default_studio_payload() == scenario_payload("fishless_cycle")
@@ -941,6 +991,8 @@ def test_example_scenario_files_validate() -> None:
         "power_outage",
         "heat_wave",
         "overfeeding",
+        "planted_tank",
+        "denitrification_substrate",
     }
     # Every library preset must ship a matching CLI example file (and vice
     # versa) so "open in the Studio" and "run from the CLI" stay in lockstep.
