@@ -50,24 +50,32 @@ def _scenario(
     *,
     ph: float = 7.4,
     days: float = 42.0,
+    temperature_c: float = 25.0,
     chemistry: dict[str, float] | None = None,
     ammonia_dose: float = 0.0,
+    extra_params: dict[str, float] | None = None,
     carbonate: tuple[float, float] = (2.5, 2.5),
     fish_count: int = 0,
     feed_g_day: float = 0.0,
     events: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Assemble one coherent full Studio payload (ODE + ABM + carbonate)."""
+    """Assemble one coherent full Studio payload (ODE + ABM + carbonate).
+
+    ``extra_params`` merges into the ODE/ABM ``parameters`` block (e.g.
+    ``{"k_a": 0.3}`` for a poorly-aerated tank) so a preset can tune any
+    kinetic/physical constant, not just the ammonia dose."""
 
     chem = {"TAN": 0.0, "NO2": 0.0, "NO3": 5.0, "X_AOB": 0.02, "X_NOB": 0.02, "DO": 7.5}
     chem.update(chemistry or {})
+    params: dict[str, float] = {"ammonia_dose_mg_n_l_day": ammonia_dose}
+    params.update(extra_params or {})
     alk, dic = carbonate
     return {
         "scenario_id": scenario_id,
-        "tank": {"volume_l": 120.0, "temperature_c": 25.0, "ph": ph},
+        "tank": {"volume_l": 120.0, "temperature_c": temperature_c, "ph": ph},
         "run": {"days": days, "dt_output_hours": 6.0},
         "chemistry": chem,
-        "parameters": {"ammonia_dose_mg_n_l_day": ammonia_dose},
+        "parameters": params,
         "tap_water": {"TAN": 0.0, "NO2": 0.0, "NO3": 5.0, "DO": 8.5},
         "carbonate": {"initial_alk_meq_l": alk, "dic_mmol_l": dic},
         "agents": {
@@ -167,6 +175,137 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
             ammonia_dose=3.0,
             carbonate=(1.0, 1.2),
             events=[{"day": 0.0, "kind": "ammonia_dose", "value": 3.0, "target": "", "repeat_days": 0.0}],
+        ),
+    },
+    "low_oxygen": {
+        "label": "Low oxygen (under-aerated tank)",
+        "description": (
+            "Same fishless dose, but a weak filter / no airstone: reaeration "
+            "k_a is cut from 2.0 to 0.3 /day. DO crashes toward zero and — "
+            "because nitrification is O2-limited via the M(DO) terms — the "
+            "cycle stalls: NO3 reaches only ~6.6 mg-N/L over 42 days instead "
+            "of ~88. The lesson: oxygen, not just ammonia, gates nitrification."
+        ),
+        "payload": _scenario(
+            "low-oxygen",
+            ammonia_dose=2.0,
+            extra_params={"k_a": 0.3},
+            events=[{"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0}],
+        ),
+    },
+    "staged_stocking": {
+        "label": "Staged stocking (add fish gradually)",
+        "description": (
+            "The right way to add fish to a lightly-seeded tank: feeding ramps "
+            "up in steps (0.5 → 1.5 → 3.0 g/day at days 0/14/28) so the biofilm "
+            "keeps pace. Free NH3 stays ~0.006 mg/L (well under the 0.05 stress "
+            "line) — the safe counterpoint to the fish-in disaster."
+        ),
+        "payload": _scenario(
+            "staged-stocking",
+            chemistry={"X_AOB": 0.5, "X_NOB": 0.5},
+            fish_count=6,
+            feed_g_day=0.5,
+            events=[
+                {"day": 0.0, "kind": "feed", "value": 0.5, "target": "", "repeat_days": 0.0},
+                {"day": 14.0, "kind": "feed", "value": 1.5, "target": "", "repeat_days": 0.0},
+                {"day": 28.0, "kind": "feed", "value": 3.0, "target": "", "repeat_days": 0.0},
+            ],
+        ),
+    },
+    "nitrate_control": {
+        "label": "Nitrate control (weekly water change)",
+        "description": (
+            "An established tank dosed at 2 mg-N/L/day with a weekly 30% water "
+            "change. The change can't touch the attached biofilm, but it does "
+            "export accumulated nitrate: NO3 ends ~45 mg-N/L instead of ~88 "
+            "with no changes. Why routine water changes are the nitrate brake."
+        ),
+        "payload": _scenario(
+            "nitrate-control",
+            chemistry={"X_AOB": 2.5, "X_NOB": 2.5},
+            ammonia_dose=2.0,
+            events=[
+                {"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0},
+                {"day": 7.0, "kind": "water_change", "value": 0.30, "target": "", "repeat_days": 7.0},
+            ],
+        ),
+    },
+    "filter_crash": {
+        "label": "Filter crash (washed media / medication)",
+        "description": (
+            "A mature stocked tank whose biofilm is wiped 85% on day 20 — the "
+            "classic mistake of rinsing filter media under chlorinated tap "
+            "water, or an antibiotic that kills nitrifiers. Ammonia and nitrite "
+            "rebound until the colony re-establishes. Demonstrates the new "
+            "wipe_biofilm event: the mirror of a water change."
+        ),
+        "payload": _scenario(
+            "filter-crash",
+            chemistry={"X_AOB": 2.5, "X_NOB": 2.5, "NO3": 10.0},
+            fish_count=6,
+            feed_g_day=1.2,
+            events=[
+                {"day": 0.0, "kind": "feed", "value": 1.2, "target": "", "repeat_days": 0.0},
+                {"day": 20.0, "kind": "wipe_biofilm", "value": 0.85, "target": "", "repeat_days": 0.0},
+            ],
+        ),
+    },
+    "power_outage": {
+        "label": "Power outage (aeration lost then restored)",
+        "description": (
+            "A two-day blackout: reaeration k_a is cut to 0.2 /day on day 10 "
+            "and restored to 2.0 on day 12 via set_param events. DO plunges "
+            "toward zero during the outage, then recovers — the transient that "
+            "kills fish overnight when the air pump stops. Shows time-varying "
+            "drivers (set_param), not just instantaneous state bumps."
+        ),
+        "payload": _scenario(
+            "power-outage",
+            chemistry={"X_AOB": 1.5, "X_NOB": 1.5},
+            ammonia_dose=2.0,
+            days=25.0,
+            events=[
+                {"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0},
+                {"day": 10.0, "kind": "set_param", "value": 0.2, "target": "k_a", "repeat_days": 0.0},
+                {"day": 12.0, "kind": "set_param", "value": 2.0, "target": "k_a", "repeat_days": 0.0},
+            ],
+        ),
+    },
+    "heat_wave": {
+        "label": "Heat wave (temperature step raises toxicity)",
+        "description": (
+            "A fishless cycle where temperature steps from 25 to 32 °C on day "
+            "15. Warmer water shifts the ammonia pKa, so the toxic free-NH3 "
+            "fraction of the same TAN jumps — the peak free NH3 rises from "
+            "~0.14 to ~0.23 mg/L. Why a heat wave turns a survivable tank "
+            "lethal without any change in total ammonia."
+        ),
+        "payload": _scenario(
+            "heat-wave",
+            ammonia_dose=2.0,
+            events=[
+                {"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0},
+                {"day": 15.0, "kind": "set_param", "value": 32.0, "target": "temperature_c", "repeat_days": 0.0},
+            ],
+        ),
+    },
+    "overfeeding": {
+        "label": "Overfeeding (too much food, weak biofilm)",
+        "description": (
+            "Six fish in a barely-cycled tank (X≈0.3) fed a heavy 8 g/day. "
+            "Excretion outpaces the thin biofilm: free NH3 peaks ~0.026 mg/L "
+            "and DO is drawn down hard. The fish hang on but stay stressed — "
+            "the everyday version of 'I just fed them more and the water went "
+            "bad', distinct from the uncycled fish-in disaster."
+        ),
+        "payload": _scenario(
+            "overfeeding",
+            chemistry={"X_AOB": 0.3, "X_NOB": 0.3},
+            days=30.0,
+            fish_count=6,
+            feed_g_day=8.0,
+            events=[{"day": 0.0, "kind": "feed", "value": 8.0, "target": "", "repeat_days": 0.0}],
         ),
     },
 }

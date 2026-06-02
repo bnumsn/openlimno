@@ -1,0 +1,41 @@
+fishtank_version: '0.2'
+scenario_id: low-oxygen
+tank:
+  volume_l: 120.0
+  temperature_c: 25.0
+  ph: 7.4
+run:
+  days: 42.0
+  dt_output_hours: 6.0
+chemistry:
+  TAN: 0.0
+  NO2: 0.0
+  NO3: 5.0
+  X_AOB: 0.02
+  X_NOB: 0.02
+  DO: 7.5
+parameters:
+  ammonia_dose_mg_n_l_day: 2.0
+  k_a: 0.3
+tap_water:
+  TAN: 0.0
+  NO2: 0.0
+  NO3: 5.0
+  DO: 8.5
+carbonate:
+  initial_alk_meq_l: 2.5
+  dic_mmol_l: 2.5
+agents:
+  seed: 42
+  dt_days: 0.25
+  fish_count: 0
+  fish_biomass_g: 4.0
+  feed_g_day: 0.0
+  aob_agents: 36
+  nob_agents: 36
+events:
+- day: 0.0
+  kind: ammonia_dose
+  value: 2.0
+  target: ''
+  repeat_days: 0.0

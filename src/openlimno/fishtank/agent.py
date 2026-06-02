@@ -135,7 +135,7 @@ def simulate_agent_based_model(scenario: dict[str, Any]) -> dict[str, Any]:
     # Day-0 events define the initial post-action state.
     while event_cursor < len(expanded_events) and expanded_events[event_cursor].day <= 0.0:
         chem, params, feed_g_day = _apply_agent_event(
-            chem, params, feed_g_day, expanded_events[event_cursor], tap, event_rows
+            chem, params, feed_g_day, expanded_events[event_cursor], tap, event_rows, patches
         )
         event_cursor += 1
 
@@ -148,7 +148,7 @@ def simulate_agent_based_model(scenario: dict[str, Any]) -> dict[str, Any]:
         time = round(time + step, 10)
         while event_cursor < len(expanded_events) and expanded_events[event_cursor].day <= time + 1e-10:
             chem, params, feed_g_day = _apply_agent_event(
-                chem, params, feed_g_day, expanded_events[event_cursor], tap, event_rows
+                chem, params, feed_g_day, expanded_events[event_cursor], tap, event_rows, patches
             )
             event_cursor += 1
         step_index += 1
@@ -464,6 +464,7 @@ def _apply_agent_event(
     event: Event,
     tap: TapWater,
     event_rows: list[dict[str, Any]],
+    patches: list[MicrobePatch],
 ) -> tuple[Chemistry, Params, float]:
     before = asdict(chem)
     if event.kind == "feed":
@@ -474,6 +475,17 @@ def _apply_agent_event(
         # counted twice (once as a dose, once as excretion).
         new_chem, new_params = chem, params
         feed_g_day = event.value
+    elif event.kind == "wipe_biofilm":
+        # The ABM's biofilm IS the patch list; _advance_agents recomputes
+        # chem.X_AOB/X_NOB from it each step, so scaling chem alone would be
+        # overwritten. Knock back every patch by the same fraction, then sync
+        # chem so the post-event row reflects the wipe immediately.
+        f = event.value
+        for patch in patches:
+            patch.biomass_mg_l = max(0.0001, patch.biomass_mg_l * (1.0 - f))
+        new_chem, new_params = apply_event(chem, params, event, tap)
+        new_chem.X_AOB = sum(p.biomass_mg_l for p in patches if p.guild == "AOB")
+        new_chem.X_NOB = sum(p.biomass_mg_l for p in patches if p.guild == "NOB")
     else:
         new_chem, new_params = apply_event(chem, params, event, tap)
     event_rows.append(

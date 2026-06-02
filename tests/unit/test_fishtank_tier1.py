@@ -286,6 +286,64 @@ def test_feed_event_sets_additive_feed_dose() -> None:
     assert dTAN == pytest.approx(1.0 + 0.552, rel=1e-9)
 
 
+def test_wipe_biofilm_is_the_mirror_of_water_change() -> None:
+    """wipe_biofilm knocks back attached X (washed media / medication) while
+    leaving the dissolved pool untouched — exactly the opposite of a water
+    change, which dilutes dissolved species but leaves X alone."""
+    from openlimno.fishtank.events import Event, TapWater, apply_event
+
+    c = Chemistry(TAN=2.0, NO2=1.0, NO3=30.0, X_AOB=2.0, X_NOB=1.5, DO=6.0)
+    c2, _p = apply_event(c, Params(), Event(day=5.0, kind="wipe_biofilm", value=0.9), TapWater())
+    # 90% of the biofilm is gone; dissolved species are NOT touched.
+    assert pytest.approx(0.2) == c2.X_AOB
+    assert pytest.approx(0.15) == c2.X_NOB
+    assert (c2.TAN, c2.NO2, c2.NO3, c2.DO) == (c.TAN, c.NO2, c.NO3, c.DO)
+    with pytest.raises(ValueError, match="fraction"):
+        Event(day=1.0, kind="wipe_biofilm", value=1.4)
+
+
+def test_wipe_biofilm_stalls_then_recolonises() -> None:
+    """A mid-run biofilm wipe makes TAN climb back (the tank loses its
+    nitrifiers) and X then re-colonises — the 'washed the filter under the
+    tap' cautionary tale. No NaNs (clean fractional reduction)."""
+    from openlimno.fishtank.events import Event, EventSchedule, TapWater
+
+    sched = EventSchedule(
+        events=[Event(0.0, "ammonia_dose", 2.0), Event(25.0, "wipe_biofilm", 0.9)],
+        tap_water=TapWater(),
+    )
+    r = simulate(
+        Chemistry(X_AOB=2.0, X_NOB=1.0), Params(ammonia_dose_mg_n_l_day=2.0),
+        days=45, dt_output_hours=12, schedule=sched,
+    )
+    df = r.timeseries
+    assert not df.isna().any().any()
+    i = (df["day"] - 25.0).abs().idxmin()
+    assert df["X_AOB"].iloc[i + 1] < 0.3 * df["X_AOB"].iloc[i - 1]   # biofilm knocked back
+    assert df["TAN"].iloc[i:].max() > 3.0 * df["TAN"].iloc[i - 1]    # TAN rebounds
+
+
+def test_set_param_retargets_driver_midrun() -> None:
+    """set_param retargets a physical driver for the next segment — a power
+    outage dropping reaeration k_a crashes DO; only the listed params are
+    allowed (no silent kinetic-constant rewrites)."""
+    from openlimno.fishtank.events import Event, EventSchedule, TapWater
+
+    sched = EventSchedule(
+        events=[Event(0.0, "ammonia_dose", 2.0), Event(10.0, "set_param", 0.2, target="k_a")],
+        tap_water=TapWater(),
+    )
+    r = simulate(Chemistry(), Params(ammonia_dose_mg_n_l_day=2.0), days=20,
+                 dt_output_hours=12, schedule=sched)
+    df = r.timeseries
+    j = (df["day"] - 10.0).abs().idxmin()
+    # After k_a is cut, DO falls further than it was just before the outage.
+    assert df["DO"].iloc[j:].min() < df["DO"].iloc[j - 1]
+    assert r.params.k_a == pytest.approx(0.2)   # final params reflect the override
+    with pytest.raises(ValueError, match="set_param target"):
+        Event(day=1.0, kind="set_param", value=1.0, target="mu_AOB")
+
+
 def test_scenario_io_and_cli(tmp_path: Path) -> None:
     from click.testing import CliRunner
 
@@ -693,11 +751,20 @@ def test_scenario_library_default_is_fishless() -> None:
 
     lib = scenarios()
     assert set(lib) == {
+        # Tier-1 nitrogen-cycle lifecycle
         "fishless_cycle",
         "seeded_instant_cycle",
         "fish_in_disaster",
         "mature_stocked_tank",
         "old_tank_syndrome",
+        # Operations / failure modes (A-class + wipe_biofilm/set_param events)
+        "low_oxygen",
+        "staged_stocking",
+        "nitrate_control",
+        "filter_crash",
+        "power_outage",
+        "heat_wave",
+        "overfeeding",
     }
     assert DEFAULT_SCENARIO == "fishless_cycle"
     assert default_studio_payload() == scenario_payload("fishless_cycle")
@@ -764,6 +831,49 @@ def test_scenario_contracts_match_their_teaching_point() -> None:
     ph = ode("old_tank_syndrome")["ph_diagnostic"]
     assert ph[-1]["ph_dynamic"] < ph[0]["ph_dynamic"] - 1.5
 
+    # --- Operations / failure-mode scenarios (A-class + new events) ---------
+
+    # Low oxygen: O2-limited nitrification stalls — far less nitrate than a
+    # well-aerated fishless cycle, and DO crashes near zero.
+    lo = ode("low_oxygen")["summary"]
+    assert lo["final_NO3"] < 20.0          # stalled (well-aerated reaches ~88)
+    assert lo["min_DO"] < 1.0
+
+    # Staged stocking: gradual feeding keeps free ammonia under the stress
+    # line and every fish survives — the safe counterpoint to disaster.
+    assert ode("staged_stocking")["summary"]["max_NH3_free"] < 0.05
+    assert abm("staged_stocking")["fish_mortality"] == 0
+
+    # Nitrate control: weekly water changes export nitrate (lower than the
+    # ~88 an un-changed dosed tank reaches).
+    assert ode("nitrate_control")["summary"]["final_NO3"] < 65.0
+
+    # Filter crash: the day-20 biofilm wipe knocks AOB back hard, then it
+    # re-colonises — verify the dip is real in the ODE trajectory.
+    fc = run_studio_payload(scenario_payload("filter_crash"))["timeseries"]
+    pre = next(r["X_AOB"] for r in fc if r["day"] >= 19.0)
+    post = min(r["X_AOB"] for r in fc if r["day"] >= 20.0)
+    assert post < 0.3 * pre
+
+    # Power outage: DO plunges during the blackout window then recovers.
+    po = run_studio_payload(scenario_payload("power_outage"))
+    assert po["summary"]["min_DO"] < 0.5
+    outage_min = min(r["DO"] for r in po["timeseries"] if 10.0 <= r["day"] <= 12.0)
+    final_do = po["timeseries"][-1]["DO"]
+    assert final_do > outage_min          # recovered after k_a restored
+
+    # Heat wave: the 25→32 °C step raises the toxic free-NH3 fraction of the
+    # same TAN above what a constant-25 fishless cycle reaches (~0.14).
+    assert ode("heat_wave")["summary"]["max_NH3_free"] > 0.18
+
+    # Overfeeding: a thin biofilm + heavy feeding pushes free ammonia and
+    # oxygen demand well past the healthy mature tank's near-zero levels.
+    over = ode("overfeeding")["summary"]
+    assert over["max_NH3_free"] > 0.015
+    # Oxygen draw-down is a fish-respiration effect, so it shows in the ABM
+    # (the ODE has no fish O2 term); the thin biofilm + heavy feed pulls DO low.
+    assert abm("overfeeding")["min_DO"] < 1.0
+
 
 def test_api_scenarios_listing() -> None:
     from openlimno.fishtank.studio_assets import INDEX_HTML
@@ -824,7 +934,19 @@ def test_example_scenario_files_validate() -> None:
         "fish_in_disaster",
         "mature_stocked_tank",
         "old_tank_syndrome",
+        "low_oxygen",
+        "staged_stocking",
+        "nitrate_control",
+        "filter_crash",
+        "power_outage",
+        "heat_wave",
+        "overfeeding",
     }
+    # Every library preset must ship a matching CLI example file (and vice
+    # versa) so "open in the Studio" and "run from the CLI" stay in lockstep.
+    from openlimno.fishtank.library import scenarios
+
+    assert {p.stem for p in files} == set(scenarios())
     for path in files:
         assert validate_scenario(path) == [], path
         load_scenario(path).run()
