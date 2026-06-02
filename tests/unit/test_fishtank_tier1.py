@@ -1024,6 +1024,24 @@ def test_studio_path_honours_tier2_initial_chemistry() -> None:
     assert coupled[0]["pH"] > 7.0 > coupled[-1]["pH"]   # DIC/Alk honoured → pH crash
 
 
+def test_coupled_runs_report_consistent_ph_in_studio() -> None:
+    """For couple_ph scenarios the Studio must NOT overlay the post-hoc
+    diagnostic pH (which ignores the coupling and any Alk dosing) — it would
+    contradict the authoritative coupled pH. Concretely, the diagnostic would
+    show buffer_dosing crashing *harder* than the un-dosed crash; the coupled
+    pH correctly shows it crashing *less*."""
+    from openlimno.fishtank.library import scenario_payload
+    from openlimno.fishtank.studio_http import run_studio_payload
+
+    crash = run_studio_payload(scenario_payload("ph_crash_coupled"))
+    buffered = run_studio_payload(scenario_payload("buffer_dosing"))
+    # No contradictory diagnostic overlay on coupled runs.
+    assert crash["ph_diagnostic"] == []
+    assert buffered["ph_diagnostic"] == []
+    # summary pH is the coupled final pH, and buffer dosing holds it higher.
+    assert buffered["summary"]["final_ph_dynamic"] >= crash["summary"]["final_ph_dynamic"]
+
+
 def test_api_scenarios_listing() -> None:
     from openlimno.fishtank.studio_assets import INDEX_HTML
     from openlimno.fishtank.studio_http import list_studio_scenarios

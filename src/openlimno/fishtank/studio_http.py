@@ -62,12 +62,19 @@ def run_studio_payload(payload: dict[str, Any]) -> dict[str, Any]:
         max_days=_STUDIO_ODE_MAX_DAYS,
     )
     result = simulate(chemistry, params, days=days, dt_output_hours=dt_hours, schedule=schedule)
-    carbonate = _mapping(payload.get("carbonate", {}), "carbonate")
-    ph_df = diagnostic_ph_trajectory(
-        result,
-        initial_alk_meq_l=_float(carbonate.get("initial_alk_meq_l", 1.4), "carbonate.initial_alk_meq_l"),
-        dic_mmol_l=_float(carbonate.get("dic_mmol_l", 1.45), "carbonate.dic_mmol_l"),
-    )
+    if params.couple_ph > 0.0:
+        # Coupled run: the timeseries pH IS the authoritative solved pH. The
+        # post-hoc diagnostic (which ignores the coupling AND any Alk dosing)
+        # would contradict it — e.g. show buffer_dosing crashing harder than
+        # the un-dosed crash — so skip it here.
+        ph_df = None
+    else:
+        carbonate = _mapping(payload.get("carbonate", {}), "carbonate")
+        ph_df = diagnostic_ph_trajectory(
+            result,
+            initial_alk_meq_l=_float(carbonate.get("initial_alk_meq_l", 1.4), "carbonate.initial_alk_meq_l"),
+            dic_mmol_l=_float(carbonate.get("dic_mmol_l", 1.45), "carbonate.dic_mmol_l"),
+        )
     return _result_payload(result, ph_df)
 
 
@@ -341,7 +348,12 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 def _result_payload(result: Result, ph_df: Any) -> dict[str, Any]:
     df = result.timeseries.round(6)
-    ph_records = ph_df[["day", "alk_meq_l", "ph_dynamic"]].round(6).to_dict(orient="records")
+    # ph_df is None for coupled runs (pH lives in the timeseries instead).
+    ph_records = (
+        ph_df[["day", "alk_meq_l", "ph_dynamic"]].round(6).to_dict(orient="records")
+        if ph_df is not None
+        else []
+    )
     final = df.iloc[-1]
     summary = {
         "final_TAN": float(final["TAN"]),

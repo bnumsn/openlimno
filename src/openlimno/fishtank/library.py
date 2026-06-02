@@ -315,10 +315,10 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
         "description": (
             "A dosed tank with live plants (Tier-2 plant uptake on): the plant "
             "nitrogen pool grows from 3 toward its ~15 mg-N/L cap, drawing the "
-            "final nitrate down to ~77 vs ~88 with no plants. Plants prefer "
-            "ammonium, so they also shave the free-NH3 peak. The lesson: plants "
-            "are a real N sink, but a partial one — they reduce, not erase, "
-            "nitrate. Only the ODE models plants; the ABM panel has none."
+            "final nitrate down to ~82 vs ~93 with no plants (same tank). Plants "
+            "prefer ammonium, so they also shave the free-NH3 peak. The lesson: "
+            "plants are a real N sink, but a partial one — they reduce, not "
+            "erase, nitrate. Only the ODE models plants; the ABM panel has none."
         ),
         "payload": _scenario(
             "planted-tank",
