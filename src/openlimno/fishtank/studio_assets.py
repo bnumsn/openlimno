@@ -334,13 +334,18 @@ function eventRow(event) {
     <input data-k="day" type="number" min="0" step="0.25">
     <select data-k="kind">
       <option value="water_change">water_change</option>
+      <option value="wipe_biofilm">wipe_biofilm</option>
       <option value="ammonia_dose">ammonia_dose</option>
       <option value="feed">feed</option>
       <option value="dose">dose</option>
+      <option value="set_param">set_param</option>
     </select>
     <input data-k="value" type="number" step="0.1">
     <select data-k="target">
-      <option value="">target</option><option>TAN</option><option>NO2</option><option>NO3</option><option>DO</option>
+      <option value="">target</option>
+      <option>TAN</option><option>NO2</option><option>NO3</option><option>X_AOB</option><option>X_NOB</option>
+      <option>DO</option><option>B_plant</option><option>DIC</option><option>Alk</option>
+      <option>temperature_c</option><option>ph</option><option>k_a</option><option>DO_sat</option><option>R_fish</option>
     </select>
     <input data-k="repeat_days" type="number" min="0" step="1">
     <button class="btn danger" type="button">X</button>`;
