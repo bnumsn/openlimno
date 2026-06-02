@@ -10,6 +10,9 @@ CLI, provenance, browser Studio, 3D virtual tank, and course assets are shipped.
 v0.2 fixed the dimensional / stoichiometric /
 biofilm errors raised by the 2026-05-28 Codex pre-implementation review
 (see `reviews/e0e77d1.codex-fishtank-spec.md`).
+v0.4.1 (2026-06-02) fixed `calibration.fit()` silently dropping the scenario
+event schedule, which biased fits against any log involving water changes or
+feeding (see §10.3 + `reviews/8209f80`).
 
 ## 0. Scope and non-goals
 
@@ -308,7 +311,7 @@ range, §11). All overridable per-scenario.
 | `events.py` | core | `Event`, `EventSchedule`, `TapWater` | `apply_event(chemistry, params, event, tap)` |
 | `agent.py` | core | `FishAgent`, `MicrobePatch` | `simulate_agent_based_model(scenario)->dict`: seeded ABM over fish individuals + AOB/NOB patches |
 | `library.py` | core | static dicts | `default_params()`, `species()`, `equipment()`, `tap_water()`, `scenarios()`/`scenario_payload()` (typical-case library, §8) |
-| `calibration.py` | core | (stateless) | `align(sim,obs)`, `rmse()`, `fit(observation, chemistry, base_params)->CalibrationResult` |
+| `calibration.py` | core | (stateless) | `align(sim,obs)`, `rmse()`, `fit(observation, chemistry, base_params, schedule)->CalibrationResult` |
 | `io.py` | release | (stateless) | `load_scenario/write_scenario`, `read_observation`, `write_result` + `provenance.json` |
 | `studio.py` / `studio_http.py` | release | local browser Studio + ABM Agents + 3D virtual tank | `run_app()`, `run_fishtank_studio()` |
 | `cli.py` | release | click | `python -m openlimno.fishtank ...`, `openlimno fishtank ...`, `fishtank ...` |
@@ -388,6 +391,14 @@ NO₂ > 0.5 mg-N/L = "brown blood"; NO₃ > 50 = water-change due.
    bundled **synthetic teaching log** (generated from known truth
    `mu_AOB=0.62 / mu_NOB=0.35` + noise, so calibration can be checked against
    ground truth); report RMSE. Logs in `data/aquarium_logs/`.
+   **`fit()` replays the scenario's `EventSchedule`** (water changes, feeding,
+   dose changes) inside the objective simulation (v0.4 fix): a real aquarium
+   log is produced under keeper actions, so omitting them aligns an event-free
+   run against event-affected observations and silently biases the fit. The
+   `fishtank calibrate --scenario` CLI threads `scenario.schedule` through;
+   `schedule=None` defaults to an event-free run (correct only for a steady
+   fishless cycle). Unit test asserts recovery of the generating params **with**
+   the schedule and a degraded fit without it.
 4. **Sensitivity**: ±10% OAT on each param; rank by effect on day-30 NO₃.
 
 ## 11. Why fishless cycling takes weeks (teaching note)
