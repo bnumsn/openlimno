@@ -142,7 +142,7 @@ def simulate(
         chem, p = apply_events_at(0.0, chem, p)
 
     if days == 0.0:
-        df = _build_timeseries([0.0], [chem.to_vector()], p)
+        df = _build_timeseries([0.0], [chem.to_vector()], [(p.temperature_c, p.ph)], p)
         warnings = _build_warnings(df)
         events_log = _build_events_log(event_rows)
         provenance = _build_provenance(
@@ -167,6 +167,10 @@ def simulate(
     y = chem.to_vector()
     times: list[float] = []
     states: list[np.ndarray] = []
+    # (temperature_c, ph) in effect for each recorded row — set_param can
+    # change these mid-run, so the derived NH3_free/pH columns must use the
+    # params that applied DURING that row's segment, not the final params.
+    row_params: list[tuple[float, float]] = []
     n_seg = len(seg_edges) - 1
     for i in range(n_seg):
         t0, t1 = seg_edges[i], seg_edges[i + 1]
@@ -186,6 +190,7 @@ def simulate(
         keep_mask = np.ones(t_eval.size, dtype=bool) if is_last else (t_eval < t1)
         times.extend(t_eval[keep_mask].tolist())
         states.append(seg_y[:, keep_mask])
+        row_params.extend([(p.temperature_c, p.ph)] * int(keep_mask.sum()))
         # Carry the pre-event state at t1 forward, then apply events.
         y = seg_y[:, -1].tolist()
         if schedule and not is_last:
@@ -203,8 +208,9 @@ def simulate(
         chem_end = Chemistry.from_vector(arr[:, -1].tolist())
         chem_end, p = apply_events_at(days, chem_end, p)
         arr[:, -1] = chem_end.to_vector()
+        row_params[-1] = (p.temperature_c, p.ph)
 
-    df = _build_timeseries(times, arr.T.tolist(), p)
+    df = _build_timeseries(times, arr.T.tolist(), row_params, p)
     warnings = _build_warnings(df)
     events_log = _build_events_log(event_rows)
     provenance = _build_provenance(
@@ -257,37 +263,42 @@ def _output_grid(days: float, dt_output_hours: float) -> np.ndarray:
     return np.append(grid, days)
 
 
-def _build_timeseries(times: list[float], states: list[list[float]], p: Params) -> pd.DataFrame:
+def _build_timeseries(
+    times: list[float],
+    states: list[list[float]],
+    row_params: list[tuple[float, float]],
+    p: Params,
+) -> pd.DataFrame:
+    """Assemble the output frame. ``row_params`` carries the (temperature_c,
+    ph) in effect for each row — they can differ from the final ``p`` when a
+    set_param event changed them mid-run, so the derived NH3_free/pH columns
+    are computed per row rather than once with the final params."""
     df = pd.DataFrame(states, columns=list(STATE_ORDER))
     df.insert(0, "day", times)
-    if p.couple_ph > 0.0:
-        # Coupled Tier-2: pH is the integrated carbonate state, solved per row
-        # from (DIC, Alk, T), so the toxic free-NH3 fraction tracks the drift.
+    coupled = p.couple_ph > 0.0
+    if coupled:
         from .carbonate import ph_from_dic_alk
 
-        ph_series = [
-            _safe_ph(ph_from_dic_alk, float(dic), float(alk), p.temperature_c, p.ph)
-            for dic, alk in zip(df["DIC"], df["Alk"], strict=True)
-        ]
-        df["pH"] = [round(v, 4) for v in ph_series]
-        df["NH3_free"] = [
-            round(max(tan, 0.0) * nh3_free_fraction(ph, p.temperature_c), 6)
-            for tan, ph in zip(df["TAN"], ph_series, strict=True)
-        ]
-    else:
-        f_free = nh3_free_fraction(p.ph, p.temperature_c)
-        df["NH3_free"] = (df["TAN"].clip(lower=0.0) * f_free).round(6)
-        df["pH"] = p.ph
+    ph_col: list[float] = []
+    nh3_col: list[float] = []
+    for row, (temp_c, ph_fixed) in zip(states, row_params, strict=True):
+        tan, dic, alk = row[0], row[STATE_ORDER.index("DIC")], row[STATE_ORDER.index("Alk")]
+        if coupled:
+            # Coupled Tier-2: pH is the integrated carbonate state, solved per
+            # row from (DIC, Alk, T). On a bracket failure clamp to the acid
+            # end (3.0) — the SAME fallback processes.effective_ph uses inside
+            # the RHS, so the reported pH never contradicts the pH the rates saw.
+            try:
+                ph = ph_from_dic_alk(float(dic), float(alk), temp_c)
+            except ValueError:
+                ph = 3.0
+        else:
+            ph = ph_fixed
+        ph_col.append(round(ph, 4))
+        nh3_col.append(round(max(float(tan), 0.0) * nh3_free_fraction(ph, temp_c), 6))
+    df["NH3_free"] = nh3_col
+    df["pH"] = ph_col
     return df
-
-
-def _safe_ph(solver: Any, dic: float, alk: float, temperature_c: float, fallback: float) -> float:
-    """pH from the carbonate solver, falling back to the scenario pH if the
-    buffer is driven outside the solvable bracket (mirrors processes)."""
-    try:
-        return solver(dic, alk, temperature_c)
-    except ValueError:
-        return fallback
 
 
 def _build_warnings(df: pd.DataFrame) -> list[str]:

@@ -348,6 +348,43 @@ def test_set_param_retargets_driver_midrun() -> None:
         Event(day=1.0, kind="set_param", value=1.0, target="mu_AOB")
 
 
+def test_set_param_temperature_updates_derived_columns_per_row() -> None:
+    """Regression: the derived NH3_free/pH columns must use the temperature/pH
+    in effect DURING each row's segment, not the final params. A mid-run
+    set_param temperature_c step previously made every pre-step row report the
+    free-NH3 fraction at the post-step temperature (output computed once with
+    final params)."""
+    from openlimno.fishtank.events import Event, EventSchedule, TapWater
+
+    sched = EventSchedule(
+        events=[Event(0.0, "ammonia_dose", 2.0), Event(15.0, "set_param", 32.0, target="temperature_c")],
+        tap_water=TapWater(),
+    )
+    df = simulate(Chemistry(), Params(ammonia_dose_mg_n_l_day=2.0), days=42,
+                  dt_output_hours=24, schedule=sched).timeseries
+    pre = df[df["day"] == 5.0].iloc[0]    # before the heat step (25 °C)
+    post = df[df["day"] == 20.0].iloc[0]  # after the heat step (32 °C)
+    # df columns are rounded to 6 dp, so compare with an absolute tolerance.
+    assert pre["NH3_free"] == pytest.approx(pre["TAN"] * nh3_free_fraction(7.4, 25.0), abs=2e-6)
+    assert post["NH3_free"] == pytest.approx(post["TAN"] * nh3_free_fraction(7.4, 32.0), abs=2e-6)
+    # The two temperatures give materially different fractions of the same TAN.
+    assert nh3_free_fraction(7.4, 32.0) > 1.5 * nh3_free_fraction(7.4, 25.0)
+
+
+def test_example_files_match_library_payloads() -> None:
+    """The hand-shipped examples/fishtank/*.yaml must stay byte-equivalent to
+    the library payloads they came from (minus the version tag), so a drifted
+    example file (wrong Alk, missing couple_ph, …) can't pass unnoticed."""
+    import yaml
+
+    from openlimno.fishtank.library import scenario_payload, scenarios
+
+    for stem in scenarios():
+        raw = yaml.safe_load(Path(f"examples/fishtank/{stem}.yaml").read_text(encoding="utf-8"))
+        raw.pop("fishtank_version", None)
+        assert raw == scenario_payload(stem), stem
+
+
 def test_scenario_io_and_cli(tmp_path: Path) -> None:
     from click.testing import CliRunner
 
@@ -970,6 +1007,21 @@ def test_scenario_contracts_match_their_teaching_point() -> None:
     # Oxygen draw-down is a fish-respiration effect, so it shows in the ABM
     # (the ODE has no fish O2 term); the thin biofilm + heavy feed pulls DO low.
     assert abm("overfeeding")["min_DO"] < 1.0
+
+
+def test_studio_path_honours_tier2_initial_chemistry() -> None:
+    """Regression (codex P1): the Studio /api/run loader must parse the Tier-2
+    initial pools (B_plant, DIC, Alk). Previously it built Chemistry from only
+    the six Tier-1 fields, so opening planted_tank / coupled-pH presets in the
+    browser silently zeroed their plant pool and reset the buffer — the Tier-2
+    scenarios would not run as designed."""
+    from openlimno.fishtank.library import scenario_payload
+    from openlimno.fishtank.studio_http import run_studio_payload
+
+    planted = run_studio_payload(scenario_payload("planted_tank"))["timeseries"]
+    assert planted[-1]["B_plant"] > 5.0          # plants actually grew (not reset to 0)
+    coupled = run_studio_payload(scenario_payload("ph_crash_coupled"))["timeseries"]
+    assert coupled[0]["pH"] > 7.0 > coupled[-1]["pH"]   # DIC/Alk honoured → pH crash
 
 
 def test_api_scenarios_listing() -> None:

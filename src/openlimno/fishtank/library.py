@@ -276,17 +276,19 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
         "label": "Heat wave (temperature step raises toxicity)",
         "description": (
             "A fishless cycle where temperature steps from 25 to 32 °C on day "
-            "15. Warmer water shifts the ammonia pKa, so the toxic free-NH3 "
-            "fraction of the same TAN jumps — the peak free NH3 rises from "
-            "~0.14 to ~0.23 mg/L. Why a heat wave turns a survivable tank "
-            "lethal without any change in total ammonia."
+            "5 — just as ammonia is climbing toward its peak. Warmer water "
+            "shifts the ammonia pKa, so the toxic free-NH3 fraction of the same "
+            "TAN is larger: the peak free NH3 rises from ~0.14 to ~0.20 mg/L. "
+            "Why a heat wave turns a survivable tank lethal without any change "
+            "in total ammonia. (The step must precede the TAN peak to bite — "
+            "warming a tank whose ammonia has already cleared does little.)"
         ),
         "payload": _scenario(
             "heat-wave",
             ammonia_dose=2.0,
             events=[
                 {"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0},
-                {"day": 15.0, "kind": "set_param", "value": 32.0, "target": "temperature_c", "repeat_days": 0.0},
+                {"day": 5.0, "kind": "set_param", "value": 32.0, "target": "temperature_c", "repeat_days": 0.0},
             ],
         ),
     },

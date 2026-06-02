@@ -290,6 +290,12 @@ def _payload_to_model(
         X_AOB=_float(chemistry_doc.get("X_AOB", 0.02), "chemistry.X_AOB"),
         X_NOB=_float(chemistry_doc.get("X_NOB", 0.02), "chemistry.X_NOB"),
         DO=_float(chemistry_doc.get("DO", 7.5), "chemistry.DO"),
+        # Tier-2 initial pools — without these the Studio silently reset
+        # planted_tank's B_plant and the coupled-pH presets' DIC/Alk to the
+        # defaults, so those presets would not run as designed in the browser.
+        B_plant=_float(chemistry_doc.get("B_plant", 0.0), "chemistry.B_plant"),
+        DIC=_float(chemistry_doc.get("DIC", 2.0), "chemistry.DIC"),
+        Alk=_float(chemistry_doc.get("Alk", 2.0), "chemistry.Alk"),
     )
     # Ingest the full parameter set (matches io.scenario_from_mapping and the
     # ABM) so DO_sat / k_a / kinetic overrides from the scenario reach the ODE.

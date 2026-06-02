@@ -38,7 +38,7 @@ events:
   value: 2.0
   target: ''
   repeat_days: 0.0
-- day: 15.0
+- day: 5.0
   kind: set_param
   value: 32.0
   target: temperature_c

@@ -410,7 +410,7 @@ cases (the rest below). Every preset has a matching `examples/fishtank/*.yaml`.
 | `nitrate_control` | weekly water changes export nitrate (~45 vs ~88) |
 | `filter_crash` | `wipe_biofilm` (washed media / medication) → ammonia rebound then recolonise |
 | `power_outage` | `set_param k_a` blackout then restore → DO crashes and recovers |
-| `heat_wave` | `set_param temperature_c` 25→32 → free-NH₃ fraction jumps (~0.14→0.23) |
+| `heat_wave` | `set_param temperature_c` 25→32 before the TAN peak → free-NH₃ peak rises (~0.14→0.20) |
 | `overfeeding` | thin biofilm + heavy feed → ammonia/oxygen stress |
 | `planted_tank` | plant uptake on → N sink draws nitrate down (partial); plants grow |
 | `denitrification_substrate` | `k_denit` on, low O₂ → NO₃→N₂ removed (~5 vs ~38) |
