@@ -100,6 +100,11 @@ def _scenario(
 _SCENARIOS: dict[str, dict[str, Any]] = {
     "fishless_cycle": {
         "label": "Fishless cycle (classic)",
+        "label_zh": "无鱼氮循环(经典)",
+        "description_zh": (
+            "教科书式级联:每天向新缸投加 2 mg-N/L 瓶装氨,看着氨先飙升,"
+            "接着(滞后的)亚硝酸盐,最后硝酸盐在数周内累积。全程无鱼受险。"
+        ),
         "description": (
             "The textbook cascade: dose 2 mg-N/L/day of bottled ammonia into a "
             "new tank and watch ammonia spike, then nitrite (lagged), then "
@@ -113,6 +118,12 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
     },
     "seeded_instant_cycle": {
         "label": "Seeded / instant cycle",
+        "label_zh": "接种/速成循环",
+        "description_zh": (
+            "从成熟接种滤材起步(高氨氧化菌/亚硝氧化菌量)。同样的投氨量这次"
+            "几乎不飙升——决定时间尺度的是定殖,而非投加量。这就是鱼友们"
+            "「速成开缸」的原理。"
+        ),
         "description": (
             "Start from mature, seeded media (high X_AOB/X_NOB). The same "
             "ammonia dose now barely spikes — colonisation, not dosing, sets "
@@ -127,6 +138,12 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
     },
     "fish_in_disaster": {
         "label": "Fish-in disaster (new-tank syndrome)",
+        "label_zh": "带鱼开缸灾难(新缸综合征)",
+        "description_zh": (
+            "在未开缸的缸里养 10 条鱼并大量投喂。鱼的排泄超过微薄的生物膜,"
+            "游离氨变得有毒,大多数鱼死亡——这正是为何要先无鱼开缸的警示。"
+            "注意 ABM 硝酸盐会因死鱼停止排泄而跌到 ODE 之下。"
+        ),
         "description": (
             "Stock 10 fish in an uncycled tank and feed heavily. Fish excretion "
             "outpaces the tiny biofilm, free ammonia turns toxic, and most fish "
@@ -143,6 +160,11 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
     },
     "mature_stocked_tank": {
         "label": "Mature stocked tank (healthy)",
+        "label_zh": "成熟养鱼缸(健康)",
+        "description_zh": (
+            "一套成熟滤器(已接种生物膜)在每周换水 25% 下承载 6 条适度投喂"
+            "的鱼。氨/亚硝酸盐维持近零,硝酸盐受控,pH 稳住,每条鱼都存活。"
+        ),
         "description": (
             "An established filter (seeded biofilm) carries six moderately-fed "
             "fish with weekly 25% water changes. Ammonia/nitrite stay near zero, "
@@ -161,6 +183,12 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
     },
     "old_tank_syndrome": {
         "label": "Old-tank syndrome (fishless pH crash)",
+        "label_zh": "老缸综合征(无鱼 pH 崩溃)",
+        "description_zh": (
+            "一个无鱼的碳酸盐耗竭演示:重投加、低碱度的缸运行 60 天且不换水。"
+            "累积硝化吃光碳酸盐缓冲,pH 崩溃——第四学时碳酸盐压轴。(无鱼:"
+            "以隔离化学过程;真实养鱼老缸里这种崩溃还会胁迫鱼。)"
+        ),
         "description": (
             "A fishless carbonate-exhaustion demo: a heavily-dosed, "
             "low-alkalinity tank run for 60 days with no water changes. "
@@ -179,6 +207,12 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
     },
     "low_oxygen": {
         "label": "Low oxygen (under-aerated tank)",
+        "label_zh": "低氧(曝气不足的缸)",
+        "description_zh": (
+            "同样的无鱼投加,但滤器弱/无气泵:复氧 k_a 从 2.0 降到 0.3 /天。"
+            "溶氧跌向零,且因硝化经 M(DO) 项受氧限制,循环停滞:42 天里硝酸盐"
+            "只到约 6.6 mg-N/L 而非约 88。教训:决定硝化速率的不只是氨,还有氧。"
+        ),
         "description": (
             "Same fishless dose, but a weak filter / no airstone: reaeration "
             "k_a is cut from 2.0 to 0.3 /day. DO crashes toward zero and — "
@@ -195,6 +229,12 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
     },
     "staged_stocking": {
         "label": "Staged stocking (add fish gradually)",
+        "label_zh": "分批放鱼(逐步加鱼)",
+        "description_zh": (
+            "向轻度接种缸加鱼的正确方式:投喂分步爬升(第 0/14/28 天 "
+            "0.5 → 1.5 → 3.0 g/天),让生物膜跟上。游离 NH3 维持约 0.006 mg/L"
+            "(远低于 0.05 胁迫线)——带鱼开缸灾难的安全对照。"
+        ),
         "description": (
             "The right way to add fish to a lightly-seeded tank: feeding ramps "
             "up in steps (0.5 → 1.5 → 3.0 g/day at days 0/14/28) so the biofilm "
@@ -215,6 +255,12 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
     },
     "nitrate_control": {
         "label": "Nitrate control (weekly water change)",
+        "label_zh": "硝酸盐控制(每周换水)",
+        "description_zh": (
+            "一个成熟缸按 2 mg-N/L/天投加,每周换水 30%。换水碰不到附着"
+            "生物膜,但能导出累积的硝酸盐:硝酸盐终值约 45 mg-N/L 而非不换水"
+            "的约 88。这就是为何常规换水是硝酸盐的刹车。"
+        ),
         "description": (
             "An established tank dosed at 2 mg-N/L/day with a weekly 30% water "
             "change. The change can't touch the attached biofilm, but it does "
@@ -233,6 +279,12 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
     },
     "filter_crash": {
         "label": "Filter crash (washed media / medication)",
+        "label_zh": "滤器崩溃(冲洗滤材/用药)",
+        "description_zh": (
+            "一个成熟养鱼缸的生物膜在第 20 天被擦除 85%——这是用含氯自来水"
+            "冲洗滤材、或抗生素杀灭硝化菌的经典错误。氨和亚硝酸盐反弹,直到"
+            "菌群重建。演示新增的 wipe_biofilm 事件:换水的镜像。"
+        ),
         "description": (
             "A mature stocked tank whose biofilm is wiped 85% on day 20 — the "
             "classic mistake of rinsing filter media under chlorinated tap "
@@ -253,6 +305,12 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
     },
     "power_outage": {
         "label": "Power outage (aeration lost then restored)",
+        "label_zh": "停电(曝气中断后恢复)",
+        "description_zh": (
+            "两天停电:复氧 k_a 在第 10 天经 set_param 降到 0.2 /天,第 12 天"
+            "恢复到 2.0。停电期间溶氧骤跌向零,随后恢复——气泵停转一夜致鱼"
+            "死亡的瞬变。展示随时间变化的驱动(set_param),而非仅瞬时状态跳变。"
+        ),
         "description": (
             "A two-day blackout: reaeration k_a is cut to 0.2 /day on day 10 "
             "and restored to 2.0 on day 12 via set_param events. DO plunges "
@@ -274,6 +332,14 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
     },
     "heat_wave": {
         "label": "Heat wave (temperature step raises toxicity)",
+        "label_zh": "热浪(温度抬升致毒性上升)",
+        "description_zh": (
+            "一个无鱼循环,温度在第 5 天从 25 升到 32 °C——正当氨爬向峰值之时。"
+            "水温升高使氨的 pKa 偏移,故同样总氨氮里有毒游离 NH3 的比例更大:"
+            "游离 NH3 峰值从约 0.14 升到约 0.20 mg/L。这说明为何一波热浪能把本可"
+            "存活的缸变致命,而总氨量并未改变。(温度阶跃须早于 TAN 峰值才咬得动"
+            "——氨已清退后再加热作用甚微。)"
+        ),
         "description": (
             "A fishless cycle where temperature steps from 25 to 32 °C on day "
             "5 — just as ammonia is climbing toward its peak. Warmer water "
@@ -294,6 +360,12 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
     },
     "overfeeding": {
         "label": "Overfeeding (too much food, weak biofilm)",
+        "label_zh": "过度投喂(食物过多、生物膜弱)",
+        "description_zh": (
+            "六条鱼在勉强开缸的缸里(X≈0.3)被重投喂 8 g/天。排泄超过薄生物膜:"
+            "游离 NH3 峰值约 0.026 mg/L,溶氧被强烈拉低。鱼勉强撑住但持续受胁迫"
+            "——「我刚多喂了点水就坏了」的日常版,区别于未开缸的带鱼开缸灾难。"
+        ),
         "description": (
             "Six fish in a barely-cycled tank (X≈0.3) fed a heavy 8 g/day. "
             "Excretion outpaces the thin biofilm: free NH3 peaks ~0.026 mg/L "
@@ -312,6 +384,13 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
     },
     "planted_tank": {
         "label": "Planted tank (plants as a nitrogen sink, Tier-2)",
+        "label_zh": "种植缸(植物作氮汇,Tier-2)",
+        "description_zh": (
+            "一个投加缸种活水草(开启 Tier-2 植物吸收):植物氮库从 3 增向约 "
+            "15 mg-N/L 上限,把硝酸盐终值拉低到约 82 而非无植物(同缸)的约 93。"
+            "植物偏好铵,故也削去游离 NH3 峰。教训:植物是真实但部分的氮汇——"
+            "它减少而非消除硝酸盐。仅 ODE 建模植物;ABM 面板无植物。"
+        ),
         "description": (
             "A dosed tank with live plants (Tier-2 plant uptake on): the plant "
             "nitrogen pool grows from 3 toward its ~15 mg-N/L cap, drawing the "
@@ -330,6 +409,13 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
     },
     "denitrification_substrate": {
         "label": "Denitrification (anoxic substrate removes nitrate, Tier-2)",
+        "label_zh": "反硝化(缺氧底质去除硝酸盐,Tier-2)",
+        "description_zh": (
+            "一个深底质/低流速缸,缺氧微环境寄居反硝化菌(开启 Tier-2 k_denit)。"
+            "复氧低时,硝酸盐被转化为 N2 气体逸出系统:硝酸盐终值跌到约 5 而非约 "
+            "38 mg-N/L。这是封闭缸里唯一真正移除氮的过程——可用深砂床或植物底质"
+            "庇护区背后的化学。"
+        ),
         "description": (
             "A deep-substrate / low-flow tank where anoxic microsites host "
             "denitrifiers (Tier-2 k_denit on). With reaeration low, NO3 is "
@@ -348,6 +434,13 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
     },
     "ph_crash_coupled": {
         "label": "pH crash — fully coupled (Tier-2 research)",
+        "label_zh": "pH 崩溃——完全耦合(Tier-2 研究)",
+        "description_zh": (
+            "老缸崩溃,但 pH 完全耦合(开启 couple_ph):硝化吃碱度,解出的 pH "
+            "从约 7.4 跌到约 6.0,低 pH 随后扼制硝化菌——于是硝酸盐自限在约 "
+            "13 mg-N/L,而非仅诊断版 old_tank_syndrome 里冲到约 184。这正是诊断版"
+            "省略的反馈,也是 SPEC 的研究级步骤。"
+        ),
         "description": (
             "The old-tank crash with pH FULLY COUPLED (couple_ph on): "
             "nitrification eats alkalinity, the solved pH falls from ~7.4 to "
@@ -368,6 +461,12 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
     },
     "buffer_dosing": {
         "label": "Buffer dosing (rescue the pH crash, Tier-2)",
+        "label_zh": "缓冲投加(挽救 pH 崩溃,Tier-2)",
+        "description_zh": (
+            "同样的耦合崩溃,但养缸人投加碱度(每周经 dose→Alk 事件 +0.5 meq/L)。"
+            "撑住缓冲使硝化持续运行:硝酸盐维持约 30 mg-N/L 而非不投加的约 13——"
+            "老缸 pH 崩塌的管理对策,也演示了直接投加 Tier-2 碳酸盐状态。"
+        ),
         "description": (
             "The same coupled crash, but the keeper doses alkalinity (+0.5 "
             "meq/L weekly via a dose→Alk event). Holding the buffer up keeps "

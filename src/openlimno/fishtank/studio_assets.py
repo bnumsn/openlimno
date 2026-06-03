@@ -264,6 +264,7 @@ th { color: #536377; font-size: 12px; background: #f8fafc; }
         <div class="tank-badge" id="tankBadge">day 0.0</div>
         <div class="tank-fallback" id="tankFallback">3D renderer unavailable</div>
       </div>
+      <div class="tank-note" id="tankNote" style="padding:8px 12px;font-size:12px;color:var(--muted);line-height:1.5;">Illustration: dot positions are random; the number shown scales with concentration — not a real spatial distribution.</div>
     </section>
     <section id="agentsView" class="view">
       <div class="kpis" id="agentKpis"></div>
@@ -336,19 +337,19 @@ function eventRow(event) {
   row.innerHTML = `
     <input data-k="day" type="number" min="0" step="0.25">
     <select data-k="kind">
-      <option value="water_change">water_change</option>
-      <option value="wipe_biofilm">wipe_biofilm</option>
-      <option value="ammonia_dose">ammonia_dose</option>
-      <option value="feed">feed</option>
-      <option value="dose">dose</option>
-      <option value="set_param">set_param</option>
+      <option value="water_change">${t('water_change')}</option>
+      <option value="wipe_biofilm">${t('wipe_biofilm')}</option>
+      <option value="ammonia_dose">${t('ammonia_dose')}</option>
+      <option value="feed">${t('feed')}</option>
+      <option value="dose">${t('dose')}</option>
+      <option value="set_param">${t('set_param')}</option>
     </select>
     <input data-k="value" type="number" step="0.1">
     <select data-k="target">
-      <option value="">target</option>
-      <option>TAN</option><option>NO2</option><option>NO3</option><option>X_AOB</option><option>X_NOB</option>
-      <option>DO</option><option>B_plant</option><option>DIC</option><option>Alk</option>
-      <option>temperature_c</option><option>ph</option><option>k_a</option><option>DO_sat</option><option>R_fish</option>
+      <option value="">${t('target')}</option>
+      <option value="TAN">${t('TAN')}</option><option value="NO2">${t('NO2')}</option><option value="NO3">${t('NO3')}</option><option value="X_AOB">${t('X_AOB')}</option><option value="X_NOB">${t('X_NOB')}</option>
+      <option value="DO">${t('DO')}</option><option value="B_plant">${t('B_plant')}</option><option value="DIC">${t('DIC')}</option><option value="Alk">${t('Alk')}</option>
+      <option value="temperature_c">${t('temperature_c')}</option><option value="ph">${t('ph')}</option><option value="k_a">${t('k_a')}</option><option value="DO_sat">${t('DO_sat')}</option><option value="R_fish">${t('R_fish')}</option>
     </select>
     <input data-k="repeat_days" type="number" min="0" step="1">
     <button class="btn danger" type="button">X</button>`;
@@ -446,7 +447,7 @@ function lineChart(svg, rows, series, yLabel) {
     const yy = pad.t + i * (height - pad.t - pad.b) / 4;
     html += `<line x1="${pad.l}" x2="${width-pad.r}" y1="${yy}" y2="${yy}"></line>`;
   }
-  html += `</g><g class="axis"><text x="8" y="18">${yLabel}</text><text x="${width-58}" y="${height-8}">day</text></g>`;
+  html += `</g><g class="axis"><text x="8" y="18">${yLabel}</text><text x="${width-58}" y="${height-8}">${t('day')}</text></g>`;
   for (const s of series) {
     const d = rows.map((r, i) => `${i === 0 ? 'M' : 'L'}${x(r.day).toFixed(1)},${y(r[s.key]).toFixed(1)}`).join(' ');
     html += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2.2"></path>`;
@@ -461,7 +462,7 @@ function legend(id, series) {
 
 function table(id, rows, columns, opts={}) {
   if (!rows || rows.length === 0) {
-    $(id).innerHTML = '<div class="muted">No rows</div>';
+    $(id).innerHTML = `<div class="muted">${t('No rows')}</div>`;
     return;
   }
   const limit = opts.limit ?? 160;
@@ -471,19 +472,23 @@ function table(id, rows, columns, opts={}) {
     const edge = Math.floor(limit / 2);
     displayRows = [
       ...rows.slice(0, edge),
-      {__gap: `${rows.length - limit} rows omitted`},
+      {__gap: __lang === 'zh' ? `省略 ${rows.length - limit} 行` : `${rows.length - limit} rows omitted`},
       ...rows.slice(-edge),
     ];
   }
-  const head = columns.map(c => `<th>${c}</th>`).join('');
+  const head = columns.map(c => `<th>${t(c)}</th>`).join('');
   const body = displayRows.map(row => {
     if (row.__gap) return `<tr class="table-gap"><td colspan="${columns.length}">${row.__gap}</td></tr>`;
     return `<tr>${columns.map(c => `<td>${row[c] ?? ''}</td>`).join('')}</tr>`;
   }).join('');
   const note = compact
-    ? `<div class="table-note">Showing first ${Math.floor(limit / 2)} and last ${Math.floor(limit / 2)} of ${rows.length} rows. Full output is available through CLI/export artifacts.</div>`
+    ? (__lang === 'zh'
+        ? `<div class="table-note">仅显示前 ${Math.floor(limit / 2)} 行和后 ${Math.floor(limit / 2)} 行(共 ${rows.length} 行)。完整结果见 CLI/导出文件。</div>`
+        : `<div class="table-note">Showing first ${Math.floor(limit / 2)} and last ${Math.floor(limit / 2)} of ${rows.length} rows. Full output is available through CLI/export artifacts.</div>`)
     : rows.length > displayRows.length
-      ? `<div class="table-note">Showing first ${displayRows.length} of ${rows.length} rows.</div>`
+      ? (__lang === 'zh'
+          ? `<div class="table-note">仅显示 ${rows.length} 行中的前 ${displayRows.length} 行。</div>`
+          : `<div class="table-note">Showing first ${displayRows.length} of ${rows.length} rows.</div>`)
       : '';
   $(id).innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>${note}`;
 }
@@ -497,36 +502,38 @@ function render(result) {
     ['Final NO3', fixed(s.final_NO3), 'mg-N/L'],
     ['Min DO', fixed(s.min_DO), 'mg-O2/L'],
     ['Final pH', fixed(s.final_ph_dynamic), 'diagnostic'],
-  ].map(k => `<div class="kpi"><div class="label">${k[0]}</div><div class="value">${k[1]}</div><div class="unit">${k[2]}</div></div>`).join('');
+  ].map(k => `<div class="kpi"><div class="label">${t(k[0])}</div><div class="value">${k[1]}</div><div class="unit">${t(k[2])}</div></div>`).join('');
 
   $('warnings').innerHTML = result.warnings.length
     ? result.warnings.map(w => `<div class="warn">${w}</div>`).join('')
-    : '<div class="ok">No threshold warnings</div>';
+    : `<div class="ok">${t('No threshold warnings')}</div>`;
 
   const nSeries = [
-    {key:'TAN', label:'TAN', color:'#d1495b'},
-    {key:'NO2', label:'NO2', color:'#edae49'},
-    {key:'NO3', label:'NO3', color:'#00798c'}
+    {key:'TAN', label:t('TAN'), color:'#d1495b'},
+    {key:'NO2', label:t('NO2'), color:'#edae49'},
+    {key:'NO3', label:t('NO3'), color:'#00798c'}
   ];
   const bSeries = [
-    {key:'X_AOB', label:'X_AOB', color:'#2e933c'},
-    {key:'X_NOB', label:'X_NOB', color:'#7d4f50'},
-    {key:'DO', label:'DO', color:'#3066be'}
+    {key:'X_AOB', label:t('X_AOB'), color:'#2e933c'},
+    {key:'X_NOB', label:t('X_NOB'), color:'#7d4f50'},
+    {key:'DO', label:t('DO'), color:'#3066be'}
   ];
   const pSeries = [
-    {key:'ph_dynamic', label:'pH', color:'#9b2226'},
-    {key:'alk_meq_l', label:'Alk', color:'#0a9396'}
+    {key:'ph_dynamic', label:t('pH'), color:'#9b2226'},
+    {key:'alk_meq_l', label:t('Alk'), color:'#0a9396'}
   ];
   legend('nitrogenLegend', nSeries); legend('bioLegend', bSeries); legend('phLegend', pSeries);
-  lineChart($('nitrogenChart'), result.timeseries, nSeries, 'mg-N/L');
-  lineChart($('bioChart'), result.timeseries, bSeries, 'mg/L');
-  lineChart($('phChart'), result.ph_diagnostic, pSeries, 'pH / Alk');
+  lineChart($('nitrogenChart'), result.timeseries, nSeries, t('mg-N/L'));
+  lineChart($('bioChart'), result.timeseries, bSeries, t('mg/L'));
+  lineChart($('phChart'), result.ph_diagnostic, pSeries, t('pH / Alk'));
   table('timeseriesTable', result.timeseries, ['day','TAN','NO2','NO3','DO','NH3_free','pH'], {compact: true, limit: 80});
   table('eventsTable', result.events_log, ['day','kind','value','target','TAN_before','TAN_after','NO3_before','NO3_after','ammonia_dose_after']);
   $('scenarioJson').textContent = JSON.stringify(collect(), null, 2);
   $('provenanceJson').textContent = JSON.stringify(result.provenance, null, 2);
   window.dispatchEvent(new CustomEvent('fishtank:result', {detail: result}));
-  setStatus(`Run complete: ${result.timeseries.length} rows, ${result.events_log.length} event(s)`);
+  setStatus(__lang === 'zh'
+    ? `运行完成:${result.timeseries.length} 行 ODE,${result.events_log.length} 个事件`
+    : `Run complete: ${result.timeseries.length} rows, ${result.events_log.length} event(s)`);
 }
 
 function renderAgentSpace(result) {
@@ -564,8 +571,8 @@ function renderAgentSpace(result) {
     <rect x="${width-pad-96}" y="${pad+18}" width="42" height="${height-pad*2-36}" fill="#26333f" opacity=".16" rx="5"></rect>
     ${microHtml}${fishHtml}
     <g fill="#607083" font-size="12" font-weight="700">
-      <text x="${pad}" y="${height-8}">front glass</text>
-      <text x="${width-128}" y="${pad+15}">filter media</text>
+      <text x="${pad}" y="${height-8}">${t('front glass')}</text>
+      <text x="${width-128}" y="${pad+15}">${t('filter media')}</text>
     </g>`;
 }
 
@@ -573,33 +580,37 @@ function renderAgents(result, silent=false) {
   lastAgents = result;
   const s = result.summary;
   $('agentKpis').innerHTML = [
-    ['Live fish', `${s.fish_alive}`, `mortality ${s.fish_mortality}`],
-    ['Mean stress', fixed(s.mean_fish_stress, 2), '0-6 index'],
-    ['AOB biomass', fixed(s.AOB_biomass, 3), 'mg/L patches'],
-    ['NOB biomass', fixed(s.NOB_biomass, 3), 'mg/L patches'],
-    ['Min DO', fixed(s.min_DO), 'mg-O2/L'],
+    [t('Live fish'), `${s.fish_alive}`, `${t('mortality')} ${s.fish_mortality}`],
+    [t('Mean stress'), fixed(s.mean_fish_stress, 2), t('0-6 index')],
+    [t('AOB biomass'), fixed(s.AOB_biomass, 3), t('mg/L patches')],
+    [t('NOB biomass'), fixed(s.NOB_biomass, 3), t('mg/L patches')],
+    [t('Min DO'), fixed(s.min_DO), t('mg-O2/L')],
   ].map(k => `<div class="kpi"><div class="label">${k[0]}</div><div class="value">${k[1]}</div><div class="unit">${k[2]}</div></div>`).join('');
   const series = [
-    {key:'fish_alive', label:'live fish', color:'#f59e0b'},
-    {key:'fish_stress_mean', label:'fish stress', color:'#c2410c'},
-    {key:'AOB_biomass', label:'AOB biomass', color:'#2e933c'},
-    {key:'NOB_biomass', label:'NOB biomass', color:'#7d4f50'},
+    {key:'fish_alive', label:t('live fish'), color:'#f59e0b'},
+    {key:'fish_stress_mean', label:t('fish stress'), color:'#c2410c'},
+    {key:'AOB_biomass', label:t('AOB biomass'), color:'#2e933c'},
+    {key:'NOB_biomass', label:t('NOB biomass'), color:'#7d4f50'},
   ];
   legend('agentLegend', series);
-  lineChart($('agentChart'), result.timeseries, series, 'agents / biomass');
+  lineChart($('agentChart'), result.timeseries, series, t('agents / biomass'));
   renderAgentSpace(result);
   table('agentEventsTable', result.event_log, ['day','kind','value','target','TAN_before','TAN_after','NO2_before','NO2_after','NO3_before','NO3_after','DO_before','DO_after']);
   window.dispatchEvent(new CustomEvent('fishtank:agents', {detail: result}));
-  if (!silent) setStatus(`ABM complete: ${result.timeseries.length} rows, ${result.provenance.agent_count} agent(s)`);
+  if (!silent) setStatus(__lang === 'zh'
+    ? `ABM 完成:${result.timeseries.length} 行,${result.provenance.agent_count} 个个体`
+    : `ABM complete: ${result.timeseries.length} rows, ${result.provenance.agent_count} agent(s)`);
 }
 
 async function runAgents(silent=false) {
-  if (!silent) setStatus('Running ABM');
+  if (!silent) setStatus(t('Running ABM'));
   try {
     const result = await api('/api/agents', collect());
     renderAgents(result, silent);
     if (silent && lastResult) {
-      setStatus(`Run complete: ${lastResult.timeseries.length} ODE rows; ${result.provenance.agent_count} ABM agent(s)`);
+      setStatus(__lang === 'zh'
+        ? `运行完成:${lastResult.timeseries.length} 行 ODE;${result.provenance.agent_count} 个 ABM 个体`
+        : `Run complete: ${lastResult.timeseries.length} ODE rows; ${result.provenance.agent_count} ABM agent(s)`);
     }
   } catch (err) {
     setStatus(err.message);
@@ -607,7 +618,7 @@ async function runAgents(silent=false) {
 }
 
 async function run() {
-  setStatus('Running');
+  setStatus(t('Running'));
   try {
     render(await api('/api/run', collect()));
     await runAgents(true);
@@ -616,17 +627,17 @@ async function run() {
 }
 
 async function calibrate() {
-  setStatus('Calibrating');
+  setStatus(t('Calibrating'));
   try {
     const result = await api('/api/calibrate', collect());
     $('calibrationPanel').innerHTML = `
       <div class="grid-3">
-        <div class="kpi"><div class="label">RMSE</div><div class="value">${fixed(result.best_rmse, 4)}</div><div class="unit">normalised</div></div>
-        <div class="kpi"><div class="label">mu_AOB</div><div class="value">${fixed(result.best_params.mu_AOB, 4)}</div><div class="unit">1/day</div></div>
-        <div class="kpi"><div class="label">mu_NOB</div><div class="value">${fixed(result.best_params.mu_NOB, 4)}</div><div class="unit">1/day</div></div>
+        <div class="kpi"><div class="label">RMSE</div><div class="value">${fixed(result.best_rmse, 4)}</div><div class="unit">${t('normalised')}</div></div>
+        <div class="kpi"><div class="label">mu_AOB</div><div class="value">${fixed(result.best_params.mu_AOB, 4)}</div><div class="unit">${t('1/day')}</div></div>
+        <div class="kpi"><div class="label">mu_NOB</div><div class="value">${fixed(result.best_params.mu_NOB, 4)}</div><div class="unit">${t('1/day')}</div></div>
       </div>
-      <div class="muted">Evaluations: ${result.n_evals}; ${result.message}</div>`;
-    setStatus('Calibration complete');
+      <div class="muted">${t('Evaluations')}: ${result.n_evals}; ${result.message}</div>`;
+    setStatus(t('Calibration complete'));
   } catch (err) { setStatus(err.message); }
 }
 
@@ -639,9 +650,22 @@ function downloadScenario() {
   URL.revokeObjectURL(a.href);
 }
 
+function presetLabel(entry) { return (__lang === 'zh' && entry.label_zh) ? entry.label_zh : entry.label; }
+function presetDesc(entry) { return (__lang === 'zh' && entry.description_zh) ? entry.description_zh : entry.description; }
+
 function setPresetHint(id) {
   const entry = presetMap[id];
-  $('scenarioPresetHint').textContent = entry ? entry.description : '';
+  $('scenarioPresetHint').textContent = entry ? presetDesc(entry) : '';
+}
+
+function refreshPresetLabels() {
+  const select = $('scenarioPreset');
+  if (!select) return;
+  for (const opt of select.options) {
+    const entry = presetMap[opt.value];
+    if (entry) opt.textContent = presetLabel(entry);
+  }
+  setPresetHint(select.value);
 }
 
 async function loadPresets() {
@@ -652,7 +676,7 @@ async function loadPresets() {
     presetMap[s.id] = s;
     const opt = document.createElement('option');
     opt.value = s.id;
-    opt.textContent = s.label;
+    opt.textContent = presetLabel(s);
     return opt;
   }));
   select.value = data.default;
@@ -687,7 +711,9 @@ window.addEventListener('resize', () => {
   if (lastResult) render(lastResult);
   if (lastAgents) {
     renderAgents(lastAgents, true);
-    setStatus(`Run complete: ${lastResult?.timeseries?.length || 0} ODE rows; ${lastAgents.provenance.agent_count} ABM agent(s)`);
+    setStatus(__lang === 'zh'
+      ? `运行完成:${lastResult?.timeseries?.length || 0} 行 ODE;${lastAgents.provenance.agent_count} 个 ABM 个体`
+      : `Run complete: ${lastResult?.timeseries?.length || 0} ODE rows; ${lastAgents.provenance.agent_count} ABM agent(s)`);
   }
 });
 window.__fishtankAgentStatus = () => ({
@@ -699,15 +725,16 @@ window.__fishtankAgentStatus = () => ({
   summary: lastAgents?.summary || null,
 });
 
-// ---- 中英文切换(i18n):翻译静态界面文案;科学符号/预设名/状态栏/数据表保持原样 ----
+// ---- 中英文切换(i18n):全中文(连科学符号一起译);英文为源,ZH 为中文对照 ----
 const ZH = {
+  // 区块/标签页/面板标题
   "Scenario":"场景","Initial chemistry":"初始水质","Events":"事件",
   "Water and carbonate":"换水与碳酸盐","Agent-based model":"个体模型(ABM)",
   "Preset":"预设案例","Volume L":"缸体积 L","Days":"天数","Output hours":"输出间隔(小时)",
   "Temperature C":"温度 ℃","Fixed pH":"固定 pH","Ammonia dose":"投氨速率",
-  "Tap NO3":"自来水 NO3","Tap DO":"自来水 DO","Alk meq/L":"碱度 meq/L","DIC mmol/L":"DIC mmol/L",
+  "Tap NO3":"自来水硝酸盐","Tap DO":"自来水溶氧","Alk meq/L":"碱度 meq/L","DIC mmol/L":"DIC mmol/L",
   "Seed":"随机种子","ABM step days":"ABM 步长(天)","Fish agents":"鱼数量","g per fish":"每条鱼克数",
-  "Feed g/day":"投喂 g/天","AOB patches":"AOB 斑块数","NOB patches":"NOB 斑块数",
+  "Feed g/day":"投喂 g/天","AOB patches":"氨氧化菌斑块数","NOB patches":"亚硝氧化菌斑块数",
   "Add event":"加事件","Run":"运行","Calibrate":"校准","Export scenario":"导出场景","Reset":"重置",
   "Run ABM":"运行 ABM",
   "3D Tank":"3D 鱼缸","ABM Agents":"个体(ABM)","Dashboard":"仪表盘","Chemistry":"水化学",
@@ -716,19 +743,67 @@ const ZH = {
   "Nitrogen":"氮","Biofilm and oxygen":"生物膜与溶氧","pH diagnostic":"pH 诊断",
   "Timeseries":"时间序列","Applied event log":"已应用事件日志","Bundled calibration":"内置校准",
   "Scenario JSON":"场景 JSON","Provenance":"溯源信息",
-  "fish individuals":"鱼个体","AOB/NOB patches":"AOB/NOB 斑块","3D renderer unavailable":"3D 渲染不可用",
+  "fish individuals":"鱼个体","AOB/NOB patches":"氨氧化菌/亚硝氧化菌斑块","3D renderer unavailable":"3D 渲染不可用",
   "Click Calibrate to fit bundled tank_A_fishless.csv against mu_AOB and mu_NOB.":
-    "点「校准」用内置 tank_A_fishless.csv 拟合 mu_AOB 和 mu_NOB。"
+    "点「校准」用内置 tank_A_fishless.csv 拟合 mu_AOB 和 mu_NOB。",
+  // 科学符号(全局对照)
+  "TAN":"总氨氮","NO2":"亚硝酸盐","NO3":"硝酸盐","DO":"溶氧",
+  "X_AOB":"氨氧化菌量","X_NOB":"亚硝氧化菌量","NH3_free":"游离氨","Alk":"碱度",
+  // 仪表盘 KPI(ODE)
+  "Final TAN":"最终总氨氮","Final NO2":"最终亚硝酸盐","Final NO3":"最终硝酸盐",
+  "Min DO":"最低溶氧","Final pH":"最终 pH","diagnostic":"诊断",
+  // 仪表盘 KPI(ABM)
+  "Live fish":"存活鱼","Mean stress":"平均胁迫","AOB biomass":"氨氧化菌生物量",
+  "NOB biomass":"亚硝氧化菌生物量","mortality":"死亡","0-6 index":"0–6 指数",
+  "mg/L patches":"mg/L 斑块","mg-N/L":"mg-N/L","mg-O2/L":"mg-O₂/L",
+  // 图表图例 + 坐标轴
+  "live fish":"存活鱼","fish stress":"鱼胁迫","pH":"pH","day":"日",
+  "pH / Alk":"pH / 碱度","agents / biomass":"个体数 / 生物量","mg/L":"mg/L",
+  // 3D 个体分布图标注
+  "front glass":"前玻璃","filter media":"滤材",
+  // 数据表表头(前/后)
+  "kind":"类型","value":"数值","target":"目标",
+  "TAN_before":"总氨氮(前)","TAN_after":"总氨氮(后)",
+  "NO2_before":"亚硝酸盐(前)","NO2_after":"亚硝酸盐(后)",
+  "NO3_before":"硝酸盐(前)","NO3_after":"硝酸盐(后)",
+  "DO_before":"溶氧(前)","DO_after":"溶氧(后)","ammonia_dose_after":"投氨后",
+  // 事件类型(下拉显示文本;value 保持英文标识)
+  "water_change":"换水","wipe_biofilm":"擦除生物膜","ammonia_dose":"投氨",
+  "feed":"投喂","dose":"投加","set_param":"设参数",
+  // 事件目标(下拉显示文本)
+  "temperature_c":"温度","k_a":"复氧 k_a","DO_sat":"溶氧饱和","R_fish":"鱼耗氧",
+  "B_plant":"植物氮","DIC":"DIC","ph":"pH",
+  // 表格提示 + 校准
+  "No rows":"无数据","No threshold warnings":"无阈值预警","RMSE":"RMSE",
+  "normalised":"归一化","1/day":"1/天","Evaluations":"评估次数",
+  "Running":"运行中","Running ABM":"运行 ABM 中","Calibrating":"校准中",
+  "Calibration complete":"校准完成","Ready — click Run to start":"已就绪——点「运行」开始",
+  // 3D 示意说明(默认英文为源)
+  "Illustration: dot positions are random; the number shown scales with concentration — not a real spatial distribution.":
+    "示意图:点的位置随机,亮起的数量随浓度示意,并非真实空间分布。"
 };
-const I18N_SEL = '.section h2, .tabs .tab, .panel-title, .sidebar label, .actions .btn, #calibrationPanel .muted, .tank-fallback, .agent-pill';
+function t(s) { return (__lang === 'zh' && ZH[s] != null) ? ZH[s] : s; }
+const I18N_SEL = '.section h2, .tabs .tab, .panel-title, .sidebar label, .actions .btn, #calibrationPanel .muted, .tank-fallback, .agent-pill, #tankNote';
 function applyLang(lang) {
+  __lang = lang;
+  // 静态界面(选择器命中)
   document.querySelectorAll(I18N_SEL).forEach(el => {
     if (el.dataset.en === undefined) el.dataset.en = el.textContent.trim();
     const en = el.dataset.en;
     el.textContent = (lang === 'zh' && ZH[en]) ? ZH[en] : en;
   });
-  const t = $('langToggle');
-  if (t) t.textContent = lang === 'zh' ? 'EN / 中文' : '中文 / EN';
+  // 事件行下拉(保 value、重译显示文本)
+  document.querySelectorAll('.event-row select[data-k="kind"] option, .event-row select[data-k="target"] option').forEach(opt => {
+    opt.textContent = (opt.value === '') ? t('target') : t(opt.value);
+  });
+  // 预设下拉名/说明
+  refreshPresetLabels();
+  // 动态视图重渲染(KPI/图表/表头/状态/3D HUD 经事件转发)
+  if (lastResult) render(lastResult);
+  else setStatus(t('Ready — click Run to start'));
+  if (lastAgents) renderAgents(lastAgents, true);
+  const toggleBtn = $('langToggle');
+  if (toggleBtn) toggleBtn.textContent = lang === 'zh' ? 'EN / 中文' : '中文 / EN';
   document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
   try { localStorage.setItem('fishtank_lang', lang); } catch (e) {}
 }
@@ -739,7 +814,8 @@ applyLang(__lang);
 (async function init() {
   await loadPresets();
   bind(await api('/api/default'));
-  await run();
+  // 不自动运行:只加载默认参数,等用户点「运行」(避免一打开就跑)
+  setStatus(t('Ready — click Run to start'));
 })();
 </script>
 <script type="module">
@@ -872,6 +948,7 @@ function init3d() {
     tankRoot.add(bubbleGroup);
 
     fish = buildFish();
+    fish.visible = false;  // 装饰占位鱼默认隐藏:只显示真实 ABM 鱼,无鱼即无鱼
     tankRoot.add(fish);
     agentFishGroup = new THREE.Group();
     agentFishGroup.name = 'agentFish';
@@ -953,16 +1030,17 @@ function updateHud(row) {
     ['NO2', Number(row.NO2 || 0).toFixed(2)],
     ['NO3', Number(row.NO3 || 0).toFixed(1)],
     ['DO', Number(row.DO || 0).toFixed(2)],
-  ].map(([label, value]) => `<div class="tank-stat"><span class="label">${label}</span><span class="value">${value}</span></div>`).join('');
+  ].map(([label, value]) => `<div class="tank-stat"><span class="label">${t(label)}</span><span class="value">${value}</span></div>`).join('');
   const pH = Number(row.pH || currentStats.pH || 7.4);
-  badge3d.textContent = `pH ${pH.toFixed(2)} | NH3 ${Number(row.NH3_free || 0).toFixed(3)} mg/L`;
+  badge3d.textContent = `pH ${pH.toFixed(2)} | ${t('NH3_free')} ${Number(row.NH3_free || 0).toFixed(3)} mg/L`;
 }
 
 function updateAgentFish3d(snapshot) {
   if (!agentFishGroup || !fish) return;
   agentFishGroup.clear();
   const agents = Array.isArray(snapshot?.fish) ? snapshot.fish.filter(agent => agent.alive) : [];
-  fish.visible = agents.length === 0;
+  // 不再显示装饰占位鱼:鱼数=0 时缸内就没有鱼(与 KPI/ABM 图一致)
+  fish.visible = false;
   for (const agent of agents.slice(0, 48)) {
     const mesh = buildFish();
     const stress = clamp(Number(agent.stress || 0) / 3, 0, 1);

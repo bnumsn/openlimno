@@ -48,7 +48,14 @@ def list_studio_scenarios() -> list[dict[str, Any]]:
     """Return the typical-scenario presets for the Studio dropdown."""
 
     return [
-        {"id": name, "label": entry["label"], "description": entry["description"], "payload": entry["payload"]}
+        {
+            "id": name,
+            "label": entry["label"],
+            "label_zh": entry.get("label_zh", entry["label"]),
+            "description": entry["description"],
+            "description_zh": entry.get("description_zh", entry["description"]),
+            "payload": entry["payload"],
+        }
         for name, entry in scenarios().items()
     ]
 
