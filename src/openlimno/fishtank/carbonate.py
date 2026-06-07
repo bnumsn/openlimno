@@ -4,9 +4,12 @@ pH is solved (not integrated) from the carbonate system given dissolved
 inorganic carbon (DIC), alkalinity (Alk), and temperature, by root-finding
 on [H+]. Nitrification consumes alkalinity (7.14 g-CaCO3 per g-N), so a
 heavily-fed tank drifts down in pH — which shifts the toxic free-NH3
-fraction. This module ILLUSTRATES that loop diagnostically (post-hoc);
-fully coupling DIC/Alk into the integrated ODE state is the deeper
-Tier-2 exercise (SPEC §4.5), not done here.
+fraction. This module provides the pH solver used both diagnostically
+(post-hoc) AND inside the integrated ODE when ``couple_ph>0``
+(processes.derivatives consumes Alk via nitrification and re-solves pH
+from (DIC, Alk, T) each step, feeding it back into the rates). DIC gas
+exchange is still NOT in the continuous ODE state (dDIC=0; the deeper
+Tier-2 exercise, SPEC §4.5).
 
 Teaching note: the equilibrium constants here use simple temperature
 correlations adequate for freshwater aquaria; they are NOT the full
