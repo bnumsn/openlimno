@@ -43,7 +43,7 @@ Effective immediately:
   - A new public API surface change
   - A specific scientific-math or persistence-layer change
   - An external dependency forcing a behaviour update
-  (per [`feedback_review_cadence`](../../.claude/projects/-mnt-data-openlimno/memory/feedback_review_cadence.md)
+  (per `feedback_review_cadence`
   author memory rule).
 - **No new feature work in `src/`** until U1+U2 close. The current
   surface is more than sufficient to support a real basin case
@@ -189,7 +189,7 @@ continues" above).
 - [ADR-0011](decisions/0011-stable-major-tag-moratorium.md) — moratorium
 - [CAPABILITY_BOUNDARY_1_0.md](governance/CAPABILITY_BOUNDARY_1_0.md) — D-criteria
 - [STATE_2026_05.md](STATE_2026_05.md) — current numerics
-- [`feedback_review_cadence`](../../.claude/projects/-mnt-data-openlimno/memory/feedback_review_cadence.md) — review-cadence memory rule
+- `feedback_review_cadence` — review-cadence memory rule
 - [`reviews/R5_R14_audit.md`](reviews/R5_R14_audit.md) — last
   R-DOC-AUDIT-WIRED pass
 - [`u4_prerequisite_lemhi_fixture_pipeline.md`](u4_prerequisite_lemhi_fixture_pipeline.md)

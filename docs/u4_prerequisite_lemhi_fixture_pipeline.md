@@ -144,10 +144,10 @@ already runs.
 ## See also
 
 - [`ROADMAP.md`](ROADMAP.md) — unfreeze gate definition
-- [`SPEC.md`](../SPEC.md) — frozen 1.0 technical spec
+- [`SPEC.md`](SPEC.md) — frozen 1.0 technical spec
 - [`CAPABILITY_BOUNDARY_1_0.md`](governance/CAPABILITY_BOUNDARY_1_0.md) D6
   ("One real basin case study published")
-- [`tests/integration/test_r5_r14_lemhi_end_to_end_audit.py`](../tests/integration/test_r5_r14_lemhi_end_to_end_audit.py)
+- `tests/integration/test_r5_r14_lemhi_end_to_end_audit.py`
   — pins the 7-artifact contract + Studio PNG
-- [`data/lemhi/manifest.json`](../data/lemhi/manifest.json) —
+- `data/lemhi/manifest.json` —
   canonical real/synthetic classification of every Lemhi fixture

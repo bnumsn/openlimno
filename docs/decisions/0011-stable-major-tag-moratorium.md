@@ -71,7 +71,7 @@ While the moratorium is active:
   advancing the unfreeze gate. They are NOT permitted for "harden
   existing path without new logic" ships.
 - **Reviews follow the new cadence rule** in
-  [`feedback_review_cadence`](../../.claude/projects/-mnt-data-openlimno/memory/feedback_review_cadence.md)
+  `feedback_review_cadence`
   (author memory, to be promoted to a repo policy doc at the same
   time as MAINTAINERS.md is signed).
 

@@ -128,8 +128,8 @@ This SCP cannot ratify on its own. Per GOVERNANCE.md § Decision-making:
 
 ## See also
 
-- [ADR-0014](../decisions/0014-charter-pivot-native-ibm.md) — strategic rationale
-- [ADR-0015](../decisions/0015-ibm-moratorium-exception.md) — moratorium relationship
+- ADR-0014 — strategic rationale
+- ADR-0015 — moratorium relationship
 - [Round 21-23 audit](../../reviews/round_21_22_23_native_ibm_pivot_audit.md) — review chain that produced this packet
 - `docs/strategy/native-ibm-instream-successor.md` (on this branch) — original strategy doc
 - SPEC.md §0.3 (frozen v0.5) — the constraint being amended
