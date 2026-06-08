@@ -104,7 +104,7 @@ def test_studio_water_change_mixes_tap_buffer():
     out = run_studio_payload(payload)
     ts = out["timeseries"]
     before = [r["Alk"] for r in ts if r["day"] < 20][-1]
-    after = [r["Alk"] for r in ts if r["day"] >= 20][0]
+    after = next(r["Alk"] for r in ts if r["day"] >= 20)
     assert before < 2.0 and after > before  # buffered tap rescued alkalinity
     # provenance fingerprint must record tap DIC/Alk (else buffer change is invisible)
     tap_prov = out["provenance"]["inputs"]["tap_water"]
