@@ -93,6 +93,11 @@ def simulate(
 
     chem = chemistry or Chemistry()
     p = params or Params()
+    # Fail loudly on a physically-invalid state/parameter set (zero yields,
+    # zero capacities/volume, negative rates, NaN/inf) before integrating —
+    # otherwise the solver divides by zero or stalls on non-finite derivatives.
+    chem.validate()
+    p.validate()
     initial_chem = Chemistry(**vars(chem))
     initial_params = Params(**vars(p))
     event_rows: list[dict[str, Any]] = []

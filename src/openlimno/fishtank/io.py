@@ -70,6 +70,8 @@ _TAP_ALIASES = {
     "NO2": ("NO2", "no2", "no2_mg_n_l"),
     "NO3": ("NO3", "no3", "no3_mg_l", "no3_mg_n_l"),
     "DO": ("DO", "do", "do_mg_l"),
+    "DIC": ("DIC", "dic", "dic_mmol_l"),
+    "Alk": ("Alk", "alk", "alk_meq_l"),
 }
 
 

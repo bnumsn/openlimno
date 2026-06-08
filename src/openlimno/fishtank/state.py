@@ -7,6 +7,7 @@ See docs/fishtank/SPEC.md §1 + §6.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, fields
 
 # Fixed state-vector order. processes.derivatives unpacks in THIS order.
@@ -39,6 +40,20 @@ class Chemistry:
     @classmethod
     def from_vector(cls, y: list[float]) -> Chemistry:
         return cls(**dict(zip(STATE_ORDER, (float(v) for v in y), strict=True)))
+
+    def validate(self) -> None:
+        """Raise ValueError if any state value is non-finite or negative.
+
+        Concentrations and attached-biomass pools are physically non-negative;
+        a NaN/inf or negative initial state would make the integrated
+        trajectory meaningless. Called at the simulate()/IO/Studio entry."""
+        errors = [
+            f"{name}={getattr(self, name)} must be finite and >= 0"
+            for name in STATE_ORDER
+            if not (math.isfinite(getattr(self, name)) and getattr(self, name) >= 0.0)
+        ]
+        if errors:
+            raise ValueError("invalid initial chemistry: " + "; ".join(errors))
 
 
 @dataclass
@@ -96,6 +111,69 @@ class Params:
         merged = {f.name: getattr(self, f.name) for f in fields(self)}
         merged.update(kw)
         return Params(**merged)
+
+    # Parameters that MUST be strictly positive: they sit in denominators
+    # (yields, half-saturations), are logistic capacities (1 - X/X_max), or
+    # are physical scales (tank volume, O2 saturation, Arrhenius base).
+    _POSITIVE = (
+        "Y_AOB",
+        "Y_NOB",
+        "K_TAN",
+        "K_NO2",
+        "K_O_AOB",
+        "K_O_NOB",
+        "K_plant_N",
+        "K_O_denit",
+        "X_AOB_max",
+        "X_NOB_max",
+        "B_plant_max",
+        "volume_l",
+        "DO_sat",
+        "theta",
+    )
+    # Parameters that must be non-negative (rates, decays, doses, fractions).
+    _NON_NEGATIVE = (
+        "mu_AOB",
+        "mu_NOB",
+        "b_AOB",
+        "b_NOB",
+        "k_a",
+        "R_fish",
+        "a_exc",
+        "ammonia_dose_mg_n_l_day",
+        "feed_dose_mg_n_l_day",
+        "mu_plant",
+        "b_plant",
+        "f_no3_pref",
+        "k_denit",
+        "couple_ph",
+        "pH_min_nitrif",
+        "pH_opt_nitrif",
+    )
+
+    def validate(self) -> None:
+        """Raise ValueError if any parameter is outside its physical domain.
+
+        Catches the pathological inputs (zero yields/capacities/volume,
+        negative rates, NaN/inf, pH out of [0,14], sub-absolute-zero
+        temperature) that would otherwise divide by zero, produce non-finite
+        derivatives, or stall the solver. Called at the simulate()/IO/Studio
+        entry so a bad payload fails loudly instead of silently."""
+        errors: list[str] = []
+        for name in self._POSITIVE:
+            v = getattr(self, name)
+            if not (math.isfinite(v) and v > 0.0):
+                errors.append(f"{name}={v} must be > 0")
+        for name in self._NON_NEGATIVE:
+            v = getattr(self, name)
+            if not (math.isfinite(v) and v >= 0.0):
+                errors.append(f"{name}={v} must be >= 0")
+        if not (math.isfinite(self.ph) and 0.0 <= self.ph <= 14.0):
+            errors.append(f"ph={self.ph} must be in [0, 14]")
+        if not (math.isfinite(self.temperature_c) and self.temperature_c > -273.15):
+            errors.append(f"temperature_c={self.temperature_c} must be > -273.15")
+        if errors:
+            raise ValueError("invalid parameters: " + "; ".join(errors))
 
 
 def nh3_free_fraction(ph: float, temperature_c: float) -> float:
