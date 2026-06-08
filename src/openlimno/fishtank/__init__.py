@@ -10,7 +10,12 @@ bioenergetics are Tier-2 extensions taught as course exercises.
 
 from __future__ import annotations
 
-from .agent import FishAgent, MicrobePatch, simulate_agent_based_model
+from .agent import (
+    FishAgent,
+    MicrobePatch,
+    fish_timeseries,
+    simulate_agent_based_model,
+)
 from .carbonate import alkalinity_drop_meq, diagnostic_ph_trajectory, ph_from_dic_alk
 from .events import Event, EventSchedule, TapWater
 from .io import (
@@ -45,6 +50,7 @@ __all__ = [
     "derivatives",
     "diagnostic_ph_trajectory",
     "equipment",
+    "fish_timeseries",
     "load_scenario",
     "monod",
     "nh3_free_fraction",
