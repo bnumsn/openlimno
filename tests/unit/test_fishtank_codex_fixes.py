@@ -15,10 +15,40 @@ from openlimno.fishtank import (
     Chemistry,
     Params,
     diagnostic_ph_trajectory,
+    fish_timeseries,
     simulate,
     simulate_agent_based_model,
 )
 from openlimno.fishtank.events import Event, EventSchedule, TapWater
+
+
+# --- single-fish observability: fish_timeseries -----------------------------
+def test_fish_timeseries_tracks_one_individual():
+    out = simulate_agent_based_model(
+        {
+            "run": {"days": 20, "dt_output_hours": 24},
+            "chemistry": {"TAN": 2},
+            "parameters": {"ammonia_dose_mg_n_l_day": 3.0},
+            "agents": {"fish_count": 4, "seed": 3},
+        }
+    )
+    df = fish_timeseries(out, "fish-1")
+    # one row per snapshot, per-individual columns present
+    assert len(df) == len(out["snapshots"])
+    for col in ("day", "biomass_g", "stress", "activity", "alive", "x", "y", "z"):
+        assert col in df.columns
+    # stress rises then the fish dies (alive flips to False and stays)
+    assert df["stress"].iloc[-1] > df["stress"].iloc[0]
+    assert not df["alive"].iloc[-1]
+    # two different fish have distinct trajectories (not clones)
+    other = fish_timeseries(out, "fish-2")
+    assert not df["biomass_g"].equals(other["biomass_g"])
+
+
+def test_fish_timeseries_unknown_id_lists_available():
+    out = simulate_agent_based_model({"run": {"days": 2, "dt_output_hours": 24}})
+    with pytest.raises(KeyError, match="available ids"):
+        fish_timeseries(out, "fish-999")
 
 
 # --- #6 input physical-domain validation ----------------------------------

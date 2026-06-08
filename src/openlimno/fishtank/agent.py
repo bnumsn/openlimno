@@ -601,8 +601,37 @@ def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
+def fish_timeseries(result: dict[str, Any], fish_id: str) -> Any:
+    """One fish's trajectory across an agent-based run, as a DataFrame.
+
+    Pulls a single individual's per-snapshot state — ``biomass_g``, ``stress``,
+    ``activity``, position ``x/y/z`` and ``alive`` — out of
+    ``result["snapshots"]`` by ``fish_id``, so a notebook/Studio can plot one
+    fish's growth, stress and time-of-death (the individual-level view the ODE
+    can't give). Snapshot density follows ``run.dt_output_hours``.
+
+    Microbe patches carry stable ids too, so the same shape works for them via
+    ``result["snapshots"][i]["microbes"]``.
+
+    Raises KeyError (listing the available ids) if ``fish_id`` isn't present.
+    """
+    import pandas as pd  # lazy import: keep the ABM core JSON-only / pandas-free
+
+    rows = [
+        {"day": snap["day"], **{k: v for k, v in match.items() if k != "id"}}
+        for snap in result.get("snapshots", [])
+        if (match := next((f for f in snap.get("fish", []) if f.get("id") == fish_id), None))
+        is not None
+    ]
+    if not rows:
+        ids = sorted({f["id"] for s in result.get("snapshots", []) for f in s.get("fish", [])})
+        raise KeyError(f"no fish {fish_id!r} in result; available ids: {ids}")
+    return pd.DataFrame(rows)
+
+
 __all__ = [
     "FishAgent",
     "MicrobePatch",
+    "fish_timeseries",
     "simulate_agent_based_model",
 ]
