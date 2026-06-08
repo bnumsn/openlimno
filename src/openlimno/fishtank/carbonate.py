@@ -19,6 +19,7 @@ Millero seawater formulation (out of scope, SPEC §0).
 from __future__ import annotations
 
 import math
+import warnings
 from typing import Any
 
 from scipy.optimize import brentq
@@ -107,8 +108,32 @@ def diagnostic_ph_trajectory(
     Returns the input timeseries DataFrame with added ``alk_meq_l`` and
     ``ph_dynamic`` columns.
     """
+    # The NO3-increase proxy for cumulative nitrification only holds for a pure
+    # Tier-1 nitrification run: any other NO3 source/sink (NO3 dose events, plant
+    # uptake, denitrification) breaks it, and if pH is already coupled the result
+    # carries the real pH. Warn on the param-detectable cases.
+    p = getattr(result, "params", None)
+    if p is not None:
+        reasons = []
+        if getattr(p, "mu_plant", 0.0) > 0.0:
+            reasons.append("plant uptake (mu_plant>0)")
+        if getattr(p, "k_denit", 0.0) > 0.0:
+            reasons.append("denitrification (k_denit>0)")
+        if getattr(p, "couple_ph", 0.0) > 0.0:
+            reasons.append("couple_ph>0 (the integrated pH in the result is the real one)")
+        if reasons:
+            warnings.warn(
+                "diagnostic_ph_trajectory assumes every NO3 increase is "
+                "nitrification-driven alkalinity loss, but this run also has "
+                + ", ".join(reasons)
+                + " — the diagnostic pH is unreliable. It is only valid for a pure "
+                "Tier-1 nitrification run with no NO3-changing events.",
+                stacklevel=2,
+            )
+
     df = result.timeseries.copy()
-    # NO3 produced since t0 = nitrogen fully oxidised to nitrate.
+    # NO3 produced since t0 = nitrogen fully oxidised to nitrate (assumes pure
+    # Tier-1 nitrification — see the warning above for when this breaks).
     no3_produced = (df["NO3"] - float(df["NO3"].iloc[0])).clip(lower=0.0)
     alk = initial_alk_meq_l - no3_produced.map(alkalinity_drop_meq)
     alk = alk.clip(lower=floor_alk_meq_l)

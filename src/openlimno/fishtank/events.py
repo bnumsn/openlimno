@@ -15,10 +15,13 @@ from typing import Any
 
 from .state import STATE_ORDER, Chemistry, Params
 
-# Dissolved species that a water change dilutes toward tap values. The
-# attached biofilm states (X_AOB, X_NOB) are deliberately absent — they
-# live on the media and are NOT removed by a water change (SPEC §1/§5).
-_DISSOLVED = ("TAN", "NO2", "NO3", "DO")
+# Dissolved species that a water change dilutes toward tap values. Includes
+# the carbonate pool (DIC, Alk): under couple_ph a real water change swaps in
+# fresh buffer, which is how aquarists rescue a pH crash — so it must mix here
+# too (at Tier-1 defaults tap DIC/Alk match the tank, a no-op). The attached
+# biofilm states (X_AOB, X_NOB) are deliberately absent — they live on the
+# media and are NOT removed by a water change (SPEC §1/§5).
+_DISSOLVED = ("TAN", "NO2", "NO3", "DO", "DIC", "Alk")
 
 # Attached biofilm guilds — the states a ``wipe_biofilm`` event reduces
 # (washing media under chlorinated tap water, or a medication that kills
@@ -96,6 +99,11 @@ class Event:
             raise ValueError(
                 f"set_param target must be one of {sorted(_SETTABLE_PARAMS)}, got {self.target!r}"
             )
+        # Kinds that don't use target must not carry one: keeps a stray value out
+        # of the event log + provenance (defence-in-depth for the Studio UI; the
+        # frontend also renders log cells via textContent, not innerHTML).
+        if self.kind not in {"dose", "set_param"} and self.target:
+            object.__setattr__(self, "target", "")
 
     @property
     def priority(self) -> int:
@@ -110,6 +118,11 @@ class TapWater:
     NO2: float = 0.0
     NO3: float = 5.0
     DO: float = 8.5
+    # Carbonate buffer of the replacement water. Defaults match the Chemistry
+    # defaults so a water change is a no-op on DIC/Alk unless the scenario gives
+    # real tap values — fresh tap usually carries more buffer than a crashed tank.
+    DIC: float = 2.0
+    Alk: float = 2.0
 
     def get(self, name: str) -> float:
         return float(getattr(self, name, 0.0))
@@ -134,7 +147,10 @@ class EventSchedule:
             if e.repeat_days and e.repeat_days > 0:
                 d = e.day
                 while d < days:
-                    out.append(Event(d, e.kind, e.value, e.target))
+                    # Carry repeat_days onto each materialised instance so the
+                    # event log shows the original cadence (not 0). expand() is
+                    # only ever called once, so this is never re-expanded.
+                    out.append(Event(d, e.kind, e.value, e.target, e.repeat_days))
                     d += e.repeat_days
             else:
                 out.append(e)

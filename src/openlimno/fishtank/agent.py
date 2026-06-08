@@ -103,6 +103,10 @@ def simulate_agent_based_model(scenario: dict[str, Any]) -> dict[str, Any]:
         NO3=_float(tap_doc.get("NO3", 5.0), "tap_water.NO3"),
         DO=_float(tap_doc.get("DO", 8.5), "tap_water.DO"),
     )
+    # Same physical-domain guard as the ODE entry (solver.simulate): reject zero
+    # yields/capacities/volume, negative rates, and NaN/inf up front.
+    chem.validate()
+    params.validate()
     schedule = _schedule_from_payload(scenario.get("events", []), tap, days)
 
     fish_count = _bounded_int(agent_doc.get("fish_count", 6), "agents.fish_count", 0, 80)
@@ -143,17 +147,34 @@ def simulate_agent_based_model(scenario: dict[str, Any]) -> dict[str, Any]:
     time = 0.0
     _record(rows, snapshots, time, chem, params, fish, patches, snapshot=True)
     while time < days - 1e-10:
-        step = min(dt_days, days - time)
-        chem = _advance_agents(chem, params, fish, patches, step, feed_g_day, rng)
-        time = round(time + step, 10)
-        while (
-            event_cursor < len(expanded_events)
-            and expanded_events[event_cursor].day <= time + 1e-10
-        ):
-            chem, params, feed_g_day = _apply_agent_event(
-                chem, params, feed_g_day, expanded_events[event_cursor], tap, event_rows, patches
-            )
-            event_cursor += 1
+        # Advance to the next regular output point, but sub-step to land exactly
+        # on any event day inside the interval so its instantaneous action takes
+        # effect at its scheduled time (matching the ODE solver's stop/apply/
+        # restart), not deferred to the end of the dt_days step it falls in.
+        # Events on the output grid behave identically to before.
+        grid_target = min(round(time + dt_days, 10), days)
+        while time < grid_target - 1e-10:
+            sub = grid_target - time
+            if event_cursor < len(expanded_events):
+                next_day = expanded_events[event_cursor].day
+                if time + 1e-10 < next_day < grid_target - 1e-10:
+                    sub = next_day - time
+            chem = _advance_agents(chem, params, fish, patches, sub, feed_g_day, rng)
+            time = round(time + sub, 10)
+            while (
+                event_cursor < len(expanded_events)
+                and expanded_events[event_cursor].day <= time + 1e-10
+            ):
+                chem, params, feed_g_day = _apply_agent_event(
+                    chem,
+                    params,
+                    feed_g_day,
+                    expanded_events[event_cursor],
+                    tap,
+                    event_rows,
+                    patches,
+                )
+                event_cursor += 1
         step_index += 1
         _record(
             rows,
@@ -171,6 +192,11 @@ def simulate_agent_based_model(scenario: dict[str, Any]) -> dict[str, Any]:
         "ok": True,
         "schema": "openlimno-fishtank-abm/0.1",
         "model": "agent-based",
+        # The ABM resolves the Tier-1 nitrogen/oxygen core only. It does NOT
+        # model the Tier-2 ODE processes (plant uptake, denitrification, or the
+        # DIC/Alk carbonate-pH coupling), so those params have no effect here —
+        # surfaced for provenance so consumers don't assume Tier-2 parity.
+        "tier_scope": "tier-1-only: no plant uptake / denitrification / carbonate-pH coupling",
         "config": {
             "seed": seed,
             "dt_days": dt_days,

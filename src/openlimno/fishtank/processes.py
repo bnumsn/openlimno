@@ -137,8 +137,14 @@ def derivatives(t: float, y: list[float], p: Params) -> list[float]:
     dX_NOB = p.Y_NOB * rho2 * (1.0 - X_NOB / p.X_NOB_max) - p.b_NOB * X_NOB
 
     # Oxygen: reaeration + mass-based nitrification demand (3.43 + 1.14
-    # g-O2/g-N) + constant fish respiration.
-    dDO = p.k_a * (p.DO_sat - DO) - 3.43 * rho1 - 1.14 * rho2 - p.R_fish
+    # g-O2/g-N) + fish respiration. The nitrifier O2 demand already tapers via
+    # the Monod O2 terms in rho1/rho2; fish respiration gets the same O2
+    # limitation (a fish can't consume a pool that isn't there) so DO stays
+    # physically non-negative with a smooth RHS — without it a large constant
+    # R_fish integrates DO below 0 while the ABM clamps at 0. At DO->0 every sink
+    # vanishes and only positive reaeration acts, so DO is pushed back up.
+    # K_O_fish=0.1 mg/L: negligible effect at normal DO, full taper near zero.
+    dDO = p.k_a * (p.DO_sat - DO) - 3.43 * rho1 - 1.14 * rho2 - p.R_fish * monod(DO, 0.1)
 
     # Tier-2 plant N pool: grows by total uptake, decays (mineralised to TAN).
     dB_plant = (u_tan + u_no3) - mineralisation

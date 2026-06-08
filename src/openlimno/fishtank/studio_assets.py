@@ -399,18 +399,27 @@ function collect() {
     target: row.querySelector('[data-k="target"]').value,
     repeat_days: Number(row.querySelector('[data-k="repeat_days"]').value || 0),
   }));
+  // Start from the loaded preset so non-form fields survive a Run: the Tier-2
+  // initial state (B_plant/DIC/Alk), the full parameter set (couple_ph,
+  // mu_plant, k_denit, k_a, ...), and tap DIC/Alk. Only override the fields the
+  // form actually edits. Without this, selecting e.g. ph_crash_coupled then
+  // hitting Run silently dropped couple_ph and ran the uncoupled path.
+  const base = state ? JSON.parse(JSON.stringify(state)) : {};
   return {
-    scenario_id: 'studio-scenario',
-    tank: {volume_l: number('volume'), temperature_c: number('temp'), ph: number('ph')},
-    run: {days: number('days'), dt_output_hours: number('dt')},
+    ...base,
+    scenario_id: base.scenario_id || 'studio-scenario',
+    tank: {...base.tank, volume_l: number('volume'), temperature_c: number('temp'), ph: number('ph')},
+    run: {...base.run, days: number('days'), dt_output_hours: number('dt')},
     chemistry: {
+      ...base.chemistry,
       TAN: number('tan0'), NO2: number('no20'), NO3: number('no30'),
       X_AOB: number('xaob0'), X_NOB: number('xnob0'), DO: number('do0')
     },
-    parameters: {ammonia_dose_mg_n_l_day: number('dose')},
-    tap_water: {TAN: 0, NO2: 0, NO3: number('tapNo3'), DO: number('tapDo')},
-    carbonate: {initial_alk_meq_l: number('alk'), dic_mmol_l: number('dic')},
+    parameters: {...base.parameters, ammonia_dose_mg_n_l_day: number('dose')},
+    tap_water: {...base.tap_water, NO3: number('tapNo3'), DO: number('tapDo')},
+    carbonate: {...base.carbonate, initial_alk_meq_l: number('alk'), dic_mmol_l: number('dic')},
     agents: {
+      ...base.agents,
       seed: number('agentSeed'),
       dt_days: number('agentDt'),
       fish_count: number('fishCount'),
@@ -461,6 +470,10 @@ function legend(id, series) {
 }
 
 function table(id, rows, columns, opts={}) {
+  // Escape cell values before interpolating into innerHTML — event-log fields
+  // (target, notes) can carry arbitrary text, so render them as data, not HTML.
+  const esc = v => String(v).replace(/[&<>"']/g, m => (
+    {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[m]));
   if (!rows || rows.length === 0) {
     $(id).innerHTML = `<div class="muted">${t('No rows')}</div>`;
     return;
@@ -476,10 +489,10 @@ function table(id, rows, columns, opts={}) {
       ...rows.slice(-edge),
     ];
   }
-  const head = columns.map(c => `<th>${t(c)}</th>`).join('');
+  const head = columns.map(c => `<th>${esc(t(c))}</th>`).join('');
   const body = displayRows.map(row => {
-    if (row.__gap) return `<tr class="table-gap"><td colspan="${columns.length}">${row.__gap}</td></tr>`;
-    return `<tr>${columns.map(c => `<td>${row[c] ?? ''}</td>`).join('')}</tr>`;
+    if (row.__gap) return `<tr class="table-gap"><td colspan="${columns.length}">${esc(row.__gap)}</td></tr>`;
+    return `<tr>${columns.map(c => `<td>${esc(row[c] ?? '')}</td>`).join('')}</tr>`;
   }).join('');
   const note = compact
     ? (__lang === 'zh'
