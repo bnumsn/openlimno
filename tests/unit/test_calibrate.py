@@ -161,6 +161,11 @@ def test_build_pestpp_workspace_writes_control_files_and_runner(tmp_path) -> Non
     assert "q_0002" in model_out
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="mock binary is a POSIX shebang script and the runner uses subprocess "
+    "pass_fds; PEST++ is a research-route (non-Windows) path.",
+)
 def test_run_pestpp_workspace_invokes_external_binary(tmp_path) -> None:
     """PEST++ runner wrapper executes an installed/explicit pestpp-glm binary."""
     case_yaml = _write_minimal_calibration_case(tmp_path)
