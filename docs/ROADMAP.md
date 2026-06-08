@@ -33,7 +33,7 @@ DoD closes (see [ADR-0011](decisions/0011-stable-major-tag-moratorium.md)).
 | Document | Scope | Status |
 |---|---|---|
 | [**this file (`docs/ROADMAP.md`)**](ROADMAP.md) | Plan entry point and document index | **Living** |
-| [`SPEC.md`](../SPEC.md) (= `docs/SPEC.md`) | Frozen 1.0 technical spec (v0.5) | Frozen for 1.0 line |
+| [`SPEC.md`](SPEC.md) (= `docs/SPEC.md`) | Frozen 1.0 technical spec (v0.5) | Frozen for 1.0 line |
 | [`docs/external_action_phase.md`](external_action_phase.md) | Where code-side work halts; what external action unblocks the moratorium | **Living** (effective 2026-05-20) |
 | [`docs/governance/CAPABILITY_BOUNDARY_1_0.md`](governance/CAPABILITY_BOUNDARY_1_0.md) | What 1.0 will and will NOT do; D1–D8 cut criteria | **Draft** (signatures pending) |
 | [`docs/SPEC_v3.md`](SPEC_v3.md) | v3.0 hardening cut (path sandbox + matplotlib threading + audit pass) | Closed (executed via v3.0–v3.6.1) |
@@ -59,7 +59,7 @@ the maintainer who owns the docs tree if you find a contradiction.
 | **3.x** | Strict-by-default path sandbox (R11-4), TOCTOU mitigation (R15-4/R14-11), atomic-write helper generalised, AEQD high-lat buffer (R9-3 + R16-1 + R17-4 + R18-2/3), ruamel.yaml round-trip (R13-3), thread-safe singletons, fd safety (R17-10 + R18-1) | Was supposed to be additive after v3.0 break; in practice has consumed multiple research-route items | **Active** — v3.6.1 last patch; **MORATORIUM on v3.7+ stable major tags** until ROADMAP §"How to unfreeze" closes |
 | **3.x research route** | Reference-platform readers (PHABSIM/River2D/HABBY/FishXing), spatial-T fetcher, PEST++ runner, optional GUI/QGIS strict typing | Unstable; signature changes allowed | Multiple items closed in v3.0–v3.6.1; SPEC_3x_research_route.md needs sync (audit in MASTER_INDEX) |
 | **Studio path A** | Independent PyQt6 + PyQGIS canvas GUI; bundled installer | Separate ship track (`openlimno-studio`); QGIS plugin deprecated after Studio 1.0 | Active in `gui_core/` + `studio/`; not yet shipped |
-| **QGIS plugin** | M2-alpha read-only viewer | **MAINTENANCE-ONLY as of 2026-05-19** — see [`src/openlimno/qgis/openlimno_qgis_plugin/MAINTENANCE_ONLY.md`](../src/openlimno/qgis/openlimno_qgis_plugin/MAINTENANCE_ONLY.md) | Active until Studio 1.0 |
+| **QGIS plugin** | M2-alpha read-only viewer | **MAINTENANCE-ONLY as of 2026-05-19** — see `src/openlimno/qgis/openlimno_qgis_plugin/MAINTENANCE_ONLY.md` | Active until Studio 1.0 |
 
 ---
 
@@ -96,7 +96,7 @@ Per [ADR-0011](decisions/0011-stable-major-tag-moratorium.md):
    user-visible version bump must carry validation evidence, not
    review-chain findings.
 3. **Triple-AI CLI review cadence reduced** (see
-   [`feedback_review_cadence`](../../.claude/memory/feedback_review_cadence.md)
+   `feedback_review_cadence`
    — author-local memory rule; not yet codified in repo):
    - Strong trigger (review required): public API change · path/sandbox /
      persistence / auth · scientific math · external user bug report
@@ -111,7 +111,7 @@ Per [ADR-0011](decisions/0011-stable-major-tag-moratorium.md):
 
 ---
 
-## How to unfreeze — gate to resume stable-major-tag releases
+## How to unfreeze — gate to resume stable-major-tag releases {#how-to-unfreeze}
 
 The moratorium lifts when **all** of the following hold (i.e. when the
 project demonstrates evidence-grade readiness, not just clean lint):
@@ -167,7 +167,7 @@ R-DOC-STATE-REFRESH + R-SPEC-3X-SYNC + R-QGIS-MAINT) is done.
 These are explicitly NOT on any track:
 
 - OpenLimno-native 2D/3D solver (SCHISM is the sole 2D backend per
-  [ADR-0002](decisions/0002-schism-integration-strategy.md) and [SPEC §0.3](../SPEC.md))
+  [ADR-0002](decisions/0002-schism-integration-strategy.md) and [SPEC §0.3](SPEC.md))
 - GPU acceleration of any solver
 - ML / neural-operator surrogates
 - Individual-based / agent-based models (in-core; CSV bridges are fine)

@@ -164,7 +164,7 @@ remains unchanged.
 ## See also
 
 - [SCP-0001 main document](0001-native-ibm-pivot.md)
-- [ADR-0014](../decisions/0014-charter-pivot-native-ibm.md) — strategic rationale
-- [ADR-0015](../decisions/0015-ibm-moratorium-exception.md) — moratorium relationship
-- [ADR-0016](../decisions/0016-author-override-direct-merge.md) — author override of Option Z
+- ADR-0014 — strategic rationale
+- ADR-0015 — moratorium relationship
+- ADR-0016 — author override of Option Z
 - [Round 21-23 audit](../../reviews/round_21_22_23_native_ibm_pivot_audit.md) — review chain

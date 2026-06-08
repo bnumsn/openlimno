@@ -3,7 +3,7 @@
 > **Canonical ledger of every review finding from every triple-AI CLI
 > round (codex + gemini + claude) shipped against OpenLimno from v1.7.1
 > through v3.6.1.** Maintained per
-> [`feedback_review_cadence`](../../.claude/projects/-mnt-data-openlimno/memory/feedback_review_cadence.md)
+> `feedback_review_cadence`
 > (author-local memory rule). Every future full triple-AI round MUST
 > append a row to `## Round ledger` AND update `## Production-caller
 > audit` for any closure it claims.
@@ -110,7 +110,7 @@ only case.**
 | 15 (R16) | v3.2.0 → v3.5.0 | 12 (R16-1..R16-12) | 8 closed in v3.5.0; R16-4/R16-7/R16-8/R16-9/R16-10/R16-11 deferred → R16-8 + R16-9 closed v3.6.0; others still deferred |
 | 16 (R17) | v3.5.0 → v3.6.0 | 10 (R17-1..R17-10) | 6 closed in v3.6.0; R17-6/R17-7/R17-8/R17-9 deferred to v3.7+; R17-4 partially superseded by R18-2 |
 | 17 (R18) | v3.6.0 → v3.6.1 | 4 (R18-1..R18-4) | 3 closed in v3.6.1 (R18-1/R18-2/R18-3); R18-4 deferred to v3.7+ |
-| **18 (S, strategic)** | **v3.6.1** | **7 (S1..S7)** | **All open**; this index + ROADMAP.md + ADR-0011 + ADR-0012 are the implementation response. See [strategic-review-18.md](strategic-review-18.md) (TODO) |
+| **18 (S, strategic)** | **v3.6.1** | **7 (S1..S7)** | **All open**; this index + ROADMAP.md + ADR-0011 + ADR-0012 are the implementation response. See strategic-review-18.md (TODO) |
 
 Total: 17 code-review rounds (F/N/M + R5..R18) + 1 strategic plan-level round (S).
 
@@ -206,9 +206,9 @@ historical CHANGELOG entries.
   audit table with verdicts (11 WIRED + 7 INTRINSIC + 3 COSMETIC + 7 DEFERRED)
 - [`R5_R14_audit.md`](R5_R14_audit.md) — R5..R14 cluster audit
   anchored by `tests/integration/test_r5_r14_lemhi_end_to_end_audit.py`
-- [`test_r18_4_audit_wired.py`](../../tests/unit/test_r18_4_audit_wired.py)
+- `test_r18_4_audit_wired.py`
   — R18-4 per-call-site sandbox wiring pins
-- [`test_r11_4_audit_wired.py`](../../tests/unit/test_r11_4_audit_wired.py)
+- `test_r11_4_audit_wired.py`
   — R11-4 inline-raster sweep pins
 
 CHANGELOG entries remain the authoritative source for
@@ -227,5 +227,5 @@ to this file in the same release.
 - [`docs/ROADMAP.md`](../ROADMAP.md) — strategic context, freeze status, unfreeze gate
 - [`docs/decisions/0011-stable-major-tag-moratorium.md`](../decisions/0011-stable-major-tag-moratorium.md) — why v3.7+ is frozen
 - [`docs/decisions/0012-phabsim-real-fortran-validation.md`](../decisions/0012-phabsim-real-fortran-validation.md) — the R-PHABSIM-REAL track
-- [`CHANGELOG.md`](../../CHANGELOG.md) — authoritative source for each ship's findings
-- [`feedback_review_cadence`](../../.claude/projects/-mnt-data-openlimno/memory/feedback_review_cadence.md) — author memory rule on when to trigger the next full triple-AI round
+- [`CHANGELOG.md`](../CHANGELOG.md) — authoritative source for each ship's findings
+- `feedback_review_cadence` — author memory rule on when to trigger the next full triple-AI round

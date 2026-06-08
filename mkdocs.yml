@@ -67,6 +67,9 @@ markdown_extensions:
   - toc:
       permalink: true
 
+exclude_docs: |
+  reviews/v0.1.0-alpha.*/
+
 nav:
   - Home: index.md
   - Getting Started:
@@ -90,7 +93,7 @@ nav:
       - strategy/ibm-redesign.md
   - Releases:
       - RELEASE_v1.0.0.md
-      - RELEASE_v1.3.0.md
+      - RELEASE_v1.4.0.md
   - Spec:
       - SPEC.md
   - Decisions (ADRs):
