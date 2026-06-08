@@ -11,6 +11,7 @@ historically stable, and stale-cache symptoms are detectable via
 ``provenance.json`` (which records the fetch_time at *original* fetch).
 Users can wipe the cache dir to force refresh.
 """
+
 from __future__ import annotations
 
 import hashlib

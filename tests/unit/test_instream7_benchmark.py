@@ -99,7 +99,6 @@ def test_parse_instream7_case_parameter_file(tmp_path: Path) -> None:
     assert case.reaches[0].depth_file.name == "ExampleA-Depths.csv"
 
 
-
 def _write_minimal_netlogo_model(root: Path, case_id: str = "ExampleA") -> Path:
     model = root / f"InSTREAM7.4_2026-02-06_{case_id}.nlogox"
     model.write_text(
@@ -124,7 +123,6 @@ def _write_minimal_netlogo_model(root: Path, case_id: str = "ExampleA") -> Path:
         encoding="utf-8",
     )
     return model
-
 
 
 def test_write_instream7_netlogo_setup_file_uses_model_metrics(tmp_path: Path) -> None:
@@ -157,7 +155,9 @@ def test_prepare_instream7_netlogo_reference_case_copies_and_shortens_case(tmp_p
         seed=19,
     )
 
-    copied_param = result.case_root / "Example-Project-A_1Reach-1Species" / "parameters-ExampleA.nls"
+    copied_param = (
+        result.case_root / "Example-Project-A_1Reach-1Species" / "parameters-ExampleA.nls"
+    )
     copied_param_text = copied_param.read_text(encoding="utf-8")
     assert 'set end-date   "10/3/2001"' in copied_param_text
     assert 'set file-output-units "days"' in copied_param_text
@@ -170,7 +170,9 @@ def test_prepare_instream7_netlogo_reference_case_copies_and_shortens_case(tmp_p
     assert 'value="19"' in result.setup_file.read_text(encoding="utf-8")
 
 
-def test_prepare_instream7_netlogo_reference_case_rejects_output_inside_source(tmp_path: Path) -> None:
+def test_prepare_instream7_netlogo_reference_case_rejects_output_inside_source(
+    tmp_path: Path,
+) -> None:
     _write_minimal_official_case(tmp_path)
     _write_minimal_netlogo_model(tmp_path)
 
@@ -439,7 +441,6 @@ def test_official_benchmark_preserves_redds_across_days(
     assert int(summary.loc[2, "n_active_redds"]) > 0
     assert not result.redds.empty
     assert int(result.redds["age_days"].max()) >= 2
-
 
 
 def test_official_benchmark_uses_ordered_multi_reach_movement(

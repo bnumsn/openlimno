@@ -369,7 +369,9 @@ def _read_dataset(reader: Any, path: Path, time_index: int | None) -> Any:
 
     mikeio = _require_module("mikeio", "mikeio")
     if not hasattr(mikeio, "read"):
-        raise ImportError("Installed 'mikeio' module exposes neither reader.read() nor mikeio.read().")
+        raise ImportError(
+            "Installed 'mikeio' module exposes neither reader.read() nor mikeio.read()."
+        )
     for kwargs in attempts:
         try:
             return mikeio.read(str(path), **kwargs)
@@ -454,7 +456,9 @@ def _as_spatial_values(
         idx = _resolve_time_index(arr.shape[0], time_index)
         flat = arr[idx, 0].reshape(-1)
         if n_cells is not None and flat.size != n_cells:
-            raise ValueError(f"layered grid item length {flat.size} does not match n_cells {n_cells}")
+            raise ValueError(
+                f"layered grid item length {flat.size} does not match n_cells {n_cells}"
+            )
         return flat, idx
     raise ValueError(f"unsupported MIKE item shape {arr.shape}")
 
@@ -481,7 +485,9 @@ def _find_item(
     return candidates[0][1]
 
 
-def _find_velocity_component(item_names: tuple[str, ...], components: tuple[str, ...]) -> str | None:
+def _find_velocity_component(
+    item_names: tuple[str, ...], components: tuple[str, ...]
+) -> str | None:
     for name in item_names:
         name_norm = _norm(name)
         if "velocity" not in name_norm and "vel" not in name_norm:
@@ -530,7 +536,9 @@ def _infer_n_cells(
     raise ValueError("Cannot infer MIKE cell count from geometry or result items.")
 
 
-def _coordinates_from_geometry(geometry: Any, n_cells: int) -> tuple[np.ndarray | None, np.ndarray | None]:
+def _coordinates_from_geometry(
+    geometry: Any, n_cells: int
+) -> tuple[np.ndarray | None, np.ndarray | None]:
     if geometry is None:
         return None, None
     for attr in ("element_coordinates", "cell_coordinates"):

@@ -29,6 +29,7 @@ API docs:
     https://daymet.ornl.gov/web_services
     https://daymet.ornl.gov/single-pixel/api/data
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -76,8 +77,12 @@ class DaymetFetchResult:
 
 
 def fetch_daymet_daily(
-    lat: float, lon: float, start_year: int, end_year: int,
-    *, include_precip: bool = False,
+    lat: float,
+    lon: float,
+    start_year: int,
+    end_year: int,
+    *,
+    include_precip: bool = False,
 ) -> DaymetFetchResult:
     """Fetch Daymet daily surface weather for a lat/lon point.
 
@@ -95,9 +100,7 @@ def fetch_daymet_daily(
         time-series consumers without further reshaping.
     """
     if start_year > end_year:
-        raise ValueError(
-            f"start_year ({start_year}) must be ≤ end_year ({end_year})"
-        )
+        raise ValueError(f"start_year ({start_year}) must be ≤ end_year ({end_year})")
     # Daymet v4 coverage starts 1980-01-01; the upstream API silently
     # snaps out-of-range requests to its available window (a 1950
     # request returns 1980+ data — undetectable from the response and
@@ -144,8 +147,11 @@ def fetch_daymet_daily(
         return resp.content
 
     cache = cached_fetch(
-        subdir="daymet", url=DAYMET_SINGLE_PIXEL, params=params,
-        suffix=".csv", fetch_fn=_do_fetch,
+        subdir="daymet",
+        url=DAYMET_SINGLE_PIXEL,
+        params=params,
+        suffix=".csv",
+        fetch_fn=_do_fetch,
     )
     text = cache.path.read_text()
 
@@ -187,8 +193,7 @@ def fetch_daymet_daily(
     df_raw = pd.read_csv(StringIO(body))
 
     # Rename "tmax (deg c)" → "tmax_C" so column names are SQL-friendly
-    rename = {c: c.split()[0] + "_C" for c in df_raw.columns
-              if "tmax" in c or "tmin" in c}
+    rename = {c: c.split()[0] + "_C" for c in df_raw.columns if "tmax" in c or "tmin" in c}
     if include_precip:
         rename.update({c: "prcp_mm" for c in df_raw.columns if "prcp" in c})
     df_raw = df_raw.rename(columns=rename)
@@ -196,14 +201,14 @@ def fetch_daymet_daily(
     # year + yday → ISO date
     df_raw["time"] = pd.to_datetime(
         df_raw["year"].astype(int).astype(str)
-        + "-" + df_raw["yday"].astype(int).astype(str).str.zfill(3),
+        + "-"
+        + df_raw["yday"].astype(int).astype(str).str.zfill(3),
         format="%Y-%j",
     ).dt.strftime("%Y-%m-%d")
 
     df_raw["T_air_C_mean"] = (df_raw["tmax_C"] + df_raw["tmin_C"]) / 2.0
     df_raw["T_water_C_stefan"] = (
-        STEFAN_AIR_TO_WATER_A
-        + STEFAN_AIR_TO_WATER_B * df_raw["T_air_C_mean"]
+        STEFAN_AIR_TO_WATER_A + STEFAN_AIR_TO_WATER_B * df_raw["T_air_C_mean"]
     ).clip(lower=0.0)  # streams don't go below 0°C in the ice-free state
 
     cols = ["time", "tmax_C", "tmin_C", "T_air_C_mean", "T_water_C_stefan"]
@@ -212,7 +217,11 @@ def fetch_daymet_daily(
     out = df_raw[cols].reset_index(drop=True)
 
     return DaymetFetchResult(
-        df=out, cache=cache,
-        lat=snapped_lat, lon=snapped_lon, tile_id=tile_id,
-        elevation_m=elev, citation=citation,
+        df=out,
+        cache=cache,
+        lat=snapped_lat,
+        lon=snapped_lon,
+        tile_id=tile_id,
+        elevation_m=elev,
+        citation=citation,
     )

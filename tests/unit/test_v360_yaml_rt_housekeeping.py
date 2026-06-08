@@ -5,6 +5,7 @@ destination through Case._resolve_write_safe.
 R16-9 (claude): threading.Lock around the warned-flag protects
 against double-print races on first use.
 """
+
 from __future__ import annotations
 
 import textwrap
@@ -109,6 +110,7 @@ def test_v360_r169_warn_missing_ruamel_lock_exists() -> None:
     import inspect
 
     from openlimno import _yaml_rt
+
     src = inspect.getsource(_yaml_rt)
     assert "threading.Lock()" in src, (
         "v3.6.0 R16-9 regression: threading.Lock guard for the "
@@ -151,10 +153,7 @@ def test_v360_r169_warn_singleton_threadsafe_basic(
     # mean we can't guarantee capture for stderr writes from
     # threads). The real contract is "no doubles," which we
     # verify by asserting line count ≤ 1.
-    safety_lines = [
-        line for line in err.splitlines()
-        if "openlimno._yaml_rt" in line
-    ]
+    safety_lines = [line for line in err.splitlines() if "openlimno._yaml_rt" in line]
     assert len(safety_lines) <= 1, (
         f"v3.6.0 R16-9 regression: warned-flag race produced "
         f"{len(safety_lines)} stderr lines under 10-thread "

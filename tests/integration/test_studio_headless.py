@@ -8,6 +8,7 @@ Lives under ``tests/integration/`` because it actually runs
 ``Case.run`` against the Lemhi example. Skipped if the example
 isn't present (e.g., installed-package test runs).
 """
+
 from __future__ import annotations
 
 import os
@@ -55,7 +56,9 @@ def test_v230_studio_headless_plot_can_be_skipped():
     from openlimno.studio import run_case_with_plots
 
     result = run_case_with_plots(
-        CASE_YAML, discharges_m3s=[3.0], plot=False,
+        CASE_YAML,
+        discharges_m3s=[3.0],
+        plot=False,
     )
     assert result.wua_q_plot is None
     # The case-level artefacts are still written.
@@ -72,18 +75,18 @@ def test_v230_studio_headless_plot_wua_q_atomic_write(tmp_path):
 
     from openlimno.studio import plot_wua_q
 
-    wua_q = pd.DataFrame({
-        "discharge_m3s": np.array([1.0, 2.0, 3.0, 4.0, 5.0]),
-        "wua_m2_sp_juv": np.array([10.0, 50.0, 100.0, 80.0, 30.0]),
-    })
+    wua_q = pd.DataFrame(
+        {
+            "discharge_m3s": np.array([1.0, 2.0, 3.0, 4.0, 5.0]),
+            "wua_m2_sp_juv": np.array([10.0, 50.0, 100.0, 80.0, 30.0]),
+        }
+    )
     png = tmp_path / "out.png"
     plot_wua_q(wua_q, png, title="v2.3.0 smoke", quality_grade="A")
 
     assert png.exists()
     leftover = [p.name for p in tmp_path.iterdir() if p != png]
-    assert leftover == [], (
-        f"v2.3.0 plot_wua_q left orphan tempfiles: {leftover}"
-    )
+    assert leftover == [], f"v2.3.0 plot_wua_q left orphan tempfiles: {leftover}"
 
     current_umask = os.umask(0)
     os.umask(current_umask)
@@ -102,10 +105,12 @@ def test_v230_studio_headless_plot_wua_q_grade_c_overlay(tmp_path):
 
     from openlimno.studio import plot_wua_q
 
-    wua_q = pd.DataFrame({
-        "discharge_m3s": np.array([1.0, 2.0, 3.0, 4.0]),
-        "wua_m2_sp_juv": np.array([10.0, 20.0, 30.0, 20.0]),
-    })
+    wua_q = pd.DataFrame(
+        {
+            "discharge_m3s": np.array([1.0, 2.0, 3.0, 4.0]),
+            "wua_m2_sp_juv": np.array([10.0, 20.0, 30.0, 20.0]),
+        }
+    )
     png_a = tmp_path / "grade_a.png"
     png_c = tmp_path / "grade_c.png"
     plot_wua_q(wua_q, png_a, title="A", quality_grade="A")
@@ -115,6 +120,4 @@ def test_v230_studio_headless_plot_wua_q_grade_c_overlay(tmp_path):
     size_c = png_c.stat().st_size
     # C-grade overlay adds the TENTATIVE banner text, which makes
     # the PNG measurably larger than the A-grade baseline.
-    assert size_c > size_a, (
-        f"C-grade overlay should grow PNG; got A={size_a}, C={size_c}"
-    )
+    assert size_c > size_a, f"C-grade overlay should grow PNG; got A={size_a}, C={size_c}"

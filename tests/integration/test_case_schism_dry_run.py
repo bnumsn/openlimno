@@ -116,7 +116,8 @@ def test_schism_dry_run_end_to_end(tmp_path: Path, lemhi_present: bool) -> None:
 
 
 def test_schism_without_executable_raises_no_silent_fallback(
-    tmp_path: Path, lemhi_present: bool,
+    tmp_path: Path,
+    lemhi_present: bool,
 ) -> None:
     """2026-05-20 round-20 codex A10 + gemini A7 (HIGH convergent): if
     SCHISM is missing AND ``dry_run`` is not set, ``Case.run`` must

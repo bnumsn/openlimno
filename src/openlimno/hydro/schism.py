@@ -599,7 +599,9 @@ def _validate_forcing_grid(frame: Any, boundary_ids: list[int], time_values: lis
     duplicates = frame.duplicated(subset=["boundary_id", "time_seconds"])
     if bool(duplicates.any()):
         raise ValueError("forcing has duplicate boundary_id/time_seconds rows")
-    expected = {(boundary_id, time_value) for boundary_id in boundary_ids for time_value in time_values}
+    expected = {
+        (boundary_id, time_value) for boundary_id in boundary_ids for time_value in time_values
+    }
     actual = {
         (int(row.boundary_id), float(row.time_seconds))
         for row in frame[["boundary_id", "time_seconds"]].itertuples(index=False)
@@ -629,7 +631,9 @@ def _write_schism_th_file(
     path.write_text("\n".join(rows) + "\n", encoding="utf-8")
 
 
-def _lookup_forcing_value(frame: Any, boundary_id: int, time_value: float, value_column: str) -> Any:
+def _lookup_forcing_value(
+    frame: Any, boundary_id: int, time_value: float, value_column: str
+) -> Any:
     boundary_frame = frame[frame["boundary_id"].eq(boundary_id)].sort_values("time_seconds")
     exact = boundary_frame[boundary_frame["time_seconds"].eq(time_value)]
     if not exact.empty:
@@ -985,9 +989,7 @@ def _as_time_node(da: Any, n_nodes: int) -> tuple[Any, Any, str | None]:
         (
             i
             for i, dim in enumerate(dims)
-            if da.sizes[dim] == n_nodes
-            and i != time_axis
-            and "node" in _norm_schism_name(str(dim))
+            if da.sizes[dim] == n_nodes and i != time_axis and "node" in _norm_schism_name(str(dim))
         ),
         None,
     )
@@ -1012,9 +1014,7 @@ def _as_time_node(da: Any, n_nodes: int) -> tuple[Any, Any, str | None]:
     if coord is not None:
         raw_time = np.asarray(coord.values)
         if np.issubdtype(raw_time.dtype, np.datetime64):
-            time_values = (
-                (raw_time - raw_time[0]) / np.timedelta64(1, "s")
-            ).astype(float)
+            time_values = ((raw_time - raw_time[0]) / np.timedelta64(1, "s")).astype(float)
         else:
             time_values = raw_time.astype(float)
     else:
@@ -1146,9 +1146,7 @@ def _nodal_tributary_area(x: Any, y: Any, face_nodes: list[list[int]]) -> Any:
     for nodes in face_nodes:
         xs = np.asarray([x[i] for i in nodes], dtype=float)
         ys = np.asarray([y[i] for i in nodes], dtype=float)
-        polygon_area = 0.5 * abs(
-            float(np.dot(xs, np.roll(ys, -1)) - np.dot(ys, np.roll(xs, -1)))
-        )
+        polygon_area = 0.5 * abs(float(np.dot(xs, np.roll(ys, -1)) - np.dot(ys, np.roll(xs, -1))))
         share = polygon_area / len(nodes)
         for node in nodes:
             area[node] += share

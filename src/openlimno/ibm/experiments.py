@@ -97,10 +97,9 @@ def _final_metrics(result: NativeIBMResult) -> dict[str, object]:
     abundance = int(pd.to_numeric(final["abundance"], errors="coerce").fillna(0).sum())
     biomass = float(pd.to_numeric(final["biomass_g"], errors="coerce").fillna(0.0).sum())
     if abundance > 0 and "mean_length_mm" in final:
-        weighted = (
-            pd.to_numeric(final["mean_length_mm"], errors="coerce").fillna(0.0)
-            * pd.to_numeric(final["abundance"], errors="coerce").fillna(0)
-        )
+        weighted = pd.to_numeric(final["mean_length_mm"], errors="coerce").fillna(
+            0.0
+        ) * pd.to_numeric(final["abundance"], errors="coerce").fillna(0)
         mean_length = float(weighted.sum() / abundance)
     else:
         mean_length = math.nan
@@ -183,11 +182,7 @@ def _sensitivity_ranking(summary: pd.DataFrame, target: str = "final_abundance")
         # abundance), np.corrcoef divides by stddev=0 and emits a
         # ``RuntimeWarning: invalid value encountered in divide``.
         # (2026-05-26 software-test minor N1, Codex + Gemini.)
-        if (
-            n < 2
-            or float(values[valid].nunique()) < 2
-            or float(target_values[valid].nunique()) < 2
-        ):
+        if n < 2 or float(values[valid].nunique()) < 2 or float(target_values[valid].nunique()) < 2:
             corr = math.nan
         else:
             corr = float(values[valid].corr(target_values[valid]))
@@ -333,9 +328,13 @@ def _normalise_parameter_grid(grid: Mapping[str, object] | None) -> dict[str, tu
     normalised: dict[str, tuple[float, ...]] = {}
     for name, raw_values in grid.items():
         if name not in numeric_fields:
-            raise ValueError(f"Calibration parameter {name!r} is not a numeric SpeciesProfile field")
+            raise ValueError(
+                f"Calibration parameter {name!r} is not a numeric SpeciesProfile field"
+            )
         if isinstance(raw_values, str) or not isinstance(raw_values, Sequence):
-            raise ValueError(f"Calibration parameter {name!r} must provide a list of numeric values")
+            raise ValueError(
+                f"Calibration parameter {name!r} must provide a list of numeric values"
+            )
         values = tuple(float(value) for value in raw_values)
         if not values:
             raise ValueError(f"Calibration parameter {name!r} has no candidate values")
@@ -351,7 +350,9 @@ def _parameter_combinations(grid: Mapping[str, Sequence[float]]) -> list[dict[st
     ]
 
 
-def _normalise_parameter_priors(priors: Mapping[str, object] | None) -> dict[str, tuple[float, float]]:
+def _normalise_parameter_priors(
+    priors: Mapping[str, object] | None,
+) -> dict[str, tuple[float, float]]:
     grid = _normalise_parameter_grid(priors)
     normalised: dict[str, tuple[float, float]] = {}
     for name, values in grid.items():
@@ -375,15 +376,14 @@ def _sample_parameter_priors(
     samples: list[dict[str, float]] = []
     for _ in range(n):
         samples.append(
-            {
-                name: float(rng.uniform(priors[name][0], priors[name][1]))
-                for name in names
-            }
+            {name: float(rng.uniform(priors[name][0], priors[name][1])) for name in names}
         )
     return samples
 
 
-def _calibration_merge(summary: pd.DataFrame, observed: pd.DataFrame) -> tuple[pd.DataFrame, list[str], list[str]]:
+def _calibration_merge(
+    summary: pd.DataFrame, observed: pd.DataFrame
+) -> tuple[pd.DataFrame, list[str], list[str]]:
     if "day" not in observed or "abundance" not in observed:
         raise ValueError("Observed calibration table requires day and abundance columns")
     key_columns = ["day"] + [
@@ -405,21 +405,31 @@ def _calibration_merge(summary: pd.DataFrame, observed: pd.DataFrame) -> tuple[p
         np.nan,
     )
     observed_table = observed.copy()
-    observed_table["abundance"] = pd.to_numeric(observed_table["abundance"], errors="coerce").fillna(0.0)
+    observed_table["abundance"] = pd.to_numeric(
+        observed_table["abundance"], errors="coerce"
+    ).fillna(0.0)
     metric_columns = ["abundance"]
     if "biomass_g" in observed_table:
-        observed_table["biomass_g"] = pd.to_numeric(observed_table["biomass_g"], errors="coerce").fillna(0.0)
+        observed_table["biomass_g"] = pd.to_numeric(
+            observed_table["biomass_g"], errors="coerce"
+        ).fillna(0.0)
         metric_columns.append("biomass_g")
     if "mean_length_mm" in observed_table:
-        observed_table["mean_length_mm"] = pd.to_numeric(observed_table["mean_length_mm"], errors="coerce")
-        observed_table["weighted_length_mm"] = observed_table["mean_length_mm"].fillna(0.0) * observed_table["abundance"]
+        observed_table["mean_length_mm"] = pd.to_numeric(
+            observed_table["mean_length_mm"], errors="coerce"
+        )
+        observed_table["weighted_length_mm"] = (
+            observed_table["mean_length_mm"].fillna(0.0) * observed_table["abundance"]
+        )
         metric_columns.append("mean_length_mm")
     observed_aggs: dict[str, tuple[str, str]] = {"abundance": ("abundance", "sum")}
     if "biomass_g" in metric_columns:
         observed_aggs["biomass_g"] = ("biomass_g", "sum")
     if "mean_length_mm" in metric_columns:
         observed_aggs["weighted_length_mm"] = ("weighted_length_mm", "sum")
-    observed_grouped = observed_table.groupby(key_columns, dropna=False, as_index=False).agg(**observed_aggs)
+    observed_grouped = observed_table.groupby(key_columns, dropna=False, as_index=False).agg(
+        **observed_aggs
+    )
     if "mean_length_mm" in metric_columns:
         observed_grouped["mean_length_mm"] = np.where(
             observed_grouped["abundance"] > 0.0,
@@ -433,16 +443,17 @@ def _calibration_merge(summary: pd.DataFrame, observed: pd.DataFrame) -> tuple[p
         suffixes=("_model", "_observed"),
     )
     if merged.empty:
-        raise ValueError("Observed calibration table shares no day/reach/species keys with model output")
+        raise ValueError(
+            "Observed calibration table shares no day/reach/species keys with model output"
+        )
     return merged, key_columns, metric_columns
 
 
 def _score_population_summary(summary: pd.DataFrame, observed: pd.DataFrame) -> dict[str, object]:
     merged, _, metric_columns = _calibration_merge(summary, observed)
-    diff = (
-        pd.to_numeric(merged["abundance_model"], errors="coerce").fillna(0.0)
-        - pd.to_numeric(merged["abundance_observed"], errors="coerce").fillna(0.0)
-    )
+    diff = pd.to_numeric(merged["abundance_model"], errors="coerce").fillna(0.0) - pd.to_numeric(
+        merged["abundance_observed"], errors="coerce"
+    ).fillna(0.0)
     abundance_rmse = float((diff.pow(2).mean()) ** 0.5)
     metrics: dict[str, object] = {
         "score": abundance_rmse,
@@ -479,11 +490,17 @@ def _calibration_metric_rows(
     for _, row in merged.iterrows():
         key_payload = {column: row[column] for column in key_columns}
         for metric in metric_columns:
-            model_value = float(pd.to_numeric(pd.Series([row[f"{metric}_model"]]), errors="coerce").iloc[0])
-            observed_value = float(pd.to_numeric(pd.Series([row[f"{metric}_observed"]]), errors="coerce").iloc[0])
+            model_value = float(
+                pd.to_numeric(pd.Series([row[f"{metric}_model"]]), errors="coerce").iloc[0]
+            )
+            observed_value = float(
+                pd.to_numeric(pd.Series([row[f"{metric}_observed"]]), errors="coerce").iloc[0]
+            )
             abs_error = abs(model_value - observed_value)
             tolerance = _metric_tolerance(metric, observed_value)
-            relative_error = abs_error / abs(observed_value) if abs(observed_value) > 1e-12 else math.nan
+            relative_error = (
+                abs_error / abs(observed_value) if abs(observed_value) > 1e-12 else math.nan
+            )
             rows.append(
                 {
                     "candidate_id": candidate_id,
@@ -539,11 +556,15 @@ def run_ibm_calibration(
     if observed_path is None:
         raw_observed = block.get("observed")
         if not isinstance(raw_observed, str) or not raw_observed.strip():
-            raise ValueError("IBM calibration requires --observed or experiments.calibration.observed")
+            raise ValueError(
+                "IBM calibration requires --observed or experiments.calibration.observed"
+            )
         observed_path = raw_observed
     if parameter_grid is None:
         raw_grid = block.get("parameters")
-        parameter_grid = cast(Mapping[str, object] | None, raw_grid if isinstance(raw_grid, dict) else None)
+        parameter_grid = cast(
+            Mapping[str, object] | None, raw_grid if isinstance(raw_grid, dict) else None
+        )
     if method == "abc":
         raw_samples = block.get("samples")
         if isinstance(raw_samples, int):

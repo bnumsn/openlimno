@@ -10,6 +10,7 @@ v2.5.1 hardcodes ``__version__`` in ``src/openlimno/__init__.py``.
 This test enforces that the source-tree constant agrees with the
 canonical version declared in ``pyproject.toml``.
 """
+
 from __future__ import annotations
 
 import tomllib

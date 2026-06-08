@@ -76,7 +76,7 @@ class CalibrationResult:
     best_rmse: float
     n_evals: int
     converged: bool
-    message: str = ""        # optimiser status message (helps debug non-convergence)
+    message: str = ""  # optimiser status message (helps debug non-convergence)
 
 
 def fit(

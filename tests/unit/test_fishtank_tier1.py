@@ -24,7 +24,7 @@ from openlimno.fishtank import (
 
 def test_monod_edges() -> None:
     assert monod(0.0, 1.0) == 0.0
-    assert monod(-1.0, 1.0) == 0.0          # clipped, no negative
+    assert monod(-1.0, 1.0) == 0.0  # clipped, no negative
     assert monod(1.0, 1.0) == pytest.approx(0.5)
     assert monod(1e9, 1.0) == pytest.approx(1.0, abs=1e-6)
 
@@ -96,8 +96,8 @@ def test_attached_biomass_grows_from_seed_to_capacity() -> None:
     r = simulate(Chemistry(X_AOB=0.02), p, days=42)
     df = r.timeseries
     assert float(df["X_AOB"].iloc[0]) == pytest.approx(0.02, abs=1e-6)
-    assert float(df["X_AOB"].max()) <= p.X_AOB_max + 1e-6   # never exceeds cap
-    assert float(df["X_AOB"].iloc[-1]) > 1.0                 # did colonise
+    assert float(df["X_AOB"].max()) <= p.X_AOB_max + 1e-6  # never exceeds cap
+    assert float(df["X_AOB"].iloc[-1]) > 1.0  # did colonise
 
 
 def test_do_stoichiometry_demand_is_mass_based() -> None:
@@ -113,15 +113,22 @@ def test_params_with_overrides_rejects_unknown() -> None:
     p = Params()
     p2 = p.with_overrides(mu_AOB=0.9)
     assert p2.mu_AOB == 0.9
-    assert p.mu_AOB == 0.55          # original unchanged (returns a copy)
+    assert p.mu_AOB == 0.55  # original unchanged (returns a copy)
     with pytest.raises(ValueError, match="unknown parameter"):
         p.with_overrides(not_a_param=1.0)
 
 
 def test_state_vector_roundtrip() -> None:
     c = Chemistry(
-        TAN=1.5, NO2=0.3, NO3=12.0, X_AOB=2.0, X_NOB=1.0, DO=6.5,
-        B_plant=4.0, DIC=2.2, Alk=1.8,
+        TAN=1.5,
+        NO2=0.3,
+        NO3=12.0,
+        X_AOB=2.0,
+        X_NOB=1.0,
+        DO=6.5,
+        B_plant=4.0,
+        DIC=2.2,
+        Alk=1.8,
     )
     v = c.to_vector()
     # Tier-2 pools (B_plant, DIC, Alk) appended after the Tier-1 core.
@@ -150,7 +157,9 @@ def test_provenance_fingerprint_includes_tap_water() -> None:
     event = Event(day=1.0, kind="water_change", value=0.5)
     low_tap = EventSchedule(events=[event], tap_water=TapWater(NO3=0.0))
     high_tap = EventSchedule(events=[event], tap_water=TapWater(NO3=100.0))
-    low = simulate(Chemistry(NO3=50.0), Params(ammonia_dose_mg_n_l_day=0.0), days=2, schedule=low_tap)
+    low = simulate(
+        Chemistry(NO3=50.0), Params(ammonia_dose_mg_n_l_day=0.0), days=2, schedule=low_tap
+    )
     high = simulate(
         Chemistry(NO3=50.0),
         Params(ammonia_dose_mg_n_l_day=0.0),
@@ -239,7 +248,7 @@ def test_repeat_days_expands_events() -> None:
 
     sched = EventSchedule(events=[Event(day=7.0, kind="water_change", value=0.25, repeat_days=7.0)])
     expanded_days = sorted({e.day for e in sched.expand(42.0)})
-    assert expanded_days == [7.0, 14.0, 21.0, 28.0, 35.0]   # < 42, every 7
+    assert expanded_days == [7.0, 14.0, 21.0, 28.0, 35.0]  # < 42, every 7
 
 
 def test_invalid_event_rejected() -> None:
@@ -276,7 +285,7 @@ def test_feed_event_sets_additive_feed_dose() -> None:
 
     p = Params(volume_l=100.0, a_exc=0.0276, ammonia_dose_mg_n_l_day=1.0)
     c = Chemistry()
-    ev = Event(day=5.0, kind="feed", value=2.0)   # 2 g food/day
+    ev = Event(day=5.0, kind="feed", value=2.0)  # 2 g food/day
     _c2, p2 = apply_event(c, p, ev, TapWater())
     # feed_dose = a_exc[g-N/g] * F[g/day] / V[L] * 1000 → mg-N/L/day
     # = 0.0276 * 2 / 100 * 1000 = 0.552 mg-N/L/day
@@ -317,14 +326,17 @@ def test_wipe_biofilm_stalls_then_recolonises() -> None:
         tap_water=TapWater(),
     )
     r = simulate(
-        Chemistry(X_AOB=2.0, X_NOB=1.0), Params(ammonia_dose_mg_n_l_day=2.0),
-        days=45, dt_output_hours=12, schedule=sched,
+        Chemistry(X_AOB=2.0, X_NOB=1.0),
+        Params(ammonia_dose_mg_n_l_day=2.0),
+        days=45,
+        dt_output_hours=12,
+        schedule=sched,
     )
     df = r.timeseries
     assert not df.isna().any().any()
     i = (df["day"] - 25.0).abs().idxmin()
-    assert df["X_AOB"].iloc[i + 1] < 0.3 * df["X_AOB"].iloc[i - 1]   # biofilm knocked back
-    assert df["TAN"].iloc[i:].max() > 3.0 * df["TAN"].iloc[i - 1]    # TAN rebounds
+    assert df["X_AOB"].iloc[i + 1] < 0.3 * df["X_AOB"].iloc[i - 1]  # biofilm knocked back
+    assert df["TAN"].iloc[i:].max() > 3.0 * df["TAN"].iloc[i - 1]  # TAN rebounds
 
 
 def test_set_param_retargets_driver_midrun() -> None:
@@ -337,13 +349,18 @@ def test_set_param_retargets_driver_midrun() -> None:
         events=[Event(0.0, "ammonia_dose", 2.0), Event(10.0, "set_param", 0.2, target="k_a")],
         tap_water=TapWater(),
     )
-    r = simulate(Chemistry(), Params(ammonia_dose_mg_n_l_day=2.0), days=20,
-                 dt_output_hours=12, schedule=sched)
+    r = simulate(
+        Chemistry(),
+        Params(ammonia_dose_mg_n_l_day=2.0),
+        days=20,
+        dt_output_hours=12,
+        schedule=sched,
+    )
     df = r.timeseries
     j = (df["day"] - 10.0).abs().idxmin()
     # After k_a is cut, DO falls further than it was just before the outage.
     assert df["DO"].iloc[j:].min() < df["DO"].iloc[j - 1]
-    assert r.params.k_a == pytest.approx(0.2)   # final params reflect the override
+    assert r.params.k_a == pytest.approx(0.2)  # final params reflect the override
     with pytest.raises(ValueError, match="set_param target"):
         Event(day=1.0, kind="set_param", value=1.0, target="mu_AOB")
 
@@ -357,12 +374,20 @@ def test_set_param_temperature_updates_derived_columns_per_row() -> None:
     from openlimno.fishtank.events import Event, EventSchedule, TapWater
 
     sched = EventSchedule(
-        events=[Event(0.0, "ammonia_dose", 2.0), Event(15.0, "set_param", 32.0, target="temperature_c")],
+        events=[
+            Event(0.0, "ammonia_dose", 2.0),
+            Event(15.0, "set_param", 32.0, target="temperature_c"),
+        ],
         tap_water=TapWater(),
     )
-    df = simulate(Chemistry(), Params(ammonia_dose_mg_n_l_day=2.0), days=42,
-                  dt_output_hours=24, schedule=sched).timeseries
-    pre = df[df["day"] == 5.0].iloc[0]    # before the heat step (25 °C)
+    df = simulate(
+        Chemistry(),
+        Params(ammonia_dose_mg_n_l_day=2.0),
+        days=42,
+        dt_output_hours=24,
+        schedule=sched,
+    ).timeseries
+    pre = df[df["day"] == 5.0].iloc[0]  # before the heat step (25 °C)
     post = df[df["day"] == 20.0].iloc[0]  # after the heat step (32 °C)
     # df columns are rounded to 6 dp, so compare with an absolute tolerance.
     assert pre["NH3_free"] == pytest.approx(pre["TAN"] * nh3_free_fraction(7.4, 25.0), abs=2e-6)
@@ -437,9 +462,9 @@ def test_calibration_rmse_normalises_across_variables() -> None:
 
     merged = pd.DataFrame(
         [
-            {"day": 1, "variable": "TAN", "sim": 2.0, "obs": 1.0},   # off by 1, TAN range 1
+            {"day": 1, "variable": "TAN", "sim": 2.0, "obs": 1.0},  # off by 1, TAN range 1
             {"day": 2, "variable": "TAN", "sim": 1.0, "obs": 2.0},
-            {"day": 1, "variable": "NO3", "sim": 80.0, "obs": 40.0}, # off by 40, NO3 range 40
+            {"day": 1, "variable": "NO3", "sim": 80.0, "obs": 40.0},  # off by 40, NO3 range 40
             {"day": 2, "variable": "NO3", "sim": 40.0, "obs": 80.0},
         ]
     )
@@ -503,15 +528,18 @@ def test_plant_uptake_is_a_conserving_nitrogen_sink() -> None:
     (dissolved + plant pool) is still conserved (uptake only moves N between
     pools — it is NOT a loss term, unlike denitrification)."""
     c = Chemistry(X_AOB=2.5, X_NOB=2.5, NO3=10.0, B_plant=3.0)
-    planted = simulate(c, Params(ammonia_dose_mg_n_l_day=2.0, mu_plant=1.0, B_plant_max=15.0), days=42)
+    planted = simulate(
+        c, Params(ammonia_dose_mg_n_l_day=2.0, mu_plant=1.0, B_plant_max=15.0), days=42
+    )
     bare = simulate(
         Chemistry(X_AOB=2.5, X_NOB=2.5, NO3=10.0),
-        Params(ammonia_dose_mg_n_l_day=2.0), days=42,
+        Params(ammonia_dose_mg_n_l_day=2.0),
+        days=42,
     )
     dfp = planted.timeseries
     assert float(dfp["NO3"].iloc[-1]) < float(bare.timeseries["NO3"].iloc[-1]) - 5.0
-    assert float(dfp["B_plant"].iloc[-1]) > 5.0                       # plants grew
-    assert float(dfp["B_plant"].max()) <= 15.0 + 1e-6                 # capped
+    assert float(dfp["B_plant"].iloc[-1]) > 5.0  # plants grew
+    assert float(dfp["B_plant"].max()) <= 15.0 + 1e-6  # capped
     # Conservation: N_in = dose·days; final total N = initial + N_in.
     n0 = c.TAN + c.NO2 + c.NO3 + c.B_plant
     n_end = float(dfp[["TAN", "NO2", "NO3", "B_plant"]].iloc[-1].sum())
@@ -526,10 +554,12 @@ def test_denitrification_removes_nitrogen_as_gas() -> None:
     p = Params(ammonia_dose_mg_n_l_day=2.0, k_denit=0.15, k_a=0.6)
     r = simulate(Chemistry(X_AOB=2.5, X_NOB=2.5), p, days=42)
     df = r.timeseries
-    bare = simulate(Chemistry(X_AOB=2.5, X_NOB=2.5), Params(ammonia_dose_mg_n_l_day=2.0, k_a=0.6), days=42)
+    bare = simulate(
+        Chemistry(X_AOB=2.5, X_NOB=2.5), Params(ammonia_dose_mg_n_l_day=2.0, k_a=0.6), days=42
+    )
     assert float(df["NO3"].iloc[-1]) < float(bare.timeseries["NO3"].iloc[-1]) - 10.0
     n_end = float(df[["TAN", "NO2", "NO3"]].iloc[-1].sum())
-    assert n_end < 5.0 + 2.0 * 42.0          # N genuinely lost (no B_plant here)
+    assert n_end < 5.0 + 2.0 * 42.0  # N genuinely lost (no B_plant here)
 
 
 def test_coupled_ph_self_limits_nitrification() -> None:
@@ -542,7 +572,7 @@ def test_coupled_ph_self_limits_nitrification() -> None:
     dc = coupled.timeseries
     # pH is now a solved, falling trajectory (not the fixed scenario pH).
     assert dc["pH"].iloc[0] > 7.0 > dc["pH"].iloc[-1]
-    assert (dc["pH"].diff().dropna() <= 1e-6).all()          # monotone crash
+    assert (dc["pH"].diff().dropna() <= 1e-6).all()  # monotone crash
     # Self-limiting: coupled nitrate ends far below the uncoupled run.
     assert float(dc["NO3"].iloc[-1]) < 0.3 * float(uncoupled.timeseries["NO3"].iloc[-1])
     # The free-NH3 column tracks the dynamic (not fixed) pH.
@@ -560,14 +590,21 @@ def test_buffer_dosing_sustains_nitrification() -> None:
     chem = Chemistry(X_AOB=2.5, X_NOB=2.5, DIC=2.0, Alk=1.85)
     p = Params(ammonia_dose_mg_n_l_day=3.0, couple_ph=1.0)
     dosed = simulate(
-        chem, p, days=60,
+        chem,
+        p,
+        days=60,
         schedule=EventSchedule(
-            events=[Event(0.0, "ammonia_dose", 3.0), Event(7.0, "dose", 0.5, target="Alk", repeat_days=7.0)],
+            events=[
+                Event(0.0, "ammonia_dose", 3.0),
+                Event(7.0, "dose", 0.5, target="Alk", repeat_days=7.0),
+            ],
             tap_water=TapWater(),
         ),
     )
     crash = simulate(
-        chem, p, days=60,
+        chem,
+        p,
+        days=60,
         schedule=EventSchedule(events=[Event(0.0, "ammonia_dose", 3.0)], tap_water=TapWater()),
     )
     assert float(dosed.timeseries["NO3"].iloc[-1]) > 1.5 * float(crash.timeseries["NO3"].iloc[-1])
@@ -605,7 +642,7 @@ def test_diagnostic_ph_trajectory_crashes_under_heavy_load() -> None:
     assert "alk_meq_l" in df.columns
     ph0 = float(df["ph_dynamic"].iloc[0])
     ph_end = float(df["ph_dynamic"].iloc[-1])
-    assert ph_end < ph0 - 1.0          # at least a full pH unit crash
+    assert ph_end < ph0 - 1.0  # at least a full pH unit crash
     # Alkalinity is monotone non-increasing (only consumed, never made here)
     assert (df["alk_meq_l"].diff().dropna() <= 1e-9).all()
 
@@ -617,7 +654,7 @@ def test_plot_result_returns_figure_without_streamlit() -> None:
     r = simulate(Chemistry(), Params(), days=14)
     fig = plot_result(r)
     assert fig is not None
-    assert len(fig.axes) == 2        # two stacked panels
+    assert len(fig.axes) == 2  # two stacked panels
 
 
 def test_browser_studio_payload_contract() -> None:
@@ -631,7 +668,9 @@ def test_browser_studio_payload_contract() -> None:
 
     payload = default_studio_payload()
     payload["run"]["days"] = 7
-    payload["agents"]["fish_count"] = 6   # default scenario is fishless; add fish to exercise the snapshot
+    payload["agents"]["fish_count"] = (
+        6  # default scenario is fishless; add fish to exercise the snapshot
+    )
     result = run_studio_payload(payload)
     abm = run_agent_based_studio_payload(payload)
     assert result["ok"] is True
@@ -665,7 +704,10 @@ def test_studio_partial_payloads_use_browser_default_baseline() -> None:
     empty_ode = run_studio_payload({})
     default_ode = run_studio_payload(default_payload)
     assert empty_ode["summary"] == default_ode["summary"]
-    assert empty_ode["ph_diagnostic"][-1]["ph_dynamic"] == default_ode["ph_diagnostic"][-1]["ph_dynamic"]
+    assert (
+        empty_ode["ph_diagnostic"][-1]["ph_dynamic"]
+        == default_ode["ph_diagnostic"][-1]["ph_dynamic"]
+    )
 
     empty_abm = run_agent_based_studio_payload({})
     default_abm = run_agent_based_studio_payload(default_payload)
@@ -724,17 +766,12 @@ def test_studio_payload_limits_reject_expensive_runs() -> None:
         run_studio_payload(payload)
 
     payload = default_studio_payload()
-    payload["events"] = [
-        {"day": 0.0, "kind": "ammonia_dose", "value": 2.0}
-        for _ in range(201)
-    ]
+    payload["events"] = [{"day": 0.0, "kind": "ammonia_dose", "value": 2.0} for _ in range(201)]
     with pytest.raises(ValueError, match="at most 200"):
         run_studio_payload(payload)
 
     payload = default_studio_payload()
-    payload["events"] = [
-        {"day": 0.0, "kind": "water_change", "value": 0.1, "repeat_days": 0.01}
-    ]
+    payload["events"] = [{"day": 0.0, "kind": "water_change", "value": 0.1, "repeat_days": 0.01}]
     with pytest.raises(ValueError, match="repeat_days"):
         run_studio_payload(payload)
 
@@ -808,8 +845,14 @@ def test_abm_fishless_dissolved_n_conserved() -> None:
         "run": {"days": days, "dt_output_hours": 6.0},
         "chemistry": {"TAN": 0.0, "NO2": 0.0, "NO3": 5.0, "X_AOB": 0.02, "X_NOB": 0.02, "DO": 7.5},
         "parameters": {"ammonia_dose_mg_n_l_day": 2.0},
-        "agents": {"seed": 1, "dt_days": 0.25, "fish_count": 0, "aob_agents": 12, "nob_agents": 12,
-                   "feed_g_day": 0.0},
+        "agents": {
+            "seed": 1,
+            "dt_days": 0.25,
+            "fish_count": 0,
+            "aob_agents": 12,
+            "nob_agents": 12,
+            "feed_g_day": 0.0,
+        },
     }
     ts = simulate_agent_based_model(payload)["timeseries"]
     n0 = 0.0 + 0.0 + 5.0
@@ -828,8 +871,15 @@ def test_abm_applies_ammonia_dose_with_fish_present() -> None:
         "tank": {"volume_l": 120.0, "temperature_c": 25.0, "ph": 7.4},
         "run": {"days": 30.0, "dt_output_hours": 6.0},
         "chemistry": {"TAN": 0.0, "NO2": 0.0, "NO3": 5.0, "X_AOB": 0.02, "X_NOB": 0.02, "DO": 7.5},
-        "agents": {"seed": 7, "dt_days": 0.25, "fish_count": 4, "fish_biomass_g": 4.0,
-                   "feed_g_day": 0.3, "aob_agents": 12, "nob_agents": 12},
+        "agents": {
+            "seed": 7,
+            "dt_days": 0.25,
+            "fish_count": 4,
+            "fish_biomass_g": 4.0,
+            "feed_g_day": 0.3,
+            "aob_agents": 12,
+            "nob_agents": 12,
+        },
     }
     dosed = {**base, "parameters": {"ammonia_dose_mg_n_l_day": 2.0}}
     undosed = {**base, "parameters": {"ammonia_dose_mg_n_l_day": 0.0}}
@@ -858,14 +908,20 @@ def test_abm_honours_full_parameter_overrides() -> None:
         "tank": {"volume_l": 120.0, "temperature_c": 25.0, "ph": 7.4},
         "run": {"days": 20.0, "dt_output_hours": 6.0},
         "chemistry": {"TAN": 0.0, "NO2": 0.0, "NO3": 5.0, "X_AOB": 0.02, "X_NOB": 0.02, "DO": 7.5},
-        "agents": {"seed": 3, "dt_days": 0.25, "fish_count": 0, "aob_agents": 12, "nob_agents": 12,
-                   "feed_g_day": 0.0},
+        "agents": {
+            "seed": 3,
+            "dt_days": 0.25,
+            "fish_count": 0,
+            "aob_agents": 12,
+            "nob_agents": 12,
+            "feed_g_day": 0.0,
+        },
     }
     fast = {**base, "parameters": {"ammonia_dose_mg_n_l_day": 2.0, "mu_AOB": 1.2}}
     slow = {**base, "parameters": {"ammonia_dose_mg_n_l_day": 2.0, "mu_AOB": 0.25}}
     aob_fast = simulate_agent_based_model(fast)["summary"]["AOB_biomass"]
     aob_slow = simulate_agent_based_model(slow)["summary"]["AOB_biomass"]
-    assert aob_fast > aob_slow      # faster AOB growth ⇒ more biofilm by day 20
+    assert aob_fast > aob_slow  # faster AOB growth ⇒ more biofilm by day 20
     # Unknown parameter keys are rejected, matching io.scenario_from_mapping.
     with pytest.raises(ValueError, match="unknown parameter"):
         simulate_agent_based_model({**base, "parameters": {"not_a_param": 1.0}})
@@ -970,7 +1026,7 @@ def test_scenario_contracts_match_their_teaching_point() -> None:
     # Low oxygen: O2-limited nitrification stalls — far less nitrate than a
     # well-aerated fishless cycle, and DO crashes near zero.
     lo = ode("low_oxygen")["summary"]
-    assert lo["final_NO3"] < 20.0          # stalled (well-aerated reaches ~88)
+    assert lo["final_NO3"] < 20.0  # stalled (well-aerated reaches ~88)
     assert lo["min_DO"] < 1.0
 
     # Staged stocking: gradual feeding keeps free ammonia under the stress
@@ -994,7 +1050,7 @@ def test_scenario_contracts_match_their_teaching_point() -> None:
     assert po["summary"]["min_DO"] < 0.5
     outage_min = min(r["DO"] for r in po["timeseries"] if 10.0 <= r["day"] <= 12.0)
     final_do = po["timeseries"][-1]["DO"]
-    assert final_do > outage_min          # recovered after k_a restored
+    assert final_do > outage_min  # recovered after k_a restored
 
     # Heat wave: the 25→32 °C step raises the toxic free-NH3 fraction of the
     # same TAN above what a constant-25 fishless cycle reaches (~0.14).
@@ -1019,9 +1075,9 @@ def test_studio_path_honours_tier2_initial_chemistry() -> None:
     from openlimno.fishtank.studio_http import run_studio_payload
 
     planted = run_studio_payload(scenario_payload("planted_tank"))["timeseries"]
-    assert planted[-1]["B_plant"] > 5.0          # plants actually grew (not reset to 0)
+    assert planted[-1]["B_plant"] > 5.0  # plants actually grew (not reset to 0)
     coupled = run_studio_payload(scenario_payload("ph_crash_coupled"))["timeseries"]
-    assert coupled[0]["pH"] > 7.0 > coupled[-1]["pH"]   # DIC/Alk honoured → pH crash
+    assert coupled[0]["pH"] > 7.0 > coupled[-1]["pH"]  # DIC/Alk honoured → pH crash
 
 
 def test_coupled_runs_report_consistent_ph_in_studio() -> None:
@@ -1068,10 +1124,10 @@ def test_build_along_solution_checkpoints_pass() -> None:
     spec = importlib.util.spec_from_file_location("build_along_solution", sol)
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod   # dataclasses needs the module registered to resolve
+    sys.modules[spec.name] = mod  # dataclasses needs the module registered to resolve
     try:
         spec.loader.exec_module(mod)
-        mod.run_checkpoints()   # raises AssertionError if any checkpoint regresses
+        mod.run_checkpoints()  # raises AssertionError if any checkpoint regresses
     finally:
         sys.modules.pop(spec.name, None)
 
@@ -1090,7 +1146,7 @@ def test_lab1_dimension_check_runs() -> None:
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    mod.main()   # raises AssertionError if the correct/buggy contrast regresses
+    mod.main()  # raises AssertionError if the correct/buggy contrast regresses
 
 
 def test_example_scenario_files_validate() -> None:

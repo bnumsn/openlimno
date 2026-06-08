@@ -98,7 +98,9 @@ def _clip(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
-def _read_gdf(path: str | Path, *, default_crs: str = "EPSG:4326") -> tuple[gpd.GeoDataFrame, list[str]]:
+def _read_gdf(
+    path: str | Path, *, default_crs: str = "EPSG:4326"
+) -> tuple[gpd.GeoDataFrame, list[str]]:
     gdf = gpd.read_file(path)
     warnings: list[str] = []
     if gdf.empty:
@@ -116,7 +118,9 @@ def _projected_crs(boundary: gpd.GeoDataFrame, centerline: gpd.GeoDataFrame) -> 
     return CRS.from_epsg(3857)
 
 
-def _tangent_normal(line: LineString, station_m: float, probe_m: float) -> tuple[float, float, float, float]:
+def _tangent_normal(
+    line: LineString, station_m: float, probe_m: float
+) -> tuple[float, float, float, float]:
     before = line.interpolate(max(0.0, station_m - probe_m))
     after = line.interpolate(min(line.length, station_m + probe_m))
     dx = after.x - before.x
@@ -128,7 +132,9 @@ def _tangent_normal(line: LineString, station_m: float, probe_m: float) -> tuple
     return tx, ty, -ty, tx
 
 
-def _make_strip(line: LineString, station_m: float, half_length_m: float, half_width_m: float) -> Polygon:
+def _make_strip(
+    line: LineString, station_m: float, half_length_m: float, half_width_m: float
+) -> Polygon:
     tx, ty, nx, ny = _tangent_normal(line, station_m, min(half_length_m, 30.0))
     center = line.interpolate(station_m)
     hx, hy = tx * half_length_m, ty * half_length_m
@@ -190,7 +196,10 @@ def _dem_values(
         values = np.where(np.isclose(values, float(nodata)), np.nan, values)
     values = np.where(np.isfinite(values), values, np.nan)
     if np.count_nonzero(np.isfinite(values)) < 3:
-        return None, "DEM sampling returned fewer than three valid elevations; used fallback section."
+        return (
+            None,
+            "DEM sampling returned fewer than three valid elevations; used fallback section.",
+        )
     valid = pd.Series(values).interpolate(limit_direction="both").to_numpy(dtype=float)
     if float(np.nanmax(valid) - np.nanmin(valid)) < 0.03:
         return None, "DEM transect is effectively flat; used fallback section."
@@ -276,7 +285,9 @@ def _build_geometry_and_sections(
     centerline_m = centerline_gdf.to_crs(crs_projected)
     boundary = make_valid(unary_union(boundary_m.geometry))
     raw_centerline = unary_union(centerline_m.geometry)
-    centerline_union = raw_centerline if isinstance(raw_centerline, LineString) else linemerge(raw_centerline)
+    centerline_union = (
+        raw_centerline if isinstance(raw_centerline, LineString) else linemerge(raw_centerline)
+    )
     clipped_line = centerline_union.intersection(boundary.buffer(5.0))
     try:
         centerline = _longest_line(clipped_line)
@@ -554,7 +565,9 @@ def build_builtin1d_gis_hydraulics(
                 "hydraulic_radius_m": float(result.hydraulic_radius_m),
                 "manning_n": float(manning_n),
                 "slope": float(effective_slope),
-                "habitat_type": _habitat_type(depth_m, velocity_ms, float(cell["width_m"]), median_width),
+                "habitat_type": _habitat_type(
+                    depth_m, velocity_ms, float(cell["width_m"]), median_width
+                ),
                 "hydraulic_source": "builtin-1d-gis-dem" if dem_path else "builtin-1d-gis-boundary",
                 "cross_section_source": cell["cross_section_source"],
             }

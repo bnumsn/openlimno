@@ -207,7 +207,9 @@ def _semantic_species_profile_errors(data: dict[str, Any]) -> list[str]:
     thermal_optimum = float(numeric_values["thermal_optimum_c"])
     thermal_max = float(numeric_values["thermal_max_c"])
     if not thermal_min < thermal_optimum < thermal_max:
-        errors.append("thermal_min_c, thermal_optimum_c, and thermal_max_c must be strictly ordered")
+        errors.append(
+            "thermal_min_c, thermal_optimum_c, and thermal_max_c must be strictly ordered"
+        )
     return errors
 
 
@@ -317,7 +319,9 @@ def _apply_profile_overrides(
     if invalid:
         raise ValueError(f"Unknown SpeciesProfile override(s): {', '.join(invalid)}")
     if "species" in overrides:
-        raise ValueError("SpeciesProfile override 'species' is not supported; use a profile document")
+        raise ValueError(
+            "SpeciesProfile override 'species' is not supported; use a profile document"
+        )
     return replace(profile, **dict(overrides))
 
 
@@ -402,7 +406,9 @@ def run_ibm_scenario(
     )
     result = run_native_ibm(cells, fish, profile=profile, config=config)
 
-    output_uri = str(output_dir_override) if output_dir_override is not None else str(outputs["dir"])
+    output_uri = (
+        str(output_dir_override) if output_dir_override is not None else str(outputs["dir"])
+    )
     output_dir = _resolve_from(base_dir, output_uri)
     output_formats = tuple(str(item) for item in outputs.get("formats", ["csv"]))
     manifest = {

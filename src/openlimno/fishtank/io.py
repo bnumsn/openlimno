@@ -222,7 +222,9 @@ def _mapping(value: Any, label: str) -> dict[str, Any]:
     return value
 
 
-def _alias_values(doc: dict[str, Any], aliases: dict[str, tuple[str, ...]], defaults: Any) -> dict[str, float]:
+def _alias_values(
+    doc: dict[str, Any], aliases: dict[str, tuple[str, ...]], defaults: Any
+) -> dict[str, float]:
     out: dict[str, float] = {}
     for target, keys in aliases.items():
         value = _first_present(doc, keys)
@@ -254,7 +256,9 @@ def _sha256_path(path: Path) -> str:
 
 
 def _stable_json_sha(payload: Any) -> str:
-    encoded = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
+    encoded = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":")).encode(
+        "utf-8"
+    )
     return hashlib.sha256(encoded).hexdigest()
 
 

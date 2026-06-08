@@ -13,6 +13,7 @@ Post-fix:
 
 Both pinned here.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ def _make_schism_case(case_dir: Path) -> Any:
     The actual SCHISM adapter is monkey-patched below; we only need
     the case.yaml + Case loader to accept the SCHISM backend."""
     from openlimno.case import Case
+
     case_dir.mkdir(parents=True, exist_ok=True)
     case_yaml = case_dir / "case.yaml"
     # Use the schism fixture from tests/integration/fixtures/lemhi-tiny
@@ -39,34 +41,36 @@ def _make_schism_case(case_dir: Path) -> Any:
     if not cs.exists() or not hsi.exists():
         pytest.skip("Lemhi fixtures not shipped; cannot test SCHISM path")
     case_yaml.write_text(
-        yaml.safe_dump({
-            "openlimno": "0.2",
-            "case": {
-                "name": "r20_schism_no_fallback",
-                "crs": "EPSG:4326",
-                "allowed_data_roots": [str(repo / "data")],
-            },
-            "mesh": {"uri": str(repo / "data" / "lemhi" / "mesh.ugrid.nc")},
-            "data": {
-                "cross_section": str(cs),
-                "hsi_curve": str(hsi),
-            },
-            "hydrodynamics": {
-                "backend": "schism",
-                "schism": {"dry_run": False},
-            },
-            "habitat": {
-                "species": ["oncorhynchus_mykiss"],
-                "stages": ["spawning"],
-                "metric": "wua-q",
-                "composite": "min",
-                "scale": "cell",
-            },
-            "output": {
-                "dir": str(case_dir / "out"),
-                "formats": ["csv"],
-            },
-        }),
+        yaml.safe_dump(
+            {
+                "openlimno": "0.2",
+                "case": {
+                    "name": "r20_schism_no_fallback",
+                    "crs": "EPSG:4326",
+                    "allowed_data_roots": [str(repo / "data")],
+                },
+                "mesh": {"uri": str(repo / "data" / "lemhi" / "mesh.ugrid.nc")},
+                "data": {
+                    "cross_section": str(cs),
+                    "hsi_curve": str(hsi),
+                },
+                "hydrodynamics": {
+                    "backend": "schism",
+                    "schism": {"dry_run": False},
+                },
+                "habitat": {
+                    "species": ["oncorhynchus_mykiss"],
+                    "stages": ["spawning"],
+                    "metric": "wua-q",
+                    "composite": "min",
+                    "scale": "cell",
+                },
+                "output": {
+                    "dir": str(case_dir / "out"),
+                    "formats": ["csv"],
+                },
+            }
+        ),
         encoding="utf-8",
     )
     return Case.from_yaml(case_yaml)
@@ -80,7 +84,8 @@ class _FakeReport:
 
 
 def test_round20_schism_nonzero_return_code_raises(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """codex A10 / gemini A7: a real SCHISM failure (rc != 0) must
     raise, NOT silently substitute Builtin1D."""
@@ -110,7 +115,8 @@ def test_round20_schism_nonzero_return_code_raises(
 
 
 def test_round20_schism_dry_run_still_falls_back(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """codex A10 / gemini A7: the dry_run=True CI path is intentional
     and must continue to fall back to Builtin1D + emit the
@@ -139,10 +145,7 @@ def test_round20_schism_dry_run_still_falls_back(
 
     # Should NOT raise; dry-run fallback path is intentional.
     result = case.run(discharges_m3s=[5.0])
-    assert any(
-        "dry_run=True" in w and "Builtin1D" in w
-        for w in result.warnings
-    ), (
+    assert any("dry_run=True" in w and "Builtin1D" in w for w in result.warnings), (
         f"Round-20 fix regression: dry_run=True path no longer emits "
         f"the explicit 'used Builtin1D approximation' warning. Got "
         f"warnings: {result.warnings}"
@@ -150,7 +153,8 @@ def test_round20_schism_dry_run_still_falls_back(
 
 
 def test_schism_success_normalizes_results_without_1d_fallback(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A successful real SCHISM run should feed normalized 2D node results
     into WUA and write the hydraulic-cells handoff CSV."""

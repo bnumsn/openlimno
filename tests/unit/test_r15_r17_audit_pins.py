@@ -21,6 +21,7 @@ Pins (one per cluster):
   exists.
 - R16-9 — ruamel warning lock is module-level.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -47,8 +48,7 @@ def test_r15_7_apply_sandbox_check_helper_exists_and_serves_both_resolvers() -> 
     rs = inspect.getsource(Case._resolve_safe)
     rws = inspect.getsource(Case._resolve_write_safe)
     assert "_apply_sandbox_check(" in rs, (
-        "R15-7 regression: _resolve_safe no longer delegates to "
-        "_apply_sandbox_check; dedup undone."
+        "R15-7 regression: _resolve_safe no longer delegates to _apply_sandbox_check; dedup undone."
     )
     assert "_apply_sandbox_check(" in rws, (
         "R15-7 regression: _resolve_write_safe no longer delegates "
@@ -70,8 +70,7 @@ def test_r16_2_run_case_for_worker_returns_trust_roots() -> None:
         "and silently miss output.dir under allowed_data_roots."
     )
     assert sig.return_annotation is not inspect.Signature.empty or "trust_roots" in src, (
-        "R16-2 hygiene: _run_case_for_worker should carry trust_roots "
-        "in its return contract."
+        "R16-2 hygiene: _run_case_for_worker should carry trust_roots in its return contract."
     )
 
 
@@ -83,8 +82,7 @@ def test_r16_5_r17_1_uri_looks_absolute_widened() -> None:
     """
     assert _uri_looks_absolute("file:///etc/secret")
     assert _uri_looks_absolute("FILE:///etc/secret"), (
-        "R17-1 regression: FILE:// (uppercase) no longer detected — "
-        "case-sensitivity bug back."
+        "R17-1 regression: FILE:// (uppercase) no longer detected — case-sensitivity bug back."
     )
     assert _uri_looks_absolute("~/data.csv"), (
         "R16-5 regression: ~/... no longer detected as absolute."
@@ -112,12 +110,10 @@ def test_r16_1_r17_4_r17_5_aeqd_pipeline_intact() -> None:
     """
     # R17-5: cache_info() exists on the factories (lru_cache wraps).
     assert hasattr(_aeqd_transformer_to, "cache_info"), (
-        "R17-5 regression: _aeqd_transformer_to no longer wrapped "
-        "in lru_cache."
+        "R17-5 regression: _aeqd_transformer_to no longer wrapped in lru_cache."
     )
     assert hasattr(_aeqd_transformer_from, "cache_info"), (
-        "R17-5 regression: _aeqd_transformer_from no longer wrapped "
-        "in lru_cache."
+        "R17-5 regression: _aeqd_transformer_from no longer wrapped in lru_cache."
     )
 
     # R16-1 + R17-4: AEQD pipeline produces a valid geometry for
@@ -139,8 +135,7 @@ def test_r15_4_r17_10_fd_chain_intact() -> None:
     importable from Case and the wrapper must be a context manager.
     """
     assert callable(getattr(Case, "_open_safe_fd", None)), (
-        "R15-4 regression: _open_safe_fd disappeared from Case; "
-        "TOCTOU mitigation undone."
+        "R15-4 regression: _open_safe_fd disappeared from Case; TOCTOU mitigation undone."
     )
     assert callable(getattr(Case, "_open_safe", None)), (
         "R17-10 regression: _open_safe context-manager wrapper "
@@ -152,8 +147,7 @@ def test_r15_4_r17_10_fd_chain_intact() -> None:
     # check the function-source markers.
     src = inspect.getsource(Case._open_safe)
     assert "@contextlib.contextmanager" in src or "yield " in src, (
-        "R17-10 regression: _open_safe no longer looks like a "
-        "context manager."
+        "R17-10 regression: _open_safe no longer looks like a context manager."
     )
 
 
@@ -177,13 +171,14 @@ def test_r16_9_warned_missing_ruamel_lock_present() -> None:
     """R16-9: the ``_WARNED_MISSING_RUAMEL`` flag must be guarded
     by a module-level ``threading.Lock``."""
     import openlimno._yaml_rt as rt
+
     assert hasattr(rt, "_WARNED_MISSING_RUAMEL_LOCK"), (
         "R16-9 regression: _WARNED_MISSING_RUAMEL_LOCK module-level "
         "lock disappeared; double-print under concurrent first-use "
         "is back."
     )
     import threading
+
     assert isinstance(rt._WARNED_MISSING_RUAMEL_LOCK, type(threading.Lock())), (
-        "R16-9 regression: _WARNED_MISSING_RUAMEL_LOCK is no longer "
-        "a threading.Lock instance."
+        "R16-9 regression: _WARNED_MISSING_RUAMEL_LOCK is no longer a threading.Lock instance."
     )

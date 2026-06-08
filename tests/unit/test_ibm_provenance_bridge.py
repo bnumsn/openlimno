@@ -12,6 +12,7 @@ Per ADR-0016 cleanup track + round-22 codex A5 / gemini A4 HIGH
 Audit tools can now read either file. The two are linked by
 SHA-256 so they're verifiably consistent.
 """
+
 from __future__ import annotations
 
 import json
@@ -97,8 +98,7 @@ def test_ibm_provenance_has_standard_case_fields(tmp_path: Path) -> None:
     }
     missing = required_keys - set(data.keys())
     assert not missing, (
-        f"R-IBM-PROVENANCE: provenance.json missing Case-compatible "
-        f"fields: {missing}"
+        f"R-IBM-PROVENANCE: provenance.json missing Case-compatible fields: {missing}"
     )
 
 

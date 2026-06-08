@@ -34,6 +34,7 @@ Citation:
     electronic publication. www.fishbase.org. Per-species citations
     via the ``fishbase_url`` column in the returned trait dict.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -42,9 +43,7 @@ from pathlib import Path
 import pandas as pd
 
 # Bundled starter table — packaged via [tool.hatch.build] in pyproject.
-_STARTER_TABLE_PATH = (
-    Path(__file__).parent / "data" / "fishbase_traits_starter.csv"
-)
+_STARTER_TABLE_PATH = Path(__file__).parent / "data" / "fishbase_traits_starter.csv"
 
 FISHBASE_CITATION = (
     "Froese, R. and D. Pauly. Editors. 2024. FishBase. World Wide "
@@ -53,7 +52,11 @@ FISHBASE_CITATION = (
 
 # Categorical enums used to validate ``water_type``.
 WATER_TYPES = (
-    "freshwater", "brackish", "marine", "anadromous", "catadromous",
+    "freshwater",
+    "brackish",
+    "marine",
+    "anadromous",
+    "catadromous",
 )
 # IUCN Red List status codes (subset relevant to fishes).
 IUCN_STATUSES = ("LC", "NT", "VU", "EN", "CR", "EW", "EX", "DD", "NE")

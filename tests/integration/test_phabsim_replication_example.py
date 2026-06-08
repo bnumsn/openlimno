@@ -26,8 +26,8 @@ def test_build_data_then_case_matches_analytic(tmp_path: Path) -> None:
     # openlimno before any installed copy.
     parent_env = _os.environ.copy()
     existing_pp = parent_env.get("PYTHONPATH", "")
-    parent_env["PYTHONPATH"] = (
-        str(REPO / "src") + (_os.pathsep + existing_pp if existing_pp else "")
+    parent_env["PYTHONPATH"] = str(REPO / "src") + (
+        _os.pathsep + existing_pp if existing_pp else ""
     )
     proc = subprocess.run(
         [sys.executable, str(example / "build_data.py")],

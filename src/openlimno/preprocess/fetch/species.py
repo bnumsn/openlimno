@@ -30,6 +30,7 @@ Citation:
     CC0 for occurrence records (per-dataset licence varies; see each
     occurrence's ``license`` field for downstream re-use).
 """
+
 from __future__ import annotations
 
 import json
@@ -137,8 +138,11 @@ def match_species(scientific_name: str) -> SpeciesMatchResult:
         return resp.content
 
     cache = cached_fetch(
-        subdir="gbif/species_match", url=GBIF_SPECIES_MATCH,
-        params=params, suffix=".json", fetch_fn=_do_fetch,
+        subdir="gbif/species_match",
+        url=GBIF_SPECIES_MATCH,
+        params=params,
+        suffix=".json",
+        fetch_fn=_do_fetch,
     )
     payload = json.loads(cache.path.read_text())
     return SpeciesMatchResult(
@@ -205,9 +209,7 @@ def fetch_gbif_occurrences(
     if not (la_min >= -90 and la_max <= 90):
         raise ValueError(f"latitudes outside [-90, 90]: {la_min}, {la_max}")
     if not (lo_min >= -180 and lo_max <= 180):
-        raise ValueError(
-            f"longitudes outside [-180, 180]: {lo_min}, {lo_max}"
-        )
+        raise ValueError(f"longitudes outside [-180, 180]: {lo_min}, {lo_max}")
 
     wkt = _bbox_to_wkt(bbox)
     all_rows: list[dict] = []
@@ -226,11 +228,14 @@ def fetch_gbif_occurrences(
             "limit": limit,
             "offset": offset,
         }
+
         # offset becomes part of the cache key — each page is its own
         # cache entry so a re-run is page-by-page reproducible.
         def _do_fetch(p: dict[str, Any] = params) -> bytes:
             resp = requests.get(
-                GBIF_OCCURRENCE_SEARCH, params=p, timeout=60,
+                GBIF_OCCURRENCE_SEARCH,
+                params=p,
+                timeout=60,
             )
             resp.raise_for_status()
             return resp.content
@@ -253,16 +258,18 @@ def fetch_gbif_occurrences(
             lon = r.get("decimalLongitude")
             if lat is None or lon is None:
                 continue  # despite hasCoordinate=true, defensive
-            all_rows.append({
-                "scientific_name": r.get("scientificName"),
-                "decimal_latitude": lat,
-                "decimal_longitude": lon,
-                "event_date": r.get("eventDate"),
-                "basis_of_record": r.get("basisOfRecord"),
-                "dataset_name": r.get("datasetName"),
-                "country": r.get("country"),
-                "license": r.get("license"),
-            })
+            all_rows.append(
+                {
+                    "scientific_name": r.get("scientificName"),
+                    "decimal_latitude": lat,
+                    "decimal_longitude": lon,
+                    "event_date": r.get("eventDate"),
+                    "basis_of_record": r.get("basisOfRecord"),
+                    "dataset_name": r.get("datasetName"),
+                    "country": r.get("country"),
+                    "license": r.get("license"),
+                }
+            )
         n_pages += 1
         end_of_records = bool(payload.get("endOfRecords"))
         offset += limit
@@ -270,13 +277,21 @@ def fetch_gbif_occurrences(
     df = pd.DataFrame(
         all_rows,
         columns=[
-            "scientific_name", "decimal_latitude", "decimal_longitude",
-            "event_date", "basis_of_record", "dataset_name",
-            "country", "license",
+            "scientific_name",
+            "decimal_latitude",
+            "decimal_longitude",
+            "event_date",
+            "basis_of_record",
+            "dataset_name",
+            "country",
+            "license",
         ],
     )
     return SpeciesOccurrencesResult(
-        df=df, usage_key=usage_key, bbox=bbox,
-        total_matched=total_matched, n_pages_fetched=n_pages,
+        df=df,
+        usage_key=usage_key,
+        bbox=bbox,
+        total_matched=total_matched,
+        n_pages_fetched=n_pages,
         cache=all_cache,
     )

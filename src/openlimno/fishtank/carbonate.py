@@ -26,7 +26,7 @@ from scipy.optimize import brentq
 # Alkalinity consumed by nitrification: 2 mol H+ produced per mol N
 # oxidised NH4->NO3 → 7.14 g CaCO3 per g N (SPEC §4.5 / §6).
 ALK_PER_N_G_CACO3 = 7.14
-_MEQ_PER_MG_CACO3 = 1.0 / 50.04   # 1 meq alkalinity = 50.04 mg CaCO3
+_MEQ_PER_MG_CACO3 = 1.0 / 50.04  # 1 meq alkalinity = 50.04 mg CaCO3
 
 
 def k1_k2_kw(temperature_c: float) -> tuple[float, float, float]:
@@ -51,8 +51,8 @@ def ph_from_dic_alk(dic_mmol_l: float, alk_meq_l: float, temperature_c: float) -
     [H+] over pH ∈ [3, 12].
     """
     k1, k2, kw = k1_k2_kw(temperature_c)
-    dic = dic_mmol_l * 1e-3          # mol/L
-    alk = alk_meq_l * 1e-3           # eq/L
+    dic = dic_mmol_l * 1e-3  # mol/L
+    alk = alk_meq_l * 1e-3  # eq/L
 
     def residual(h: float) -> float:
         denom = h * h + k1 * h + k1 * k2
@@ -61,7 +61,7 @@ def ph_from_dic_alk(dic_mmol_l: float, alk_meq_l: float, temperature_c: float) -
         oh = kw / h
         return (hco3 + 2.0 * co3 + oh - h) - alk
 
-    h_lo, h_hi = 10.0 ** -12.0, 10.0 ** -3.0   # pH 12 .. 3
+    h_lo, h_hi = 10.0**-12.0, 10.0**-3.0  # pH 12 .. 3
     # brentq requires a sign change on the bracket; residual is monotone
     # in pH so the only way it fails is genuinely out-of-range input
     # (e.g. alkalinity exceeding what this DIC can carry). Surface that as
@@ -114,7 +114,5 @@ def diagnostic_ph_trajectory(
     alk = alk.clip(lower=floor_alk_meq_l)
     df["alk_meq_l"] = alk.round(4)
     temps = float(result.params.temperature_c)
-    df["ph_dynamic"] = [
-        round(ph_from_dic_alk(dic_mmol_l, float(a), temps), 3) for a in alk
-    ]
+    df["ph_dynamic"] = [round(ph_from_dic_alk(dic_mmol_l, float(a), temps), 3) for a in alk]
     return df

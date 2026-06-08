@@ -12,6 +12,7 @@ Three layers tested:
   3. Case.run honors the YAML-side calibrated values as defaults
      (explicit kwargs still win — sensitivity-sweep behavior).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -43,9 +44,7 @@ def test_v2140_read_optimised_params_parses_par_format(
     workspace = tmp_path / "ws"
     workspace.mkdir()
     (workspace / "openlimno_calibration.par").write_text(
-        "single point\n"
-        "manning_n 0.041234 1.0 0.0\n"
-        "slope     0.002567 1.0 0.0\n",
+        "single point\nmanning_n 0.041234 1.0 0.0\nslope     0.002567 1.0 0.0\n",
         encoding="utf-8",
     )
     params = read_optimised_params(workspace)
@@ -87,25 +86,27 @@ def test_v2140_read_optimised_params_malformed_par(tmp_path: Path) -> None:
 def _minimal_case_yaml(case_dir: Path) -> Path:
     """Build a minimal valid case YAML at case_dir/case.yaml."""
     case_dir.mkdir(parents=True, exist_ok=True)
-    body = "\n".join([
-        "openlimno: '0.2'",
-        "case:",
-        "  name: pestpp_round_trip_t",
-        "  crs: EPSG:4326",
-        "mesh:",
-        "  uri: ./mesh.nc",
-        "hydrodynamics:",
-        "  backend: builtin-1d",
-        "habitat:",
-        "  species: [oncorhynchus_mykiss]",
-        "  stages: [spawning]",
-        "  metric: wua-q",
-        "  composite: min",
-        "output:",
-        "  dir: ./out",
-        "  formats: [csv]",
-        "",
-    ])
+    body = "\n".join(
+        [
+            "openlimno: '0.2'",
+            "case:",
+            "  name: pestpp_round_trip_t",
+            "  crs: EPSG:4326",
+            "mesh:",
+            "  uri: ./mesh.nc",
+            "hydrodynamics:",
+            "  backend: builtin-1d",
+            "habitat:",
+            "  species: [oncorhynchus_mykiss]",
+            "  stages: [spawning]",
+            "  metric: wua-q",
+            "  composite: min",
+            "output:",
+            "  dir: ./out",
+            "  formats: [csv]",
+            "",
+        ]
+    )
     p = case_dir / "case.yaml"
     p.write_text(body, encoding="utf-8")
     return p
@@ -121,21 +122,17 @@ def test_v2140_apply_optimised_params_writes_yaml(tmp_path: Path) -> None:
 
     src = _minimal_case_yaml(tmp_path / "case_dir")
     out = apply_optimised_params_to_case_yaml(
-        src, {"manning_n": 0.0412, "slope": 0.00256},
+        src,
+        {"manning_n": 0.0412, "slope": 0.00256},
     )
-    assert out == src.resolve(), (
-        "v2.14.0: default out_yaml=None should patch in place."
-    )
+    assert out == src.resolve(), "v2.14.0: default out_yaml=None should patch in place."
     cfg = yaml.safe_load(src.read_text())
     b1d = cfg["hydrodynamics"]["builtin_1d"]
     assert b1d["manning_n"] == pytest.approx(0.0412)
     assert b1d["slope"] == pytest.approx(0.00256)
     # Patched YAML still validates
     errors = validate_case(src)
-    assert errors == [], (
-        f"v2.14.0 regression: patched YAML no longer validates: "
-        f"{errors}"
-    )
+    assert errors == [], f"v2.14.0 regression: patched YAML no longer validates: {errors}"
 
 
 def test_v2140_apply_optimised_params_separate_out_yaml(
@@ -149,7 +146,9 @@ def test_v2140_apply_optimised_params_separate_out_yaml(
     pre = src.read_text()
     out_path = tmp_path / "case_dir" / "case_calibrated.yaml"
     out = apply_optimised_params_to_case_yaml(
-        src, {"manning_n": 0.05}, out_yaml=out_path,
+        src,
+        {"manning_n": 0.05},
+        out_yaml=out_path,
     )
     assert out == out_path.resolve()
     # Source untouched:
@@ -169,7 +168,8 @@ def test_v2140_apply_optimised_params_rejects_empty(tmp_path: Path) -> None:
     src = _minimal_case_yaml(tmp_path / "case_dir")
     with pytest.raises(ValueError, match="recognised"):
         apply_optimised_params_to_case_yaml(
-            src, {"some_hsi_knot": 0.5, "another_knot": 0.8},
+            src,
+            {"some_hsi_knot": 0.5, "another_knot": 0.8},
         )
 
 
@@ -191,7 +191,8 @@ def test_v2140_case_run_honors_yaml_calibrated_defaults(
 
     src = _minimal_case_yaml(tmp_path / "case_dir")
     apply_optimised_params_to_case_yaml(
-        src, {"manning_n": 0.0412, "slope": 0.00256},
+        src,
+        {"manning_n": 0.0412, "slope": 0.00256},
     )
     case = Case(
         config=yaml.safe_load(src.read_text()),
@@ -212,6 +213,7 @@ def test_v2140_case_run_honors_yaml_calibrated_defaults(
     # kwargs can be distinguished from omitted. The fallback
     # numerics (0.002 / 0.035) live inside the resolver body.
     import inspect
+
     sig = inspect.signature(Case.run)
     assert sig.parameters["slope"].default is None
     assert sig.parameters["manning_n"].default is None
@@ -240,7 +242,8 @@ def test_v2141_r131_explicit_kwarg_overrides_yaml_default(
 
     src = _minimal_case_yaml(tmp_path / "case_dir")
     apply_optimised_params_to_case_yaml(
-        src, {"slope": 0.005, "manning_n": 0.06},
+        src,
+        {"slope": 0.005, "manning_n": 0.06},
     )
     case = Case(
         config=yaml.safe_load(src.read_text()),
@@ -249,6 +252,7 @@ def test_v2141_r131_explicit_kwarg_overrides_yaml_default(
 
     # Signature must use sentinel None now.
     import inspect
+
     sig = inspect.signature(Case.run)
     assert sig.parameters["slope"].default is None, (
         "R13-1 regression: slope kwarg default must be None "
@@ -320,10 +324,10 @@ def test_v2141_r135_par_parser_rejects_2token_status_line(
     workspace.mkdir()
     (workspace / "openlimno_calibration.par").write_text(
         "single point\n"
-        "iteration 5\n"               # 2 tokens, second is float
+        "iteration 5\n"  # 2 tokens, second is float
         "manning_n 0.0412 1.0 0.0\n"  # canonical 4-token row
-        "status converged\n"          # 2 tokens, second non-float
-        "slope 0.0026 1.0 0.0\n",     # canonical
+        "status converged\n"  # 2 tokens, second non-float
+        "slope 0.0026 1.0 0.0\n",  # canonical
         encoding="utf-8",
     )
     params = read_optimised_params(workspace)
@@ -344,9 +348,9 @@ def test_v2141_r136_bool_not_accepted_as_yaml_default(
 
     src = _minimal_case_yaml(tmp_path / "case_dir")
     cfg = yaml.safe_load(src.read_text())
-    cfg.setdefault("hydrodynamics", {}).setdefault(
-        "builtin_1d", {}
-    )["slope"] = True  # YAML-legal but nonsense
+    cfg.setdefault("hydrodynamics", {}).setdefault("builtin_1d", {})["slope"] = (
+        True  # YAML-legal but nonsense
+    )
     src.write_text(yaml.safe_dump(cfg), encoding="utf-8")
 
     case = Case(config=cfg, case_yaml_path=src.resolve())
@@ -354,14 +358,14 @@ def test_v2141_r136_bool_not_accepted_as_yaml_default(
     yaml_slope = b1d.get("slope")
     # Mirror Case.run's resolution. The bool must NOT be accepted.
     if isinstance(yaml_slope, (int, float)) and not isinstance(
-        yaml_slope, bool,
+        yaml_slope,
+        bool,
     ):
         slope = float(yaml_slope)
     else:
         slope = 0.002  # fallback
     assert slope == 0.002, (
-        f"R13-6 regression: YAML slope: true was coerced to "
-        f"{slope}; bool must be rejected."
+        f"R13-6 regression: YAML slope: true was coerced to {slope}; bool must be rejected."
     )
 
 
@@ -381,11 +385,8 @@ def test_v2141_r137_apply_warns_on_unrecognised_params(
         {"manning_n": 0.04, "hsi_knot_3": 0.55, "future_param": 7.0},
     )
     msgs = [str(w.message) for w in recwarn.list]
-    assert any(
-        "hsi_knot_3" in m and "future_param" in m for m in msgs
-    ), (
-        f"R13-7 regression: unrecognised params silently dropped. "
-        f"Warnings: {msgs}"
+    assert any("hsi_knot_3" in m and "future_param" in m for m in msgs), (
+        f"R13-7 regression: unrecognised params silently dropped. Warnings: {msgs}"
     )
 
 
@@ -402,29 +403,32 @@ def test_v2141_r138_apply_handles_yaml_null_hydrodynamics(
     case_dir = tmp_path / "case_dir"
     case_dir.mkdir(parents=True)
     (case_dir / "case.yaml").write_text(
-        "\n".join([
-            "openlimno: '0.2'",
-            "case:",
-            "  name: t",
-            "  crs: EPSG:4326",
-            "mesh:",
-            "  uri: ./mesh.nc",
-            "hydrodynamics: null",  # the edge case
-            "habitat:",
-            "  species: [oncorhynchus_mykiss]",
-            "  stages: [spawning]",
-            "  metric: wua-q",
-            "  composite: min",
-            "output:",
-            "  dir: ./out",
-            "  formats: [csv]",
-            "",
-        ]),
+        "\n".join(
+            [
+                "openlimno: '0.2'",
+                "case:",
+                "  name: t",
+                "  crs: EPSG:4326",
+                "mesh:",
+                "  uri: ./mesh.nc",
+                "hydrodynamics: null",  # the edge case
+                "habitat:",
+                "  species: [oncorhynchus_mykiss]",
+                "  stages: [spawning]",
+                "  metric: wua-q",
+                "  composite: min",
+                "output:",
+                "  dir: ./out",
+                "  formats: [csv]",
+                "",
+            ]
+        ),
         encoding="utf-8",
     )
     # No crash — should write a populated hydrodynamics block.
     apply_optimised_params_to_case_yaml(
-        case_dir / "case.yaml", {"slope": 0.003},
+        case_dir / "case.yaml",
+        {"slope": 0.003},
     )
     cfg = yaml.safe_load((case_dir / "case.yaml").read_text())
     assert cfg["hydrodynamics"]["builtin_1d"]["slope"] == 0.003
@@ -472,7 +476,8 @@ def test_v330_apply_optimised_params_preserves_comments(
         encoding="utf-8",
     )
     apply_optimised_params_to_case_yaml(
-        src, {"manning_n": 0.042, "slope": 0.003},
+        src,
+        {"manning_n": 0.042, "slope": 0.003},
     )
     written = src.read_text(encoding="utf-8")
     # All three styles of comment must survive:
@@ -485,9 +490,7 @@ def test_v330_apply_optimised_params_preserves_comments(
     assert "Researcher note: see Smith et al. 2023" in written, (
         f"R13-3 regression: inline comment stripped. Got:\n{written}"
     )
-    assert "canonical builtin solver" in written, (
-        "R13-3 regression: end-of-line comment stripped."
-    )
+    assert "canonical builtin solver" in written, "R13-3 regression: end-of-line comment stripped."
     # And the patched values landed.
     assert "manning_n: 0.042" in written
     assert "slope: 0.003" in written
@@ -522,7 +525,8 @@ def test_v310_case_run_with_calibrated_yaml_end_to_end(
     # Patch with calibrated values that differ visibly from the
     # hard-coded fallback defaults (0.002 / 0.035).
     apply_optimised_params_to_case_yaml(
-        case_yaml, {"slope": 0.00379, "manning_n": 0.0421},
+        case_yaml,
+        {"slope": 0.00379, "manning_n": 0.0421},
     )
 
     case = Case.from_yaml(case_yaml)
@@ -566,9 +570,7 @@ def test_v2140_round_trip_par_to_case_yaml_end_to_end(
     workspace = tmp_path / "ws"
     workspace.mkdir()
     (workspace / "openlimno_calibration.par").write_text(
-        "single point\n"
-        "manning_n 0.038500 1.0 0.0\n"
-        "slope     0.003100 1.0 0.0\n",
+        "single point\nmanning_n 0.038500 1.0 0.0\nslope     0.003100 1.0 0.0\n",
         encoding="utf-8",
     )
 

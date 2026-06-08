@@ -27,6 +27,7 @@ Endpoint:
 Docs:
     https://open-meteo.com/en/docs/historical-weather-api
 """
+
 from __future__ import annotations
 
 import json
@@ -95,8 +96,12 @@ class OpenMeteoFetchResult:
 
 
 def fetch_open_meteo_daily(
-    lat: float, lon: float, start_year: int, end_year: int,
-    *, include_precip: bool = False,
+    lat: float,
+    lon: float,
+    start_year: int,
+    end_year: int,
+    *,
+    include_precip: bool = False,
 ) -> OpenMeteoFetchResult:
     """Fetch Open-Meteo daily climate for a lat/lon point.
 
@@ -116,9 +121,7 @@ def fetch_open_meteo_daily(
         which climate source produced it.
     """
     if start_year > end_year:
-        raise ValueError(
-            f"start_year ({start_year}) must be ≤ end_year ({end_year})"
-        )
+        raise ValueError(f"start_year ({start_year}) must be ≤ end_year ({end_year})")
     if start_year < OPENMETEO_FIRST_YEAR or end_year > OPENMETEO_LAST_YEAR_GUARD:
         raise ValueError(
             f"Open-Meteo archive coverage is {OPENMETEO_FIRST_YEAR}-present "
@@ -150,16 +153,18 @@ def fetch_open_meteo_daily(
         return resp.content
 
     cache = cached_fetch(
-        subdir="openmeteo", url=OPEN_METEO_ARCHIVE, params=params,
-        suffix=".json", fetch_fn=_do_fetch,
+        subdir="openmeteo",
+        url=OPEN_METEO_ARCHIVE,
+        params=params,
+        suffix=".json",
+        fetch_fn=_do_fetch,
     )
     payload = json.loads(cache.path.read_text())
 
     daily = payload.get("daily")
     if not daily or "time" not in daily:
         raise RuntimeError(
-            f"Open-Meteo response missing 'daily' block. "
-            f"keys={list(payload.keys())!r}"
+            f"Open-Meteo response missing 'daily' block. keys={list(payload.keys())!r}"
         )
 
     times = daily["time"]
@@ -171,24 +176,24 @@ def fetch_open_meteo_daily(
             f"time={len(times)}, tmax={len(tmax)}, tmin={len(tmin)}"
         )
 
-    df_raw = pd.DataFrame({
-        "time": times,
-        "tmax_C": pd.to_numeric(tmax, errors="coerce"),
-        "tmin_C": pd.to_numeric(tmin, errors="coerce"),
-    })
+    df_raw = pd.DataFrame(
+        {
+            "time": times,
+            "tmax_C": pd.to_numeric(tmax, errors="coerce"),
+            "tmin_C": pd.to_numeric(tmin, errors="coerce"),
+        }
+    )
     if include_precip:
         prcp = daily.get("precipitation_sum", [])
         if len(prcp) != len(times):
             raise RuntimeError(
-                f"Open-Meteo precipitation_sum length mismatch: "
-                f"time={len(times)}, prcp={len(prcp)}"
+                f"Open-Meteo precipitation_sum length mismatch: time={len(times)}, prcp={len(prcp)}"
             )
         df_raw["prcp_mm"] = pd.to_numeric(prcp, errors="coerce")
 
     df_raw["T_air_C_mean"] = (df_raw["tmax_C"] + df_raw["tmin_C"]) / 2.0
     df_raw["T_water_C_stefan"] = (
-        STEFAN_AIR_TO_WATER_A
-        + STEFAN_AIR_TO_WATER_B * df_raw["T_air_C_mean"]
+        STEFAN_AIR_TO_WATER_A + STEFAN_AIR_TO_WATER_B * df_raw["T_air_C_mean"]
     ).clip(lower=0.0)
 
     cols = ["time", "tmax_C", "tmin_C", "T_air_C_mean", "T_water_C_stefan"]
@@ -197,7 +202,8 @@ def fetch_open_meteo_daily(
     out = df_raw[cols].reset_index(drop=True)
 
     return OpenMeteoFetchResult(
-        df=out, cache=cache,
+        df=out,
+        cache=cache,
         lat=float(payload.get("latitude", lat)),
         lon=float(payload.get("longitude", lon)),
         elevation_m=float(payload.get("elevation", float("nan"))),

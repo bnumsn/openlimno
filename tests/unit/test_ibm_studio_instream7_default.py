@@ -16,6 +16,7 @@ import pytest
 # find_instream7_archive_root — resolves env var, XDG cache, repo dir
 # ---------------------------------------------------------------------------
 
+
 def test_find_archive_root_env_var_takes_precedence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -51,9 +52,7 @@ def test_find_archive_root_skips_nonexistent_env_path(
     not raise."""
     import openlimno.ibm.studio_instream7_default as m
 
-    monkeypatch.setenv(
-        "OPENLIMNO_INSTREAM7_ARCHIVE", str(tmp_path / "does-not-exist")
-    )
+    monkeypatch.setenv("OPENLIMNO_INSTREAM7_ARCHIVE", str(tmp_path / "does-not-exist"))
     monkeypatch.setattr(m, "_CANDIDATE_DIRS", (tmp_path / "a", tmp_path / "b"))
     assert m.find_instream7_archive_root() is None
 
@@ -62,20 +61,19 @@ def test_find_archive_root_skips_nonexistent_env_path(
 # _classify_hmu — pure function, low risk but explicitly untested per Claude
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     ("depth_m", "vel_ms", "expected"),
     [
-        (0.05, 0.20, "margin"),     # shallow — margin regardless of velocity
-        (0.20, 0.60, "riffle"),     # shallow + fast
-        (0.20, 0.20, "glide"),      # shallow + slow
-        (0.50, 1.00, "run"),        # deep + fast
-        (0.80, 0.05, "pool"),       # deep + slow
-        (0.50, 0.50, "run"),        # deep + medium (catch-all branch)
+        (0.05, 0.20, "margin"),  # shallow — margin regardless of velocity
+        (0.20, 0.60, "riffle"),  # shallow + fast
+        (0.20, 0.20, "glide"),  # shallow + slow
+        (0.50, 1.00, "run"),  # deep + fast
+        (0.80, 0.05, "pool"),  # deep + slow
+        (0.50, 0.50, "run"),  # deep + medium (catch-all branch)
     ],
 )
-def test_classify_hmu_depth_velocity_grid(
-    depth_m: float, vel_ms: float, expected: str
-) -> None:
+def test_classify_hmu_depth_velocity_grid(depth_m: float, vel_ms: float, expected: str) -> None:
     """Pins Claude review: smoke matrix for HMU classifier so a future
     threshold tweak announces itself in CI."""
     from openlimno.ibm.studio_instream7_default import _classify_hmu
@@ -86,6 +84,7 @@ def test_classify_hmu_depth_velocity_grid(
 # ---------------------------------------------------------------------------
 # _crs_unit_factor — projected-CRS guard (Gemini + Claude)
 # ---------------------------------------------------------------------------
+
 
 class _FakeAxisInfo:
     def __init__(self, unit_name: str) -> None:
@@ -143,6 +142,7 @@ def test_crs_unit_factor_rejects_unknown_unit() -> None:
 # default_studio_scenario_resolved — fallback path (Claude + Gemini)
 # ---------------------------------------------------------------------------
 
+
 def test_resolved_falls_back_when_no_archive_configured(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -198,6 +198,7 @@ def test_resolved_warns_when_archive_load_fails(
 # Software-test S1: length→mass profile bridge (Codex + Gemini)
 # ---------------------------------------------------------------------------
 
+
 def test_build_initial_population_uses_passed_profile_weight_params() -> None:
     """Pin Codex + Gemini independent S1 finding: when the scenario carries
     a custom profile with non-default weight_a/b, build_initial_population
@@ -218,6 +219,7 @@ def test_build_initial_population_uses_passed_profile_weight_params() -> None:
 # ---------------------------------------------------------------------------
 # Software-test S2: JSON NaN sanitisation (Codex)
 # ---------------------------------------------------------------------------
+
 
 def test_sanitize_for_json_replaces_nan_inf_with_none() -> None:
     """NaN / +Inf / -Inf must round-trip through json.dumps(allow_nan=False)
@@ -249,13 +251,16 @@ def test_sanitize_for_json_replaces_nan_inf_with_none() -> None:
 # Software-test S3: hydraulic input validation (Codex + Gemini)
 # ---------------------------------------------------------------------------
 
+
 def test_cells_from_payload_rejects_negative_depth() -> None:
     from openlimno.ibm.studio import _cells_from_payload
 
     with pytest.raises(ValueError, match="depth_m.*outside"):
-        _cells_from_payload([
-            {"cell_id": "c1", "depth_m": -1.0, "velocity_ms": 0.3},
-        ])
+        _cells_from_payload(
+            [
+                {"cell_id": "c1", "depth_m": -1.0, "velocity_ms": 0.3},
+            ]
+        )
 
 
 def test_cells_from_payload_rejects_nan_velocity() -> None:
@@ -264,23 +269,28 @@ def test_cells_from_payload_rejects_nan_velocity() -> None:
     from openlimno.ibm.studio import _cells_from_payload
 
     with pytest.raises(ValueError, match="velocity_ms.*NaN"):
-        _cells_from_payload([
-            {"cell_id": "c1", "depth_m": 0.5, "velocity_ms": math.nan},
-        ])
+        _cells_from_payload(
+            [
+                {"cell_id": "c1", "depth_m": 0.5, "velocity_ms": math.nan},
+            ]
+        )
 
 
 def test_cells_from_payload_rejects_cover_outside_unit_interval() -> None:
     from openlimno.ibm.studio import _cells_from_payload
 
     with pytest.raises(ValueError, match="hiding_cover.*outside"):
-        _cells_from_payload([
-            {"cell_id": "c1", "depth_m": 0.5, "velocity_ms": 0.3, "hiding_cover": 1.5},
-        ])
+        _cells_from_payload(
+            [
+                {"cell_id": "c1", "depth_m": 0.5, "velocity_ms": 0.3, "hiding_cover": 1.5},
+            ]
+        )
 
 
 # ---------------------------------------------------------------------------
 # Software-test M2: days cap (Codex)
 # ---------------------------------------------------------------------------
+
 
 def test_studio_run_caps_days_at_max() -> None:
     """Pins Codex M2: ``days=10000`` must be silently clamped to
@@ -298,6 +308,7 @@ def test_studio_run_caps_days_at_max() -> None:
 # Software-test M1: run-dir prune
 # ---------------------------------------------------------------------------
 
+
 def test_aggregate_last_day_sums_across_species() -> None:
     """Pin 2026-05-28 multi-species follow-up: the top-level
     ``final_abundance``/``final_biomass_g``/``survival_rate`` must
@@ -311,18 +322,46 @@ def test_aggregate_last_day_sums_across_species() -> None:
     # Two-species, two-day toy summary.
     summary = pd.DataFrame(
         [
-            {"day": 0, "species": "Rainbow", "abundance": 200, "biomass_g": 1000.0, "mean_length_mm": 70.0, "survival_rate": 1.0},
-            {"day": 0, "species": "Brown",   "abundance": 100, "biomass_g":  500.0, "mean_length_mm": 80.0, "survival_rate": 1.0},
-            {"day": 1, "species": "Rainbow", "abundance": 180, "biomass_g":  900.0, "mean_length_mm": 70.0, "survival_rate": 0.9},
-            {"day": 1, "species": "Brown",   "abundance":  90, "biomass_g":  450.0, "mean_length_mm": 80.0, "survival_rate": 0.9},
+            {
+                "day": 0,
+                "species": "Rainbow",
+                "abundance": 200,
+                "biomass_g": 1000.0,
+                "mean_length_mm": 70.0,
+                "survival_rate": 1.0,
+            },
+            {
+                "day": 0,
+                "species": "Brown",
+                "abundance": 100,
+                "biomass_g": 500.0,
+                "mean_length_mm": 80.0,
+                "survival_rate": 1.0,
+            },
+            {
+                "day": 1,
+                "species": "Rainbow",
+                "abundance": 180,
+                "biomass_g": 900.0,
+                "mean_length_mm": 70.0,
+                "survival_rate": 0.9,
+            },
+            {
+                "day": 1,
+                "species": "Brown",
+                "abundance": 90,
+                "biomass_g": 450.0,
+                "mean_length_mm": 80.0,
+                "survival_rate": 0.9,
+            },
         ]
     )
     agg = _aggregate_last_day(summary, initial_n=300)
-    assert agg["abundance"] == 270         # 180 + 90
-    assert agg["biomass_g"] == 1350.0      # 900 + 450
+    assert agg["abundance"] == 270  # 180 + 90
+    assert agg["biomass_g"] == 1350.0  # 900 + 450
     # Biomass-weighted mean length: (70*900 + 80*450) / 1350 = 73.33...
     assert abs(float(agg["mean_length_mm"]) - 73.333333) < 1e-3
-    assert agg["survival_rate"] == 0.9     # 270/300
+    assert agg["survival_rate"] == 0.9  # 270/300
 
 
 def test_aggregate_last_day_handles_empty_summary() -> None:
@@ -418,7 +457,9 @@ def test_run_dir_prune_steady_state_equals_keep(tmp_path: Path) -> None:
         path.mkdir()
         survivors = [p for p in tmp_path.iterdir() if p.is_dir() and p.name.startswith("native-")]
         # Steady state should be exactly `keep`, not `keep + 1`.
-        assert len(survivors) == keep, f"expected exactly {keep} dirs, got {len(survivors)}: {sorted(p.name for p in survivors)}"
+        assert len(survivors) == keep, (
+            f"expected exactly {keep} dirs, got {len(survivors)}: {sorted(p.name for p in survivors)}"
+        )
     finally:
         studio_mod.MAX_STUDIO_RUN_DIRS = original
 
@@ -434,6 +475,7 @@ def test_run_dir_prunes_oldest_above_keep_watermark(tmp_path: Path) -> None:
         (tmp_path / f"native-{i:08d}-deadbeef").mkdir()
     # Allocate via the real path with a small `keep` watermark.
     import openlimno.ibm.studio as studio_mod
+
     original = studio_mod.MAX_STUDIO_RUN_DIRS
     studio_mod.MAX_STUDIO_RUN_DIRS = keep
     try:

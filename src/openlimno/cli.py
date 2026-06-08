@@ -829,7 +829,9 @@ def ibm_scenario_validate(scenario_yaml: str) -> None:
 @ibm_cli.command("ensemble")
 @click.argument("scenario_yaml", type=click.Path(exists=True))
 @click.option("--seed", "seeds", type=int, multiple=True, help="Seed to run; repeatable.")
-@click.option("--out-dir", type=click.Path(), default=None, help="Override ensemble output directory.")
+@click.option(
+    "--out-dir", type=click.Path(), default=None, help="Override ensemble output directory."
+)
 def ibm_ensemble(scenario_yaml: str, seeds: tuple[int, ...], out_dir: str | None) -> None:
     """Run a scenario ensemble across seeds."""
     from openlimno.ibm import run_ibm_ensemble
@@ -843,7 +845,9 @@ def ibm_ensemble(scenario_yaml: str, seeds: tuple[int, ...], out_dir: str | None
     except ValueError as exc:
         console.print(f"[red]✗[/] {exc}")
         sys.exit(1)
-    final_mean = float(result.summary["final_abundance"].mean()) if not result.summary.empty else 0.0
+    final_mean = (
+        float(result.summary["final_abundance"].mean()) if not result.summary.empty else 0.0
+    )
     console.print(
         f"[green]✓[/] IBM ensemble complete: "
         f"{len(result.summary)} runs, mean final abundance={final_mean:.2f}"
@@ -883,7 +887,9 @@ def ibm_ensemble(scenario_yaml: str, seeds: tuple[int, ...], out_dir: str | None
     help="ABC accepted fraction when --method abc.",
 )
 @click.option("--tolerance", type=float, default=None, help="ABC objective tolerance.")
-@click.option("--out-dir", type=click.Path(), default=None, help="Override calibration output directory.")
+@click.option(
+    "--out-dir", type=click.Path(), default=None, help="Override calibration output directory."
+)
 def ibm_calibrate(
     scenario_yaml: str,
     observed_path: str | None,
@@ -1537,7 +1543,11 @@ def preprocess_gis_hydraulics(
 
     from openlimno.hydro import build_builtin1d_gis_hydraulics
 
-    flow = pd.read_csv(discharge_csv) if discharge_csv is not None else _parse_discharge_list(discharges)
+    flow = (
+        pd.read_csv(discharge_csv)
+        if discharge_csv is not None
+        else _parse_discharge_list(discharges)
+    )
     result = build_builtin1d_gis_hydraulics(
         boundary_path=boundary,
         centerline_path=centerline,

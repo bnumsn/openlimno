@@ -41,6 +41,7 @@ and emits per-section thermal SI values that can feed v2.1.0's
 :func:`openlimno.habitat.composite.apply_overlay_per_cell`. Remote
 PRISM/NLDAS/ERA5-style T(x) fetchers remain on the research route.
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -79,10 +80,7 @@ class ThermalRange:
     source: str = ""
 
     def __post_init__(self) -> None:
-        if not (
-            self.T_lethal_min < self.T_opt_min
-            <= self.T_opt_max < self.T_lethal_max
-        ):
+        if not (self.T_lethal_min < self.T_opt_min <= self.T_opt_max < self.T_lethal_max):
             raise ValueError(
                 f"ThermalRange parameters must satisfy "
                 f"T_lethal_min < T_opt_min ≤ T_opt_max < T_lethal_max; "
@@ -92,7 +90,10 @@ class ThermalRange:
 
     @classmethod
     def from_fishbase(
-        cls, T_opt_min: float, T_opt_max: float, *,
+        cls,
+        T_opt_min: float,
+        T_opt_max: float,
+        *,
         lethal_margin_C: float = DEFAULT_LETHAL_MARGIN_C,
         source: str = "FishBase (default lethal margin)",
     ) -> ThermalRange:
@@ -100,9 +101,7 @@ class ThermalRange:
         values, defaulting the lethal limits to ``opt ± margin``.
         """
         if lethal_margin_C <= 0:
-            raise ValueError(
-                f"lethal_margin_C={lethal_margin_C} must be positive"
-            )
+            raise ValueError(f"lethal_margin_C={lethal_margin_C} must be positive")
         return cls(
             T_opt_min=T_opt_min,
             T_opt_max=T_opt_max,
@@ -187,10 +186,12 @@ def thermal_suitability_series(
                 f"time_column={time_column!r} not in DataFrame "
                 f"columns {list(temperature_series.columns)}"
             )
-        df = pd.DataFrame({
-            time_column: temperature_series[time_column].values,
-            "T_water_C": temperature_series[temperature_column].values,
-        })
+        df = pd.DataFrame(
+            {
+                time_column: temperature_series[time_column].values,
+                "T_water_C": temperature_series[temperature_column].values,
+            }
+        )
 
     df["thermal_SI"] = thermal_hsi(df["T_water_C"].values, tr)
     return df[[time_column, "T_water_C", "thermal_SI"]].rename(
@@ -216,7 +217,9 @@ def thermal_metrics(thermal_df: pd.DataFrame) -> dict[str, float]:
     if n == 0:
         return {
             "mean_SI": float("nan"),
-            "days_optimal": 0, "days_lethal": 0, "days_total": 0,
+            "days_optimal": 0,
+            "days_lethal": 0,
+            "days_total": 0,
             "optimal_fraction": float("nan"),
         }
     days_optimal = int((si >= 1.0 - 1e-9).sum())

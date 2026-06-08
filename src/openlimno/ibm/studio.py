@@ -93,18 +93,18 @@ MAX_STUDIO_RUN_DIRS = 50
 _DEMO_REACH_LENGTH_M = 1500.0
 _DEMO_REACH_CENTERLINE_Y = 60.0
 _DEMO_MEANDER_WAVELENGTH_M = 300.0
-_DEMO_MEANDER_AMPLITUDE_M = 42.0   # gives sinuosity ≈ 1.20 (Lemhi-like)
-_DEMO_BASE_HALF_WIDTH_M = 7.0      # 14 m channel default
+_DEMO_MEANDER_AMPLITUDE_M = 42.0  # gives sinuosity ≈ 1.20 (Lemhi-like)
+_DEMO_BASE_HALF_WIDTH_M = 7.0  # 14 m channel default
 # Pool / margin / side-channel stations along the reach. Each tuple is
 # (station_m, side, half_width_extension_m, sigma_m) — sigma controls
 # how localised the bulge is in the channel polygon.
 _DEMO_BULGES: tuple[tuple[float, str, float, float], ...] = (
-    (220.0, "north", 18.0, 35.0),   # cottonwood-pool-1
-    (300.0, "north", 4.0, 25.0),    # left-margin-1
-    (360.0, "south", 18.0, 32.0),   # side-channel-1
-    (660.0, "north", 16.0, 38.0),   # boulder-pool
-    (800.0, "south", 4.0, 28.0),    # right-margin
-    (960.0, "north", 22.0, 40.0),   # meander-pool (deepest)
+    (220.0, "north", 18.0, 35.0),  # cottonwood-pool-1
+    (300.0, "north", 4.0, 25.0),  # left-margin-1
+    (360.0, "south", 18.0, 32.0),  # side-channel-1
+    (660.0, "north", 16.0, 38.0),  # boulder-pool
+    (800.0, "south", 4.0, 28.0),  # right-margin
+    (960.0, "north", 22.0, 40.0),  # meander-pool (deepest)
     (1110.0, "south", 14.0, 30.0),  # side-channel-2
     (1390.0, "south", 12.0, 35.0),  # final-pool (alternating bank)
 )
@@ -113,6 +113,7 @@ _DEMO_BULGES: tuple[tuple[float, str, float, float], ...] = (
 def _centerline_y(x: float) -> float:
     """Demo centerline elevation y at station x along the reach."""
     import math
+
     return _DEMO_REACH_CENTERLINE_Y + _DEMO_MEANDER_AMPLITUDE_M * math.sin(
         2 * math.pi * x / _DEMO_MEANDER_WAVELENGTH_M
     )
@@ -156,28 +157,210 @@ def _demo_cells() -> list[dict[str, object]]:
     # for pool / margin / side-channel cells; main-line cells = 0.
     cell_specs = [
         # --- Sequence 1 (0-430m): riffle-run-pool-tailout + margin/side-ch ---
-        ("left-margin-1",     "margin",       100.0,  50.0,  7.0,  0.22, 0.10, 0.45,  0.55, 0.28, 0.18,  4.0,  12.0),
-        ("mid-run-1",         "run",          160.0,  60.0, 14.0,  0.65, 0.36, 0.86,  0.48, 0.62, 0.42,  0.0,  11.9),
-        ("cottonwood-pool-1", "pool",         220.0,  80.0, 18.0,  1.20, 0.14, 0.92,  0.84, 0.50, 0.22,  9.0,  12.1),
-        ("gravel-tailout-1",  "tailout",      300.0,  50.0, 11.0,  0.34, 0.55, 0.80,  0.30, 0.65, 0.82,  0.0,  12.0),
-        ("side-channel-1",    "side-channel", 360.0,  40.0,  7.0,  0.25, 0.18, 0.65, 0.70, 0.34, 0.30, -10.0, 12.3),
-        ("lower-glide-1",     "glide",        430.0,  60.0, 14.0,  0.75, 0.30, 0.85,  0.60, 0.55, 0.45,  0.0,  12.2),
+        (
+            "left-margin-1",
+            "margin",
+            100.0,
+            50.0,
+            7.0,
+            0.22,
+            0.10,
+            0.45,
+            0.55,
+            0.28,
+            0.18,
+            4.0,
+            12.0,
+        ),
+        ("mid-run-1", "run", 160.0, 60.0, 14.0, 0.65, 0.36, 0.86, 0.48, 0.62, 0.42, 0.0, 11.9),
+        (
+            "cottonwood-pool-1",
+            "pool",
+            220.0,
+            80.0,
+            18.0,
+            1.20,
+            0.14,
+            0.92,
+            0.84,
+            0.50,
+            0.22,
+            9.0,
+            12.1,
+        ),
+        (
+            "gravel-tailout-1",
+            "tailout",
+            300.0,
+            50.0,
+            11.0,
+            0.34,
+            0.55,
+            0.80,
+            0.30,
+            0.65,
+            0.82,
+            0.0,
+            12.0,
+        ),
+        (
+            "side-channel-1",
+            "side-channel",
+            360.0,
+            40.0,
+            7.0,
+            0.25,
+            0.18,
+            0.65,
+            0.70,
+            0.34,
+            0.30,
+            -10.0,
+            12.3,
+        ),
+        (
+            "lower-glide-1",
+            "glide",
+            430.0,
+            60.0,
+            14.0,
+            0.75,
+            0.30,
+            0.85,
+            0.60,
+            0.55,
+            0.45,
+            0.0,
+            12.2,
+        ),
         # --- Sequence 2 (430-800m) ---
-        ("upper-riffle-2",    "riffle",       500.0,  50.0, 12.0,  0.38, 0.74, 0.76,  0.30, 0.72, 0.68,  0.0,  11.7),
-        ("mid-run-2",         "run",          580.0,  65.0, 13.0,  0.62, 0.40, 0.84,  0.48, 0.60, 0.42,  0.0,  11.9),
-        ("boulder-pool",      "pool",         660.0,  70.0, 17.0,  1.10, 0.16, 0.90,  0.78, 0.48, 0.20,  8.0,  12.0),
-        ("gravel-tailout-2",  "tailout",      740.0,  50.0, 11.0,  0.32, 0.55, 0.80,  0.30, 0.65, 0.82,  0.0,  12.1),
-        ("right-margin",      "margin",       800.0,  45.0,  7.0,  0.20, 0.10, 0.42, -4.0,  0.28, 0.18, -4.0,  11.9),
+        (
+            "upper-riffle-2",
+            "riffle",
+            500.0,
+            50.0,
+            12.0,
+            0.38,
+            0.74,
+            0.76,
+            0.30,
+            0.72,
+            0.68,
+            0.0,
+            11.7,
+        ),
+        ("mid-run-2", "run", 580.0, 65.0, 13.0, 0.62, 0.40, 0.84, 0.48, 0.60, 0.42, 0.0, 11.9),
+        ("boulder-pool", "pool", 660.0, 70.0, 17.0, 1.10, 0.16, 0.90, 0.78, 0.48, 0.20, 8.0, 12.0),
+        (
+            "gravel-tailout-2",
+            "tailout",
+            740.0,
+            50.0,
+            11.0,
+            0.32,
+            0.55,
+            0.80,
+            0.30,
+            0.65,
+            0.82,
+            0.0,
+            12.1,
+        ),
+        (
+            "right-margin",
+            "margin",
+            800.0,
+            45.0,
+            7.0,
+            0.20,
+            0.10,
+            0.42,
+            -4.0,
+            0.28,
+            0.18,
+            -4.0,
+            11.9,
+        ),
         # --- Sequence 3 (800-1150m) — deepest meander-pool ---
-        ("mid-run-3",         "run",          870.0,  70.0, 14.0,  0.66, 0.38, 0.85,  0.50, 0.60, 0.42,  0.0,  11.9),
-        ("meander-pool",      "pool",         960.0,  90.0, 19.0,  1.30, 0.12, 0.94,  0.88, 0.50, 0.24, 11.0, 12.0),
-        ("gravel-tailout-3",  "tailout",     1050.0,  55.0, 12.0,  0.34, 0.55, 0.82,  0.32, 0.66, 0.82,  0.0,  12.0),
-        ("side-channel-2",    "side-channel",1110.0,  45.0,  8.0,  0.26, 0.20, 0.68, 0.72, 0.36, 0.30,  -8.0, 12.3),
+        ("mid-run-3", "run", 870.0, 70.0, 14.0, 0.66, 0.38, 0.85, 0.50, 0.60, 0.42, 0.0, 11.9),
+        ("meander-pool", "pool", 960.0, 90.0, 19.0, 1.30, 0.12, 0.94, 0.88, 0.50, 0.24, 11.0, 12.0),
+        (
+            "gravel-tailout-3",
+            "tailout",
+            1050.0,
+            55.0,
+            12.0,
+            0.34,
+            0.55,
+            0.82,
+            0.32,
+            0.66,
+            0.82,
+            0.0,
+            12.0,
+        ),
+        (
+            "side-channel-2",
+            "side-channel",
+            1110.0,
+            45.0,
+            8.0,
+            0.26,
+            0.20,
+            0.68,
+            0.72,
+            0.36,
+            0.30,
+            -8.0,
+            12.3,
+        ),
         # --- Sequence 4 (1150-1500m) — boulder-chute + final-pool ---
-        ("upper-riffle-3",    "riffle",      1180.0,  50.0, 12.0,  0.40, 0.72, 0.76,  0.30, 0.72, 0.70,  0.0,  11.6),
-        ("boulder-chute",     "chute",       1250.0,  50.0,  9.0,  0.50, 1.15, 0.40,  0.18, 0.22, 0.12,  0.0,  11.8),
-        ("lower-glide-2",     "glide",       1310.0,  60.0, 14.0,  0.70, 0.32, 0.84,  0.60, 0.55, 0.46,  0.0,  12.0),
-        ("final-pool",        "pool",        1390.0,  70.0, 16.0,  1.00, 0.18, 0.88,  0.80, 0.50, 0.30, -6.0,  12.0),
+        (
+            "upper-riffle-3",
+            "riffle",
+            1180.0,
+            50.0,
+            12.0,
+            0.40,
+            0.72,
+            0.76,
+            0.30,
+            0.72,
+            0.70,
+            0.0,
+            11.6,
+        ),
+        (
+            "boulder-chute",
+            "chute",
+            1250.0,
+            50.0,
+            9.0,
+            0.50,
+            1.15,
+            0.40,
+            0.18,
+            0.22,
+            0.12,
+            0.0,
+            11.8,
+        ),
+        (
+            "lower-glide-2",
+            "glide",
+            1310.0,
+            60.0,
+            14.0,
+            0.70,
+            0.32,
+            0.84,
+            0.60,
+            0.55,
+            0.46,
+            0.0,
+            12.0,
+        ),
+        ("final-pool", "pool", 1390.0, 70.0, 16.0, 1.00, 0.18, 0.88, 0.80, 0.50, 0.30, -6.0, 12.0),
     ]
     # Note: 'right-margin' had a typo in the original tuple (hiding=-4.0).
     # Fix that — hiding should be ~0.55 (same as left-margin).
@@ -188,26 +371,28 @@ def _demo_cells() -> list[dict[str, object]]:
             hide = 0.55
         area = round(L * W, 1)
         center_y = round(_centerline_y(station) + dy, 2)
-        fixed.append({
-            "cell_id": cid,
-            "reach_id": "lemhi-hayden-demo",
-            "reach_order": 1,
-            "habitat_type": hmu,
-            "station_m": station,
-            "center_x_m": station,
-            "center_y_m": center_y,
-            "length_m": L,
-            "width_m": W,
-            "area_m2": area,
-            "depth_m": d,
-            "velocity_ms": v,
-            "csi": csi,
-            "temperature_c": t,
-            "turbidity_ntu": 2.0,
-            "hiding_cover": hide,
-            "feeding_cover": feed,
-            "spawning_cover": spawn,
-        })
+        fixed.append(
+            {
+                "cell_id": cid,
+                "reach_id": "lemhi-hayden-demo",
+                "reach_order": 1,
+                "habitat_type": hmu,
+                "station_m": station,
+                "center_x_m": station,
+                "center_y_m": center_y,
+                "length_m": L,
+                "width_m": W,
+                "area_m2": area,
+                "depth_m": d,
+                "velocity_ms": v,
+                "csi": csi,
+                "temperature_c": t,
+                "turbidity_ntu": 2.0,
+                "hiding_cover": hide,
+                "feeding_cover": feed,
+                "spawning_cover": spawn,
+            }
+        )
     # Patch the first hand-written cell's center_y so it follows the
     # new centerline too.
     base[0]["center_y_m"] = round(_centerline_y(base[0]["station_m"]), 2)
@@ -253,7 +438,7 @@ def _demo_river_geometry() -> dict[str, object]:
         half = base_half_width
         for b_x, b_side, b_ext, b_sigma in _DEMO_BULGES:
             if b_side == side:
-                half += b_ext * math.exp(-((x - b_x) / b_sigma) ** 2)
+                half += b_ext * math.exp(-(((x - b_x) / b_sigma) ** 2))
         return half
 
     north_bank = []
@@ -445,12 +630,13 @@ def default_studio_scenario_resolved() -> dict[str, object]:
         _LOG.warning(
             "inSTREAM 7 archive at %s failed to load (%s: %s); "
             "falling back to synthetic Studio default.",
-            root, type(exc).__name__, exc,
+            root,
+            type(exc).__name__,
+            exc,
         )
         return _with_fallback_banner(
             fallback,
-            f"inSTREAM 7 archive at {root} failed to load "
-            f"({type(exc).__name__}: {exc})",
+            f"inSTREAM 7 archive at {root} failed to load ({type(exc).__name__}: {exc})",
         )
     return real
 
@@ -672,7 +858,9 @@ def _normalise_river_geometry(value: object) -> dict[str, object]:
 def _line_length(points: list[list[float]]) -> float:
     total = 0.0
     for idx in range(1, len(points)):
-        total += math.hypot(points[idx][0] - points[idx - 1][0], points[idx][1] - points[idx - 1][1])
+        total += math.hypot(
+            points[idx][0] - points[idx - 1][0], points[idx][1] - points[idx - 1][1]
+        )
     return total
 
 
@@ -796,9 +984,11 @@ def _translated_geometries(gdf: Any, *, origin_x: float, origin_y: float) -> Any
 
     out = gdf.copy()
     out.geometry = out.geometry.apply(
-        lambda geom: affinity.translate(geom, xoff=-origin_x, yoff=-origin_y)
-        if geom is not None and not geom.is_empty
-        else geom
+        lambda geom: (
+            affinity.translate(geom, xoff=-origin_x, yoff=-origin_y)
+            if geom is not None and not geom.is_empty
+            else geom
+        )
     )
     return out
 
@@ -853,7 +1043,9 @@ def _boundary_quality(channel_polygon: Any | None, messages: list[str]) -> dict[
         )
     if area_m2 <= 0.0 or perimeter_m <= 0.0:
         status = "invalid"
-        messages.append("Boundary polygon has zero area or perimeter; no real channel boundary can be verified.")
+        messages.append(
+            "Boundary polygon has zero area or perimeter; no real channel boundary can be verified."
+        )
     return {
         "status": status,
         "boundary_vertices": vertices,
@@ -963,9 +1155,13 @@ def _geometry_from_gis(
     if centerline is None and centerline_gdf is not None:
         messages.append("Centerline GIS layer has no line geometry; no centerline was imported.")
     if channel_polygon is None and boundary_gdf is not None:
-        messages.append("Boundary GIS layer has no polygon geometry; no river boundary was imported.")
+        messages.append(
+            "Boundary GIS layer has no polygon geometry; no river boundary was imported."
+        )
     if centerline is None and channel_polygon is None and cell_polygons:
-        messages.append("No river boundary/centerline imported; displaying habitat-cell polygons only.")
+        messages.append(
+            "No river boundary/centerline imported; displaying habitat-cell polygons only."
+        )
     geometry: dict[str, object] = {
         "crs": str(target_crs) if target_crs is not None else "source",
         "source": "gis-import",
@@ -998,7 +1194,9 @@ def _gis_cells_from_polygons(
         point = polygon.representative_point()
         area_m2 = max(float(polygon.area), 0.0)
         length_m, width_m = _rotated_rectangle_size(polygon)
-        station_default = float(centerline.project(point)) if centerline is not None else float(order)
+        station_default = (
+            float(centerline.project(point)) if centerline is not None else float(order)
+        )
         csi_raw = _row_value(row, ("csi", "CSI", "suitability", "si", "HSI"), None)
         wua_raw = _row_value(row, ("wua_m2", "WUA", "wua"), None)
         if csi_raw is None and wua_raw is not None and area_m2 > 0.0:
@@ -1007,13 +1205,17 @@ def _gis_cells_from_polygons(
             except (TypeError, ValueError):
                 csi = 0.65
         else:
-            csi = max(0.0, min(1.0, _row_float(row, ("csi", "CSI", "suitability", "si", "HSI"), 0.65)))
+            csi = max(
+                0.0, min(1.0, _row_float(row, ("csi", "CSI", "suitability", "si", "HSI"), 0.65))
+            )
         if csi_raw is None and wua_raw is None:
             messages.append("Missing CSI/WUA fields in some cells; defaulted CSI to 0.65.")
         cells.append(
             {
                 "cell_id": str(
-                    _row_value(row, ("cell_id", "cellid", "CELL_ID", "id", "ID"), f"gis-{order + 1}")
+                    _row_value(
+                        row, ("cell_id", "cellid", "CELL_ID", "id", "ID"), f"gis-{order + 1}"
+                    )
                 ),
                 "reach_id": str(_row_value(row, ("reach_id", "reach", "REACH"), reach_id)),
                 "reach_order": int(_row_float(row, ("reach_order", "order", "ORDER"), 1.0)),
@@ -1024,7 +1226,9 @@ def _gis_cells_from_polygons(
                         "gis-cell",
                     )
                 ),
-                "station_m": _row_float(row, ("station_m", "station", "dist_m", "distance_m"), station_default),
+                "station_m": _row_float(
+                    row, ("station_m", "station", "dist_m", "distance_m"), station_default
+                ),
                 "center_x_m": float(point.x),
                 "center_y_m": float(point.y),
                 "length_m": length_m,
@@ -1061,7 +1265,12 @@ def import_gis_for_studio(request: Mapping[str, object]) -> dict[str, object]:
     centerline_path_value = _as_str(request.get("centerline_path"), "")
     boundary_path_value = _as_str(request.get("boundary_path"), "")
     cells_path_value = _as_str(request.get("cells_path"), "")
-    if not legacy_river_path_value and not centerline_path_value and not boundary_path_value and not cells_path_value:
+    if (
+        not legacy_river_path_value
+        and not centerline_path_value
+        and not boundary_path_value
+        and not cells_path_value
+    ):
         raise ValueError(
             "provide a centerline path, river-boundary path, habitat-cell path, or legacy river path"
         )
@@ -1093,11 +1302,17 @@ def import_gis_for_studio(request: Mapping[str, object]) -> dict[str, object]:
     if not loaded:
         raise ValueError("no GIS layers were loaded")
     target_crs = _choose_metric_crs(loaded)
-    metric_centerline_gdf = _to_common_metric(centerline_gdf, target_crs) if centerline_gdf is not None else None
-    metric_boundary_gdf = _to_common_metric(boundary_gdf, target_crs) if boundary_gdf is not None else None
+    metric_centerline_gdf = (
+        _to_common_metric(centerline_gdf, target_crs) if centerline_gdf is not None else None
+    )
+    metric_boundary_gdf = (
+        _to_common_metric(boundary_gdf, target_crs) if boundary_gdf is not None else None
+    )
     metric_cells_gdf = _to_common_metric(cells_gdf, target_crs) if cells_gdf is not None else None
     metric_loaded = [
-        gdf for gdf in (metric_centerline_gdf, metric_boundary_gdf, metric_cells_gdf) if gdf is not None
+        gdf
+        for gdf in (metric_centerline_gdf, metric_boundary_gdf, metric_cells_gdf)
+        if gdf is not None
     ]
     bounds = [gdf.total_bounds for gdf in metric_loaded if len(gdf) > 0 and not gdf.empty]
     if not bounds:
@@ -1128,7 +1343,9 @@ def import_gis_for_studio(request: Mapping[str, object]) -> dict[str, object]:
         target_crs=target_crs,
     )
     if "centerline_m" not in geometry and "channel_polygon_m" not in geometry and not cell_polygons:
-        raise ValueError("GIS data must contain river line/polygon geometry or habitat-cell polygons")
+        raise ValueError(
+            "GIS data must contain river line/polygon geometry or habitat-cell polygons"
+        )
     if target_crs is None:
         messages.append("GIS layer has no CRS; coordinates were treated as already projected.")
 
@@ -1171,7 +1388,9 @@ def import_gis_for_studio(request: Mapping[str, object]) -> dict[str, object]:
             "river_features": int(len(legacy_river_gdf)) if legacy_river_gdf is not None else 0,
             "cell_features": int(len(cells)) if cells else 0,
             "centerline_points": len(cast(list[object], geometry.get("centerline_m", []))),
-            "channel_polygon_points": len(cast(list[object], geometry.get("channel_polygon_m", []))),
+            "channel_polygon_points": len(
+                cast(list[object], geometry.get("channel_polygon_m", []))
+            ),
             "boundary_quality": _as_str(quality.get("status"), "missing"),
             "boundary_vertices": _as_int(quality.get("boundary_vertices"), 0, min_value=0),
             "channel_area_m2": _as_float(quality.get("channel_area_m2"), 0.0, min_value=0.0),
@@ -1258,8 +1477,7 @@ def _cells_from_payload(value: object) -> pd.DataFrame:
             )
     if errors:
         raise ValueError(
-            "Habitat cells failed physical-range validation:\n  - "
-            + "\n  - ".join(errors)
+            "Habitat cells failed physical-range validation:\n  - " + "\n  - ".join(errors)
         )
     return frame
 
@@ -1476,9 +1694,7 @@ def _official_gis_metrics(river_view: object) -> dict[str, object]:
     cells = river_view.get("cells", [])
     raw_boundary_vertices = quality_map.get("boundary_vertices")
     boundary_vertices = (
-        int(raw_boundary_vertices or 0)
-        if isinstance(raw_boundary_vertices, (int, float))
-        else 0
+        int(raw_boundary_vertices or 0) if isinstance(raw_boundary_vertices, (int, float)) else 0
     )
     if not boundary_vertices and isinstance(channel, list):
         boundary_vertices = len(channel)
@@ -1618,7 +1834,9 @@ def _json_default(value: object) -> object:
 
 
 def _aggregate_last_day(
-    population_summary: pd.DataFrame, *, initial_n: int,
+    population_summary: pd.DataFrame,
+    *,
+    initial_n: int,
 ) -> dict[str, object]:
     """Collapse the final day's per-species rows into one whole-population
     snapshot. Returns a dict with the same keys daily rows use
@@ -1745,6 +1963,7 @@ def _prune_oldest_run_dirs(root: Path, prefix: str, *, keep: int) -> None:
         return
     entries.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0.0)
     import shutil  # noqa: PLC0415  — kept lazy: cleanup is rare
+
     for victim in entries[: len(entries) - keep]:
         try:
             shutil.rmtree(victim, ignore_errors=True)
@@ -1793,10 +2012,7 @@ def _write_studio_scenario_files(
             "default_species": species,
             "initial_abundance": initial_abundance,
             "initial_length_mm": initial_length_mm,
-            **(
-                {"cohorts": population_cohorts}
-                if population_cohorts else {}
-            ),
+            **({"cohorts": population_cohorts} if population_cohorts else {}),
         },
         "outputs": {
             "dir": ".",
@@ -1857,14 +2073,19 @@ def write_studio_scenario_files(
         reach_id=_as_str(config.get("reach_id"), "reach-1"),
         species=species,
         days=_as_int(
-            config.get("days"), 45, min_value=0, max_value=MAX_STUDIO_DAYS,
+            config.get("days"),
+            45,
+            min_value=0,
+            max_value=MAX_STUDIO_DAYS,
         ),
         seed=_as_int(config.get("seed"), 42),
         stochastic=_as_bool(config.get("stochastic"), True),
         record_history=_as_bool(config.get("record_individual_history"), True),
         initial_abundance=_as_int(
-            config.get("initial_abundance"), 80,
-            min_value=0, max_value=MAX_STUDIO_INITIAL_ABUNDANCE,
+            config.get("initial_abundance"),
+            80,
+            min_value=0,
+            max_value=MAX_STUDIO_INITIAL_ABUNDANCE,
         ),
         initial_length_mm=_as_float(config.get("initial_length_mm"), 115.0, min_value=1.0),
         profile=profile,
@@ -1960,7 +2181,10 @@ def _visual_cell_rows(
         summary = summary_by_cell.get(str(row.get("cell_id", "")), {})
         sample_x, sample_y, axis_x, axis_y, normal_x, normal_y = _sample_line(centerline, station)
         fallback_y = 52.0 + float((index % 4) - 1.5) * 12.0
-        has_center = row.get("center_x_m") not in (None, "") and row.get("center_y_m") not in (None, "")
+        has_center = row.get("center_x_m") not in (None, "") and row.get("center_y_m") not in (
+            None,
+            "",
+        )
         if has_center:
             center_x = _as_float(row.get("center_x_m"), station)
             center_y = _as_float(row.get("center_y_m"), fallback_y)
@@ -2017,7 +2241,12 @@ def _visual_cell_rows(
                 ),
             }
         )
-    has_bounds = math.isfinite(min_x) and math.isfinite(min_y) and math.isfinite(max_x) and math.isfinite(max_y)
+    has_bounds = (
+        math.isfinite(min_x)
+        and math.isfinite(min_y)
+        and math.isfinite(max_x)
+        and math.isfinite(max_y)
+    )
     if not visual_cells and not has_bounds:
         return [], {"min_x": 0.0, "max_x": 1.0, "min_y": 0.0, "max_y": 1.0}
     padding = max(max(max_x - min_x, max_y - min_y) * 0.04, 12.0)
@@ -2139,7 +2368,9 @@ def _build_river_view(
     geometry = river.get("geometry")
     return {
         "river": dict(river),
-        "geometry": dict(cast(Mapping[str, object], geometry)) if isinstance(geometry, Mapping) else {},
+        "geometry": dict(cast(Mapping[str, object], geometry))
+        if isinstance(geometry, Mapping)
+        else {},
         "bounds": bounds,
         "cells": visual_cells,
         "fish": fish_rows,
@@ -2225,9 +2456,7 @@ def _official_case_river_view(
                 length_m, width_m = _rotated_rectangle_size(polygon)
                 area_m2 = max(float(polygon.area), 0.0)
                 official_area = (
-                    _row_float(row, (area_col,), area_m2)
-                    if area_col is not None
-                    else area_m2
+                    _row_float(row, (area_col,), area_m2) if area_col is not None else area_m2
                 )
                 shelter = (
                     max(0.0, min(1.0, _row_float(row, (shelter_col,), 0.0)))
@@ -2235,9 +2464,7 @@ def _official_case_river_view(
                     else 0.0
                 )
                 hiding_places = (
-                    max(0.0, _row_float(row, (hiding_col,), 0.0))
-                    if hiding_col is not None
-                    else 0.0
+                    max(0.0, _row_float(row, (hiding_col,), 0.0)) if hiding_col is not None else 0.0
                 )
                 spawning = (
                     max(0.0, min(1.0, _row_float(row, (spawn_col,), 0.0)))
@@ -2324,7 +2551,8 @@ def run_studio_scenario(
     days = min(requested_days, MAX_STUDIO_DAYS)
     requested_initial_abundance = _as_int(config.get("initial_abundance"), 80, min_value=0)
     initial_abundance = min(
-        requested_initial_abundance, MAX_STUDIO_INITIAL_ABUNDANCE,
+        requested_initial_abundance,
+        MAX_STUDIO_INITIAL_ABUNDANCE,
     )
     seed = _as_int(config.get("seed"), 42)
     initial_length_mm = _as_float(config.get("initial_length_mm"), 115.0, min_value=1.0)
@@ -2486,7 +2714,9 @@ def validate_studio_payload(
     if scenario_errors:
         checks.extend(_check("scenario", "error", err) for err in scenario_errors)
     else:
-        checks.append(_check("scenario", "pass", "Scenario schema and submodel selection are valid"))
+        checks.append(
+            _check("scenario", "pass", "Scenario schema and submodel selection are valid")
+        )
 
     profile_errors = validate_species_profile(paths["studio_profile"])
     if profile_errors:
@@ -2508,13 +2738,21 @@ def validate_studio_payload(
     }
     missing = sorted(required_cell_columns - set(cells.columns))
     if missing:
-        checks.append(_check("habitat", "error", "Missing habitat cell columns", ", ".join(missing)))
+        checks.append(
+            _check("habitat", "error", "Missing habitat cell columns", ", ".join(missing))
+        )
     else:
-        checks.append(_check("habitat", "pass", f"{len(cells)} habitat cells have required columns"))
+        checks.append(
+            _check("habitat", "pass", f"{len(cells)} habitat cells have required columns")
+        )
     if "cell_id" in cells:
-        duplicate_ids = cells["cell_id"][cells["cell_id"].duplicated()].astype(str).unique().tolist()
+        duplicate_ids = (
+            cells["cell_id"][cells["cell_id"].duplicated()].astype(str).unique().tolist()
+        )
         if duplicate_ids:
-            checks.append(_check("habitat", "error", "Duplicate cell IDs", ", ".join(duplicate_ids)))
+            checks.append(
+                _check("habitat", "error", "Duplicate cell IDs", ", ".join(duplicate_ids))
+            )
     for column in ("area_m2", "depth_m", "velocity_ms", "temperature_c"):
         values = _numeric_series(cells, column)
         if not values.empty and bool(values.isna().any()):
@@ -2526,7 +2764,9 @@ def validate_studio_payload(
             checks.append(_check("habitat", "error", f"{column} must be non-negative"))
     csi = _numeric_series(cells, "csi")
     if not csi.empty and bool(((csi < 0) | (csi > 1)).any()):
-        checks.append(_check("habitat", "warning", "CSI values outside 0..1 will distort utility colors"))
+        checks.append(
+            _check("habitat", "warning", "CSI values outside 0..1 will distort utility colors")
+        )
 
     config = _merged(cast(Mapping[str, object], default["config"]), payload.get("config"))
     if _as_int(config.get("days"), 0, min_value=0) == 0:
@@ -2634,7 +2874,9 @@ def run_studio_ensemble(
     }
 
 
-def _write_observed_from_scenario(scenario_path: str, output_dir: Path) -> tuple[str, dict[str, str]]:
+def _write_observed_from_scenario(
+    scenario_path: str, output_dir: Path
+) -> tuple[str, dict[str, str]]:
     result, paths = run_ibm_scenario(
         scenario_path,
         output_dir_override=output_dir / "observed_source",
@@ -2696,9 +2938,7 @@ def run_studio_calibration(
     )
     tolerance_raw = calibration.get("tolerance")
     tolerance = (
-        None
-        if tolerance_raw in (None, "")
-        else _as_float(tolerance_raw, 0.0, min_value=0.0)
+        None if tolerance_raw in (None, "") else _as_float(tolerance_raw, 0.0, min_value=0.0)
     )
 
     run_root = _run_dir(output_dir, "calibrate")
@@ -2907,9 +3147,6 @@ def compare_instream7_for_studio(
         "brief_summary": _records(brief_summary),
         "comparison": _records(comparison),
     }
-
-
-
 
 
 __all__ = [

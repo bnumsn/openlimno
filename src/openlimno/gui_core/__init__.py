@@ -8,6 +8,7 @@ OpenLimno Studio create one Controller per session.
 This module is the only place where build/run/click/plot logic lives;
 plugin.py and studio/main_window.py are thin UI-toolkit-only wiring.
 """
+
 from openlimno.gui_core.controller import Controller, Host
 
 __all__ = ["Controller", "Host"]

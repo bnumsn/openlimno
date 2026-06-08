@@ -47,9 +47,8 @@ def _format_checker() -> FormatChecker:
     def _is_uri_reference(value: object) -> bool:
         if not isinstance(value, str):
             return True
-        return (
-            not _URI_REFERENCE_FORBIDDEN.search(value)
-            and not _MALFORMED_PERCENT_ESCAPE.search(value)
+        return not _URI_REFERENCE_FORBIDDEN.search(value) and not _MALFORMED_PERCENT_ESCAPE.search(
+            value
         )
 
     checks = cast(Callable[[str], _FormatRegistrar], checker.checks)

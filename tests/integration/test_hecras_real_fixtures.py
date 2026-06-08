@@ -92,9 +92,7 @@ def test_real_hecras_hdf_imports_summary_hydraulic_cells(
     assert result.source_key == "hecras-hdf"
     assert result.table.attrs["openlimno_output_table"] == "hydraulic_cells"
     assert len(result.table) == 1251
-    assert {"x", "y", "area_m2", "water_surface_m", "velocity_ms"}.issubset(
-        result.table.columns
-    )
+    assert {"x", "y", "area_m2", "water_surface_m", "velocity_ms"}.issubset(result.table.columns)
     assert result.table["flow_area"].eq("Upper 2D Area").all()
     assert result.table["area_m2"].max() > 0.0
     assert result.table["water_surface_m"].max() > 700.0

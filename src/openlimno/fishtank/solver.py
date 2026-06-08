@@ -34,21 +34,25 @@ from .state import STATE_ORDER, Chemistry, Params, nh3_free_fraction
 class Result:
     """Simulation output (SPEC §9)."""
 
-    timeseries: pd.DataFrame          # day + state columns + NH3_free + pH
+    timeseries: pd.DataFrame  # day + state columns + NH3_free + pH
     params: Params
     warnings: list[str]
-    events_log: pd.DataFrame          # one row per instantaneous event application
-    provenance: dict[str, Any]        # reproducibility fingerprint + run context
+    events_log: pd.DataFrame  # one row per instantaneous event application
+    provenance: dict[str, Any]  # reproducibility fingerprint + run context
 
 
 # Toxicity thresholds (literature, SPEC §9)
-_NH3_FREE_STRESS = 0.05   # mg/L free NH3 → chronic fish stress
-_NO2_STRESS = 0.5         # mg-N/L → "brown blood"
-_NO3_WC_DUE = 50.0        # mg-N/L → water change due
+_NH3_FREE_STRESS = 0.05  # mg/L free NH3 → chronic fish stress
+_NO2_STRESS = 0.5  # mg-N/L → "brown blood"
+_NO3_WC_DUE = 50.0  # mg-N/L → water change due
 
 
 def _integrate_segment(
-    y0: list[float], p: Params, t0: float, t1: float, t_eval: np.ndarray,
+    y0: list[float],
+    p: Params,
+    t0: float,
+    t1: float,
+    t_eval: np.ndarray,
 ) -> np.ndarray:
     """Integrate one event-free segment and return the state at t_eval."""
     sol = solve_ivp(
@@ -102,12 +106,17 @@ def simulate(
         same = [e for e in expanded if e.day == day]
         return sorted(same, key=lambda e: e.priority)
 
-    def apply_events_at(day: float, event_chem: Chemistry, event_params: Params) -> tuple[Chemistry, Params]:
+    def apply_events_at(
+        day: float, event_chem: Chemistry, event_params: Params
+    ) -> tuple[Chemistry, Params]:
         for ev in events_on(day):
             before = Chemistry(**vars(event_chem))
             before_params = event_params
             event_chem, event_params = apply_event(
-                event_chem, event_params, ev, schedule.tap_water  # type: ignore[union-attr]
+                event_chem,
+                event_params,
+                ev,
+                schedule.tap_water,  # type: ignore[union-attr]
             )
             event_rows.append(
                 {
@@ -354,7 +363,9 @@ def _git_sha() -> str:
 
 
 def _stable_json_sha(payload: Any) -> str:
-    encoded = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
+    encoded = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":")).encode(
+        "utf-8"
+    )
     return hashlib.sha256(encoded).hexdigest()
 
 

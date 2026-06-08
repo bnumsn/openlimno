@@ -18,6 +18,7 @@ R18-3 (codex MEDIUM): the v3.6.0 R17-4 circular-mean longitude
        resultant vector collapses to (0, 0) and ``atan2(0,0)`` is
        implementation-defined.
 """
+
 from __future__ import annotations
 
 import os

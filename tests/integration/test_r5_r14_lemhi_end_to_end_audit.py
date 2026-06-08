@@ -30,6 +30,7 @@ The actual Lemhi data fixtures (`data/lemhi/*.parquet`,
 repo. If they go missing this test fails — `data/lemhi/manifest.json`
 is the canonical inventory.
 """
+
 from __future__ import annotations
 
 import json
@@ -101,7 +102,8 @@ def test_r5_r14_atomic_write_publishes_no_partials(lemhi_result) -> None:
     sibling left over from a crash mid-stream."""
     _, out_dir = lemhi_result
     leftover = [
-        p for p in out_dir.rglob("*")
+        p
+        for p in out_dir.rglob("*")
         if p.suffix in {".inprogress", ".publishtmp"}
         or ".inprogress" in p.name
         or ".publishtmp" in p.name
@@ -126,11 +128,14 @@ def test_r5_r14_atomic_write_publishes_no_partials(lemhi_result) -> None:
         # that the shipped Lemhi case does not set. The status doc
         # was corrected 2026-05-20 round-19 codex S1 to stop
         # claiming all 6 are produced by the default run.
-        "sl712.csv", "ferc_4e.csv", "eu_wfd.csv",
+        "sl712.csv",
+        "ferc_4e.csv",
+        "eu_wfd.csv",
     ],
 )
 def test_r5_r14_regulatory_csv_emitted_with_watermark(
-    lemhi_result, name: str,
+    lemhi_result,
+    name: str,
 ) -> None:
     """F1..F11 + N1..N6 + M1..M5 + R7-x cluster: each regulatory
     CSV must (a) exist, (b) start with a `#`-prefixed watermark/
@@ -142,8 +147,7 @@ def test_r5_r14_regulatory_csv_emitted_with_watermark(
     _, out_dir = lemhi_result
     target = out_dir / name
     assert target.exists(), (
-        f"Regulatory export regression: {name} missing from "
-        f"output dir {out_dir}"
+        f"Regulatory export regression: {name} missing from output dir {out_dir}"
     )
     text = target.read_text()
     assert text.startswith("#"), (
@@ -202,8 +206,7 @@ def test_r5_r14_wua_csv_carries_quality_grade(lemhi_result) -> None:
         "comment header — quality-grade banner missing."
     )
     assert "grade" in first_line.lower() or "quality" in first_line.lower(), (
-        f"R9 watermark regression: first line {first_line!r} doesn't "
-        f"carry a quality-grade marker."
+        f"R9 watermark regression: first line {first_line!r} doesn't carry a quality-grade marker."
     )
 
 
@@ -215,11 +218,11 @@ def test_r5_r14_lemhi_validates_under_wedm_schema() -> None:
     cleanly. R11-x WEDM strictness sweeps closed many gaps; this
     pin guards against a future regression re-loosening the schema."""
     from openlimno.wedm import validate_case
+
     _require_fixtures()
     errors = validate_case(LEMHI_CASE)
     assert errors == [], (
-        f"R10/R11 schema regression: shipped Lemhi fixture no "
-        f"longer validates: {errors}"
+        f"R10/R11 schema regression: shipped Lemhi fixture no longer validates: {errors}"
     )
 
 
@@ -311,12 +314,8 @@ def test_r5_r14_studio_plots_produced(tmp_path_factory) -> None:
     if "hydrodynamics" in cfg and "boundaries" in cfg["hydrodynamics"]:
         for bdy in cfg["hydrodynamics"]["boundaries"].values():
             for field in ("series", "ref"):
-                if isinstance(bdy.get(field), str) and bdy[field].startswith(
-                    "../../data/"
-                ):
-                    bdy[field] = str(
-                        REPO_ROOT / bdy[field].removeprefix("../../")
-                    )
+                if isinstance(bdy.get(field), str) and bdy[field].startswith("../../data/"):
+                    bdy[field] = str(REPO_ROOT / bdy[field].removeprefix("../../"))
     cfg["output"]["dir"] = str(tmp_out)
 
     tmp_case_yaml = tmp_dir / "case.yaml"

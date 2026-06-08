@@ -11,6 +11,7 @@ These tests exercise the caching logic in pure Python without instantiating
 a Host. ``Controller.__init__`` only needs an attribute access (host),
 which we satisfy with a sentinel.
 """
+
 from __future__ import annotations
 
 import os
@@ -50,8 +51,7 @@ def test_first_read_caches_rows(subject, parquet_file):
         calls.append(p)
         return [{"row": 1}]
 
-    with patch("openlimno.gui_core.controller._read_wua_parquet",
-                 side_effect=fake_read):
+    with patch("openlimno.gui_core.controller._read_wua_parquet", side_effect=fake_read):
         rows = subject._read_xs_rows_cached(str(parquet_file))
     assert rows == [{"row": 1}]
     assert len(calls) == 1
@@ -64,8 +64,7 @@ def test_cache_hit_skips_re_read(subject, parquet_file):
         calls.append(p)
         return [{"row": 1}]
 
-    with patch("openlimno.gui_core.controller._read_wua_parquet",
-                 side_effect=fake_read):
+    with patch("openlimno.gui_core.controller._read_wua_parquet", side_effect=fake_read):
         subject._read_xs_rows_cached(str(parquet_file))
         subject._read_xs_rows_cached(str(parquet_file))
     assert len(calls) == 1, "cache should have served the second call"
@@ -78,8 +77,7 @@ def test_mtime_change_invalidates(subject, parquet_file):
         calls.append(p)
         return [{"v": len(calls)}]
 
-    with patch("openlimno.gui_core.controller._read_wua_parquet",
-                 side_effect=fake_read):
+    with patch("openlimno.gui_core.controller._read_wua_parquet", side_effect=fake_read):
         rows1 = subject._read_xs_rows_cached(str(parquet_file))
         future = time.time() + 100
         os.utime(parquet_file, (future, future))
@@ -98,8 +96,7 @@ def test_size_change_invalidates_at_same_mtime(subject, parquet_file):
         calls.append(p)
         return [{"v": Path(p).read_text()}]
 
-    with patch("openlimno.gui_core.controller._read_wua_parquet",
-                 side_effect=fake_read):
+    with patch("openlimno.gui_core.controller._read_wua_parquet", side_effect=fake_read):
         subject._read_xs_rows_cached(str(parquet_file))
         original_mtime = os.path.getmtime(parquet_file)
         parquet_file.write_text("v2_extended_payload")
@@ -126,12 +123,13 @@ def test_mid_read_rewrite_does_not_cache_torn_rows(subject, parquet_file):
         # Subsequent retry: file quiescent
         return [{"row": "CLEAN"}]
 
-    with patch("openlimno.gui_core.controller._read_wua_parquet",
-                 side_effect=fake_read_with_concurrent_rewrite):
+    with patch(
+        "openlimno.gui_core.controller._read_wua_parquet",
+        side_effect=fake_read_with_concurrent_rewrite,
+    ):
         rows = subject._read_xs_rows_cached(str(parquet_file))
     assert rows == [{"row": "CLEAN"}], (
-        "After mid-read rewrite, the retry must serve clean rows, "
-        "not the original torn read"
+        "After mid-read rewrite, the retry must serve clean rows, not the original torn read"
     )
     assert state["call_count"] >= 2, "expected at least one retry"
 
@@ -140,8 +138,7 @@ def test_stat_failure_serves_stale_cache(subject, parquet_file):
     """If the file is moved/unmounted between clicks, the user shouldn't
     see a crash — they should get the previously-cached rows. The next
     legitimate read can surface the real error."""
-    with patch("openlimno.gui_core.controller._read_wua_parquet",
-                 return_value=[{"row": "ok"}]):
+    with patch("openlimno.gui_core.controller._read_wua_parquet", return_value=[{"row": "ok"}]):
         subject._read_xs_rows_cached(str(parquet_file))
     parquet_file.unlink()
     with patch("openlimno.gui_core.controller._read_wua_parquet") as mock:
@@ -155,13 +152,15 @@ def test_vanished_during_read_retries_then_raises(subject, parquet_file):
     a transient ``mv -f`` may complete before retries exhaust. Only
     when ALL retries fail do we raise. Raising immediately on the
     first vanish would defeat the backoff design."""
+
     def fake_read_then_delete(p):
         Path(p).unlink()
         return [{"row": "TORN"}]
 
-    with patch("openlimno.gui_core.controller._read_wua_parquet",
-                 side_effect=fake_read_then_delete), \
-         patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
+    with (
+        patch("openlimno.gui_core.controller._read_wua_parquet", side_effect=fake_read_then_delete),
+        patch("openlimno.gui_core.controller.time.sleep") as mock_sleep,
+    ):
         # Either FileNotFoundError (post-stat None) or its parent OSError
         # (subsequent pre-stat None) is acceptable — both signal the same
         # condition.
@@ -185,9 +184,10 @@ def test_parquet_read_exception_triggers_retry(subject, parquet_file):
             raise OSError("torn read - file locked by writer")
         return [{"row": "OK_AT_ATTEMPT_3"}]
 
-    with patch("openlimno.gui_core.controller._read_wua_parquet",
-                 side_effect=flaky_read), \
-         patch("openlimno.gui_core.controller.time.sleep"):
+    with (
+        patch("openlimno.gui_core.controller._read_wua_parquet", side_effect=flaky_read),
+        patch("openlimno.gui_core.controller.time.sleep"),
+    ):
         rows = subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
     assert rows == [{"row": "OK_AT_ATTEMPT_3"}]
     assert state["calls"] == 3
@@ -204,8 +204,7 @@ def test_empty_rows_treated_as_valid_cache(subject, parquet_file):
         calls.append(p)
         return []
 
-    with patch("openlimno.gui_core.controller._read_wua_parquet",
-                 side_effect=fake_read):
+    with patch("openlimno.gui_core.controller._read_wua_parquet", side_effect=fake_read):
         rows1 = subject._read_xs_rows_cached(str(parquet_file))
         rows2 = subject._read_xs_rows_cached(str(parquet_file))
     assert rows1 == [] and rows2 == []
@@ -225,8 +224,7 @@ def test_vanished_during_read_serves_prior_cache(subject, parquet_file):
             return [{"row": "TORN"}]
         return [{"row": "GOOD"}]
 
-    with patch("openlimno.gui_core.controller._read_wua_parquet",
-                 side_effect=fake_read):
+    with patch("openlimno.gui_core.controller._read_wua_parquet", side_effect=fake_read):
         # First call: clean read, populates cache.
         rows1 = subject._read_xs_rows_cached(str(parquet_file))
         assert rows1 == [{"row": "GOOD"}]
@@ -256,9 +254,10 @@ def test_backoff_called_with_correct_durations(subject, parquet_file):
         os.utime(p, (future, future))
         return [{"row": f"torn_{state['call_count']}"}]
 
-    with patch("openlimno.gui_core.controller._read_wua_parquet",
-                 side_effect=always_rewrite), \
-         patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
+    with (
+        patch("openlimno.gui_core.controller._read_wua_parquet", side_effect=always_rewrite),
+        patch("openlimno.gui_core.controller.time.sleep") as mock_sleep,
+    ):
         with pytest.raises((RuntimeError, OSError)):
             subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
     # First attempt: no sleep. Subsequent attempts: 0.05*1, 0.05*2.
@@ -266,9 +265,7 @@ def test_backoff_called_with_correct_durations(subject, parquet_file):
         f"expected 2 backoff sleeps for max_retries=3, got {mock_sleep.call_count}"
     )
     durations = [c.args[0] for c in mock_sleep.call_args_list]
-    assert durations == [0.05, 0.10], (
-        f"expected linear backoff [0.05, 0.10], got {durations}"
-    )
+    assert durations == [0.05, 0.10], f"expected linear backoff [0.05, 0.10], got {durations}"
 
 
 def test_retry_exhaustion_raises(subject, parquet_file):
@@ -286,8 +283,7 @@ def test_retry_exhaustion_raises(subject, parquet_file):
         os.utime(p, (future, future))
         return [{"row": f"torn_{state['call_count']}"}]
 
-    with patch("openlimno.gui_core.controller._read_wua_parquet",
-                 side_effect=always_rewrite):
+    with patch("openlimno.gui_core.controller._read_wua_parquet", side_effect=always_rewrite):
         with pytest.raises((RuntimeError, OSError)):
             subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
     assert state["call_count"] >= 2, "should have retried at least once"
@@ -304,9 +300,10 @@ def test_typeerror_propagates_does_not_retry(subject, parquet_file):
         state["calls"] += 1
         raise TypeError("simulated programmer bug in parquet reader")
 
-    with patch("openlimno.gui_core.controller._read_wua_parquet",
-                 side_effect=fake_read_typeerror), \
-         patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
+    with (
+        patch("openlimno.gui_core.controller._read_wua_parquet", side_effect=fake_read_typeerror),
+        patch("openlimno.gui_core.controller.time.sleep") as mock_sleep,
+    ):
         with pytest.raises(TypeError):
             subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
     # Should NOT retry on TypeError.
@@ -334,9 +331,10 @@ def test_missing_backend_short_circuits_retry(subject, parquet_file):
         state["calls"] += 1
         raise MissingParquetBackend("neither pyarrow nor GDAL")
 
-    with patch("openlimno.gui_core.controller._read_wua_parquet",
-                 side_effect=fake_no_backend), \
-         patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
+    with (
+        patch("openlimno.gui_core.controller._read_wua_parquet", side_effect=fake_no_backend),
+        patch("openlimno.gui_core.controller.time.sleep") as mock_sleep,
+    ):
         with pytest.raises(MissingParquetBackend):
             subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
     assert state["calls"] == 1, (
@@ -460,13 +458,12 @@ def test_cache_loop_except_clause_order_pins_short_circuit(subject, parquet_file
             state["raised"] = instance
             raise instance
 
-        with patch("openlimno.gui_core.controller._read_wua_parquet",
-                     side_effect=fake_raise), \
-             patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
+        with (
+            patch("openlimno.gui_core.controller._read_wua_parquet", side_effect=fake_raise),
+            patch("openlimno.gui_core.controller.time.sleep") as mock_sleep,
+        ):
             with pytest.raises(exc_cls) as exc_info:
-                subject._read_xs_rows_cached(
-                    str(parquet_file), max_retries=3
-                )
+                subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
         # Reset cache between iterations.
         subject._xs_rows_cache = {}
 
@@ -514,9 +511,10 @@ def test_parquet_schema_error_short_circuits_retry(subject, parquet_file):
         state["calls"] += 1
         raise ParquetSchemaError("missing required column 'station_m'")
 
-    with patch("openlimno.gui_core.controller._read_wua_parquet",
-                 side_effect=fake_schema_error), \
-         patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
+    with (
+        patch("openlimno.gui_core.controller._read_wua_parquet", side_effect=fake_schema_error),
+        patch("openlimno.gui_core.controller.time.sleep") as mock_sleep,
+    ):
         with pytest.raises(ParquetSchemaError):
             subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
     assert state["calls"] == 1, (
@@ -534,6 +532,7 @@ def test_parquet_schema_error_subclasses_runtime_error():
     permanent schema failure path.
     """
     from openlimno.gui_core.controller import ParquetSchemaError
+
     assert issubclass(ParquetSchemaError, RuntimeError), (
         "ParquetSchemaError must subclass RuntimeError so GUI handlers' "
         "existing except tuple catches it"
@@ -547,6 +546,7 @@ def test_missing_parquet_backend_subclasses_runtime_error():
     changes when both backends are missing.
     """
     from openlimno.gui_core.controller import MissingParquetBackend
+
     assert issubclass(MissingParquetBackend, RuntimeError), (
         "MissingParquetBackend must subclass RuntimeError so GUI "
         "handlers' existing except tuple catches it; changing the "
@@ -587,6 +587,7 @@ def test_arrow_exception_normalised_to_oserror(tmp_path):
     # under-coverage explicitly instead of degrading to a vacuous
     # assertion.
     import pyarrow.lib as pa_lib
+
     arrow_exc = getattr(pa_lib, "ArrowException", None)
     if arrow_exc is None:
         pytest.skip(
@@ -658,12 +659,17 @@ def test_arrow_catch_tuples_include_known_pyarrow_classes():
             )
 
     # Permanent family: 8 specific + ArrowException parent fallback.
-    for name in ("ArrowKeyError", "ArrowTypeError",
-                 "ArrowNotImplementedError", "ArrowCapacityError",
-                 "ArrowMemoryError",
-                 "ArrowSerializationError",
-                 "ArrowCancelled", "ArrowIndexError",
-                 "ArrowException"):  # parent as fallback
+    for name in (
+        "ArrowKeyError",
+        "ArrowTypeError",
+        "ArrowNotImplementedError",
+        "ArrowCapacityError",
+        "ArrowMemoryError",
+        "ArrowSerializationError",
+        "ArrowCancelled",
+        "ArrowIndexError",
+        "ArrowException",
+    ):  # parent as fallback
         cls = getattr(pa_lib, name, None)
         if cls is not None:
             assert cls in _ARROW_PERMANENT, (
@@ -725,6 +731,7 @@ class _FakeBatch:
     per batch; ``raise_exc`` lets us inject classification-test
     exceptions at that exact site.
     """
+
     def __init__(self, rows, raise_exc=None):
         self._rows = rows
         self._raise_exc = raise_exc
@@ -740,6 +747,7 @@ class _FakeParquetFile:
     from ``iter_batches()``. ``_read_wua_parquet`` only depends on
     ``iter_batches()`` so we don't need to fake the full surface.
     """
+
     def __init__(self, batches):
         self._batches = batches
 
@@ -845,8 +853,10 @@ def test_pyarrow_permanent_failure_falls_back_to_ogr_success():
         _FakeOGRLayer(["station_m"], [_FakeOGRFeature({"station_m": 12.5})]),
     )
 
-    with patch.object(pq, "ParquetFile", side_effect=fake_parquet_file_keyerror), \
-         patch.object(ogr, "Open", return_value=fake_ds):
+    with (
+        patch.object(pq, "ParquetFile", side_effect=fake_parquet_file_keyerror),
+        patch.object(ogr, "Open", return_value=fake_ds),
+    ):
         rows = ctl._read_wua_parquet("/nonexistent/path.parquet")
     assert rows == [{"station_m": 12.5}], (
         "OGR fallback must return its rows when pyarrow rejects the "
@@ -870,9 +880,11 @@ def test_materialization_phase_plain_valueerror_falls_through_to_retry():
 
     from openlimno.gui_core import controller as ctl
 
-    fake_pf = _FakeParquetFile([
-        _FakeBatch(None, raise_exc=ValueError("simulated bad UTF-8 in chunked array")),
-    ])
+    fake_pf = _FakeParquetFile(
+        [
+            _FakeBatch(None, raise_exc=ValueError("simulated bad UTF-8 in chunked array")),
+        ]
+    )
     with patch.object(pq, "ParquetFile", return_value=fake_pf):
         # Must propagate as plain ValueError, NOT ParquetSchemaError.
         with pytest.raises(ValueError, match="bad UTF-8") as exc_info:
@@ -907,12 +919,16 @@ def test_convert_phase_arrow_transient_triggers_cache_retry(subject, parquet_fil
 
     def fake_parquet_file_with_bad_batch(path, **kwargs):
         state["calls"] += 1
-        return _FakeParquetFile([
-            _FakeBatch(None, raise_exc=pa_lib.ArrowInvalid("mid-mat torn buffer")),
-        ])
+        return _FakeParquetFile(
+            [
+                _FakeBatch(None, raise_exc=pa_lib.ArrowInvalid("mid-mat torn buffer")),
+            ]
+        )
 
-    with patch.object(pq, "ParquetFile", side_effect=fake_parquet_file_with_bad_batch), \
-         patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
+    with (
+        patch.object(pq, "ParquetFile", side_effect=fake_parquet_file_with_bad_batch),
+        patch("openlimno.gui_core.controller.time.sleep") as mock_sleep,
+    ):
         with pytest.raises(OSError, match="mid-mat torn buffer"):
             subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
     # MATERIALIZE-phase ArrowInvalid → OSError → cache retries 3×.
@@ -943,9 +959,11 @@ def test_convert_phase_arrow_transient_routes_to_oserror():
 
     from openlimno.gui_core import controller as ctl
 
-    fake_pf = _FakeParquetFile([
-        _FakeBatch(None, raise_exc=pa_lib.ArrowInvalid("simulated mid-materialization")),
-    ])
+    fake_pf = _FakeParquetFile(
+        [
+            _FakeBatch(None, raise_exc=pa_lib.ArrowInvalid("simulated mid-materialization")),
+        ]
+    )
     with patch.object(pq, "ParquetFile", return_value=fake_pf):
         with pytest.raises(OSError, match="mid-materialization") as exc_info:
             ctl._read_wua_parquet("/nonexistent/path.parquet")
@@ -970,9 +988,11 @@ def test_convert_phase_arrow_permanent_routes_to_parquet_schema_error():
 
     from openlimno.gui_core import controller as ctl
 
-    fake_pf = _FakeParquetFile([
-        _FakeBatch(None, raise_exc=pa_lib.ArrowKeyError("simulated bad column ref")),
-    ])
+    fake_pf = _FakeParquetFile(
+        [
+            _FakeBatch(None, raise_exc=pa_lib.ArrowKeyError("simulated bad column ref")),
+        ]
+    )
     with patch.object(pq, "ParquetFile", return_value=fake_pf):
         with pytest.raises(ctl.ParquetSchemaError) as exc_info:
             ctl._read_wua_parquet("/nonexistent/path.parquet")
@@ -1002,12 +1022,14 @@ def test_success_path_after_transient_retries(subject, parquet_file):
             raise OSError(f"simulated transient on attempt {state['calls']}")
         return [{"row": 1, "ok": True}]
 
-    with patch("openlimno.gui_core.controller._read_wua_parquet",
-                 side_effect=fake_read_transient_then_success), \
-         patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
-        rows = subject._read_xs_rows_cached(
-            str(parquet_file), max_retries=3
-        )
+    with (
+        patch(
+            "openlimno.gui_core.controller._read_wua_parquet",
+            side_effect=fake_read_transient_then_success,
+        ),
+        patch("openlimno.gui_core.controller.time.sleep") as mock_sleep,
+    ):
+        rows = subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
     assert state["calls"] == 3, (
         f"REGRESSION: cache loop did not retry through 3 attempts. "
         f"Got {state['calls']} calls — a break-instead-of-continue "
@@ -1015,9 +1037,7 @@ def test_success_path_after_transient_retries(subject, parquet_file):
         f"loop on first failure."
     )
     assert mock_sleep.call_count == 2  # backoff sleeps before retries 2, 3
-    assert rows == [{"row": 1, "ok": True}], (
-        "rows from successful retry attempt must be returned"
-    )
+    assert rows == [{"row": 1, "ok": True}], "rows from successful retry attempt must be returned"
     # And the success result must be cached for subsequent calls.
     assert subject._xs_rows_cache.get("rows") == [{"row": 1, "ok": True}]
 
@@ -1081,8 +1101,10 @@ def test_cache_wrapper_retries_on_plain_valueerror(subject, parquet_file):
         state["calls"] += 1
         raise ValueError("simulated transient torn-footer")
 
-    with patch.object(pq, "ParquetFile", side_effect=always_raise_valueerror), \
-         patch("openlimno.gui_core.controller.time.sleep") as mock_sleep:
+    with (
+        patch.object(pq, "ParquetFile", side_effect=always_raise_valueerror),
+        patch("openlimno.gui_core.controller.time.sleep") as mock_sleep,
+    ):
         # Will exhaust retries; final raise is the last ValueError.
         with pytest.raises(ValueError, match="transient torn-footer"):
             subject._read_xs_rows_cached(str(parquet_file), max_retries=3)
@@ -1114,9 +1136,11 @@ def test_plain_memoryerror_routes_to_parquet_schema_error():
 
     from openlimno.gui_core import controller as ctl
 
-    fake_pf = _FakeParquetFile([
-        _FakeBatch(None, raise_exc=MemoryError("alloc failed")),
-    ])
+    fake_pf = _FakeParquetFile(
+        [
+            _FakeBatch(None, raise_exc=MemoryError("alloc failed")),
+        ]
+    )
     with patch.object(pq, "ParquetFile", return_value=fake_pf):
         with pytest.raises(ctl.ParquetSchemaError) as exc_info:
             ctl._read_wua_parquet("/nonexistent/path.parquet")
@@ -1139,8 +1163,12 @@ def test_no_arrow_exception_sentinel_never_matches():
     # The sentinel inherits from Exception (it must, to be valid in
     # an ``except`` clause) but should not match any common error.
     for real_exc in (
-        OSError("io"), ValueError("bad"), RuntimeError("runtime"),
-        EOFError("eof"), TypeError("type"), KeyError("key"),
+        OSError("io"),
+        ValueError("bad"),
+        RuntimeError("runtime"),
+        EOFError("eof"),
+        TypeError("type"),
+        KeyError("key"),
     ):
         assert not isinstance(real_exc, _NoArrowExceptionAvailable), (
             f"{type(real_exc).__name__} matched the sentinel — vendor "
@@ -1157,8 +1185,7 @@ def test_realpath_normalises_cache_key(subject, parquet_file, tmp_path):
         calls.append(p)
         return [{"row": "ok"}]
 
-    with patch("openlimno.gui_core.controller._read_wua_parquet",
-                 side_effect=fake_read):
+    with patch("openlimno.gui_core.controller._read_wua_parquet", side_effect=fake_read):
         subject._read_xs_rows_cached(str(parquet_file))
         cwd = os.getcwd()
         os.chdir(tmp_path)
@@ -1166,6 +1193,4 @@ def test_realpath_normalises_cache_key(subject, parquet_file, tmp_path):
             subject._read_xs_rows_cached(parquet_file.name)
         finally:
             os.chdir(cwd)
-    assert len(calls) == 1, (
-        "realpath should make both spellings hit the same cache"
-    )
+    assert len(calls) == 1, "realpath should make both spellings hit the same cache"

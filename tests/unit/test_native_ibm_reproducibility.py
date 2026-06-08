@@ -17,6 +17,7 @@ phase competition) so all submodels exercise: habitat selection,
 growth, mortality, spawning window, redd state, density
 competition, multi-reach gating.
 """
+
 from __future__ import annotations
 
 import pandas as pd
@@ -121,12 +122,8 @@ def test_native_ibm_different_seed_produces_different_outputs() -> None:
     profile = SpeciesProfile()
     pop = build_initial_population(n=25, species="rainbow_trout", length_mm=120.0)
 
-    result_a = run_native_ibm(
-        cells, pop.copy(), profile=profile, config=_config(seed=1)
-    )
-    result_b = run_native_ibm(
-        cells, pop.copy(), profile=profile, config=_config(seed=999_999)
-    )
+    result_a = run_native_ibm(cells, pop.copy(), profile=profile, config=_config(seed=1))
+    result_b = run_native_ibm(cells, pop.copy(), profile=profile, config=_config(seed=999_999))
 
     # At least one core table must differ in some row — otherwise
     # the seed isn't doing anything.

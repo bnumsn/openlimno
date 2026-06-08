@@ -68,9 +68,7 @@ def _download_url(url: str, target: Path) -> None:
 
 def _fixture_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
     if not RUN_REAL_HABITAT:
-        pytest.skip(
-            "set OPENLIMNO_RUN_HABITAT_EXCHANGE_REAL=1 and provide a fixture path or URL"
-        )
+        pytest.skip("set OPENLIMNO_RUN_HABITAT_EXCHANGE_REAL=1 and provide a fixture path or URL")
 
     local = os.environ.get("OPENLIMNO_HABITAT_EXCHANGE_FIXTURE")
     if local:
@@ -92,7 +90,9 @@ def _fixture_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
         actual = _sha256(target)
         if actual != expected:
             target.unlink(missing_ok=True)
-            raise AssertionError(f"{target.name} SHA256 mismatch: expected {expected}, got {actual}")
+            raise AssertionError(
+                f"{target.name} SHA256 mismatch: expected {expected}, got {actual}"
+            )
     return target
 
 

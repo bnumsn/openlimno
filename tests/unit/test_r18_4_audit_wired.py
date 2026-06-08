@@ -23,6 +23,7 @@ to write outside ``allowed_data_roots``.
 These pins guarantee R18-4 stays closed. If a future refactor drops
 ``case=``, the pin fails loudly.
 """
+
 from __future__ import annotations
 
 import inspect

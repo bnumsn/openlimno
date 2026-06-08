@@ -30,6 +30,7 @@ real concern for case.yaml (researcher-curated). The right fix was
 deferred at v2.14.1 + v3.0.0 + v3.1.0 + v3.2.0 because it adds a
 runtime dependency; v3.3.0 commits.
 """
+
 from __future__ import annotations
 
 import threading
@@ -40,6 +41,7 @@ import yaml  # PyYAML — used as the fallback writer
 
 try:
     from ruamel.yaml import YAML
+
     _RUAMEL_AVAILABLE = True
 except ImportError:  # pragma: no cover — ruamel is now a runtime dep
     _RUAMEL_AVAILABLE = False
@@ -143,16 +145,20 @@ def dump_round_trip(
     if _RUAMEL_AVAILABLE:
         y = _ruamel()
         import io
+
         buf = io.StringIO()
         y.dump(data, buf)
         rendered = buf.getvalue()
     else:
         _warn_missing_ruamel_once()
         rendered = yaml.safe_dump(
-            data, sort_keys=False, default_flow_style=False,
+            data,
+            sort_keys=False,
+            default_flow_style=False,
         )
     Case._atomic_write(
-        dst, lambda p: p.write_text(rendered, encoding="utf-8"),
+        dst,
+        lambda p: p.write_text(rendered, encoding="utf-8"),
     )
     return dst
 
@@ -173,6 +179,7 @@ def _warn_missing_ruamel_once() -> None:
             return
         _WARNED_MISSING_RUAMEL = True
     import sys
+
     sys.stderr.write(
         "openlimno._yaml_rt: ruamel.yaml not installed; YAML round-trip "
         "fell back to PyYAML safe_dump (loses comments and key order). "

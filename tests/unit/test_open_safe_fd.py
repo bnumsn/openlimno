@@ -10,6 +10,7 @@ and the consumer's open call.
 Parent-chain TOCTOU is NOT closed here (would need ``openat``-
 style descriptor chains; documented in SPEC_v3 as v4-scope work).
 """
+
 from __future__ import annotations
 
 import os
@@ -77,7 +78,8 @@ def test_v350_open_safe_fd_reads_normal_file(tmp_path: Path) -> None:
     reason="O_NOFOLLOW only exists on POSIX",
 )
 def test_v350_open_safe_fd_refuses_post_resolve_swap(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """v3.5.0 R15-4 (POSIX): the ACTUAL TOCTOU mitigation
     O_NOFOLLOW defends against is a swap of the resolved path
@@ -102,7 +104,8 @@ def test_v350_open_safe_fd_refuses_post_resolve_swap(
     # attacker replaced the file with a symlink AFTER the sandbox
     # check resolved it as a regular path.
     monkeypatch.setattr(
-        case, "_resolve_safe",
+        case,
+        "_resolve_safe",
         lambda uri, **kwargs: symlink_target.absolute(),
     )
 
@@ -136,7 +139,8 @@ def test_v350_open_safe_fd_allow_outside_case_kwarg(
     outside.write_text("legit fetcher output")
 
     fd = case._open_safe_fd(
-        str(outside), allow_outside_case=True,
+        str(outside),
+        allow_outside_case=True,
     )
     try:
         data = os.read(fd, 64)
@@ -180,6 +184,5 @@ def test_v350_open_safe_fd_pinned_by_15round_review(tmp_path: Path) -> None:
     )
     # And delegates to _resolve_safe so the sandbox check still runs.
     assert "_resolve_safe" in src, (
-        "v3.5.0 R15-4 regression: _open_safe_fd bypassed the "
-        "sandbox check."
+        "v3.5.0 R15-4 regression: _open_safe_fd bypassed the sandbox check."
     )

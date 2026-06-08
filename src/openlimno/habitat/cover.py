@@ -32,6 +32,7 @@ Reference: Bain et al. 1985, Beechie & Bolton 1999 (woody debris
 + canopy cover as primary fish-habitat predictors in PNW streams);
 adapted to the WorldCover 11-class LCCS schema.
 """
+
 from __future__ import annotations
 
 import functools
@@ -51,16 +52,16 @@ from shapely.geometry.base import BaseGeometry
 # Default WorldCover class → cover SI mapping. Override per case
 # via the ``cover_si_table`` kwarg if site calibration data exists.
 DEFAULT_RIPARIAN_COVER_SI: dict[int, float] = {
-    10: 1.0,   # tree cover
-    20: 0.8,   # shrubland
-    30: 0.4,   # grassland
-    40: 0.2,   # cropland
-    50: 0.0,   # built-up
-    60: 0.1,   # bare / sparse
-    70: 0.0,   # snow / ice
-    80: 0.5,   # permanent water bodies
-    90: 0.7,   # herbaceous wetland
-    95: 0.9,   # mangroves
+    10: 1.0,  # tree cover
+    20: 0.8,  # shrubland
+    30: 0.4,  # grassland
+    40: 0.2,  # cropland
+    50: 0.0,  # built-up
+    60: 0.1,  # bare / sparse
+    70: 0.0,  # snow / ice
+    80: 0.5,  # permanent water bodies
+    90: 0.7,  # herbaceous wetland
+    95: 0.9,  # mangroves
     100: 0.3,  # moss / lichen
 }
 
@@ -77,6 +78,7 @@ def _load_geometry_from_geojson(geojson_path: Path | str) -> BaseGeometry:
         if len(geoms) == 1:
             return cast(BaseGeometry, geoms[0])
         from shapely.geometry import GeometryCollection
+
         return GeometryCollection(geoms)
     if data.get("type") == "Feature":
         return cast(BaseGeometry, shape(data["geometry"]))
@@ -125,7 +127,11 @@ def cover_si_from_lulc_raster(
     table = cover_si_table or DEFAULT_RIPARIAN_COVER_SI
     with rasterio.open(lulc_tif) as src:
         out, _ = rasterio.mask.mask(
-            src, [mapping(geometry)], crop=True, nodata=0, filled=True,
+            src,
+            [mapping(geometry)],
+            crop=True,
+            nodata=0,
+            filled=True,
             all_touched=all_touched,
         )
         # ``mask.mask`` returns shape (n_bands, h, w); WorldCover is
@@ -193,9 +199,7 @@ def riparian_buffer_from_polyline(
         shapely Polygon (or MultiPolygon if the buffer self-overlaps).
     """
     if len(coords) < 2:
-        raise ValueError(
-            f"polyline must have ≥ 2 vertices; got {len(coords)}"
-        )
+        raise ValueError(f"polyline must have ≥ 2 vertices; got {len(coords)}")
     if buffer_m <= 0:
         raise ValueError(f"buffer_m={buffer_m} must be positive")
     lats = [lat for _, lat in coords]
@@ -213,8 +217,10 @@ def riparian_buffer_from_polyline(
             f"(mean_lat={lat_mean}); buffer correction unreliable."
         )
     METRES_PER_DEG_LAT = 111_320.0
+
     def to_metric(lon: float, lat: float) -> tuple[float, float]:
         return lon * METRES_PER_DEG_LAT * cos_lat, lat * METRES_PER_DEG_LAT
+
     def from_metric(x: float, y: float) -> tuple[float, float]:
         return x / (METRES_PER_DEG_LAT * cos_lat), y / METRES_PER_DEG_LAT
 
@@ -225,7 +231,9 @@ def riparian_buffer_from_polyline(
     from shapely.ops import transform
 
     def unscale(
-        x: float, y: float, z: float | None = None,
+        x: float,
+        y: float,
+        z: float | None = None,
     ) -> tuple[float, float] | tuple[float, float, float]:
         lon, lat = from_metric(x, y)
         if z is not None:
@@ -240,6 +248,7 @@ def _aeqd_transformer_to(lat_key: int, lon_key: int) -> Callable[..., tuple[floa
     """v3.6.0 R17-5: cached EPSG:4326 → AEQD transformer factory.
     lat_key/lon_key are integer-rounded centres."""
     from pyproj import Transformer
+
     proj = f"+proj=aeqd +lat_0={lat_key} +lon_0={lon_key} +ellps=WGS84"
     return Transformer.from_crs("EPSG:4326", proj, always_xy=True).transform
 
@@ -248,6 +257,7 @@ def _aeqd_transformer_to(lat_key: int, lon_key: int) -> Callable[..., tuple[floa
 def _aeqd_transformer_from(lat_key: int, lon_key: int) -> Callable[..., tuple[float, float]]:
     """v3.6.0 R17-5: cached AEQD → EPSG:4326 transformer factory."""
     from pyproj import Transformer
+
     proj = f"+proj=aeqd +lat_0={lat_key} +lon_0={lon_key} +ellps=WGS84"
     return Transformer.from_crs(proj, "EPSG:4326", always_xy=True).transform
 
@@ -339,7 +349,9 @@ def _riparian_buffer_geodesic(
     line_lonlat = LineString(coords)
     line_metric = shapely_transform(to_aeqd, line_lonlat)
     buf_metric = line_metric.buffer(
-        buffer_m, cap_style="round", join_style="round",
+        buffer_m,
+        cap_style="round",
+        join_style="round",
     )
     buf_lonlat = shapely_transform(from_aeqd, buf_metric)
     # v3.6.1 R18-2 (codex MEDIUM): AEQD inverse projection of a
@@ -356,7 +368,8 @@ def _riparian_buffer_geodesic(
 
 
 def _split_at_antimeridian(
-    geom: BaseGeometry, centre_lon: float,
+    geom: BaseGeometry,
+    centre_lon: float,
 ) -> BaseGeometry:
     """v3.6.1 R18-2: rewrap a Shapely geometry that an AEQD inverse
     projection produced across the ±180° seam.
@@ -398,16 +411,24 @@ def _split_at_antimeridian(
     for k in range(k_lo, k_hi + 1):
         strip_min = -180.0 + 360.0 * k
         strip_max = 180.0 + 360.0 * k
-        strip = Polygon([
-            (strip_min, u_miny - 1), (strip_max, u_miny - 1),
-            (strip_max, u_maxy + 1), (strip_min, u_maxy + 1),
-        ])
+        strip = Polygon(
+            [
+                (strip_min, u_miny - 1),
+                (strip_max, u_miny - 1),
+                (strip_max, u_maxy + 1),
+                (strip_min, u_maxy + 1),
+            ]
+        )
         piece = unwrapped.intersection(strip)
         if piece.is_empty:
             continue
+
         # Rewrap this piece by shifting its longitudes by -360·k.
         def _rewrap_k(
-            lon: float, lat: float, z: float | None = None, _k: int = k,
+            lon: float,
+            lat: float,
+            z: float | None = None,
+            _k: int = k,
         ) -> tuple[float, ...]:
             if z is not None:
                 return lon - 360.0 * _k, lat, z
@@ -439,7 +460,9 @@ def cover_si_from_polyline(
     around the polyline, then aggregate LULC inside it."""
     geom = riparian_buffer_from_polyline(coords, buffer_m=buffer_m)
     return cover_si_from_lulc_raster(
-        lulc_tif, geom, cover_si_table=cover_si_table,
+        lulc_tif,
+        geom,
+        cover_si_table=cover_si_table,
     )
 
 
@@ -453,7 +476,9 @@ def watershed_cover_si(
     polygon produced by :func:`write_watershed_geojson`."""
     geom = _load_geometry_from_geojson(watershed_geojson)
     return cover_si_from_lulc_raster(
-        lulc_tif, geom, cover_si_table=cover_si_table,
+        lulc_tif,
+        geom,
+        cover_si_table=cover_si_table,
     )
 
 
@@ -466,12 +491,14 @@ def cover_si_summary(class_pixels: dict[int, int]) -> pd.DataFrame:
     total = sum(class_pixels.values())
     rows = []
     for code, n in sorted(class_pixels.items(), key=lambda kv: -kv[1]):
-        rows.append({
-            "class_code": code,
-            "pixel_count": n,
-            "fraction": n / total,
-            "cover_si": DEFAULT_RIPARIAN_COVER_SI.get(code, 0.0),
-        })
+        rows.append(
+            {
+                "class_code": code,
+                "pixel_count": n,
+                "fraction": n / total,
+                "cover_si": DEFAULT_RIPARIAN_COVER_SI.get(code, 0.0),
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -515,7 +542,9 @@ def cover_si_per_section(
     out = np.empty(len(section_geometries), dtype=float)
     for i, geom in enumerate(section_geometries):
         si, _ = cover_si_from_lulc_raster(
-            lulc_tif, geom, cover_si_table=cover_si_table,
+            lulc_tif,
+            geom,
+            cover_si_table=cover_si_table,
             all_touched=all_touched,
         )
         out[i] = si

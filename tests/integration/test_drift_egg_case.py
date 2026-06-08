@@ -105,9 +105,7 @@ def test_drift_egg_runs_with_constant_temperature(tmp_path: Path, lemhi_present:
     df_sorted = df.sort_values("discharge_m3s").reset_index(drop=True)
     low = df_sorted["drift_distance_km"].iloc[0]
     high = df_sorted["drift_distance_km"].iloc[-1]
-    assert high >= low * 0.995, (
-        f"drift_distance not monotone within noise: low={low}, high={high}"
-    )
+    assert high >= low * 0.995, f"drift_distance not monotone within noise: low={low}, high={high}"
 
 
 def test_drift_egg_csv_temperature_forcing(tmp_path: Path, lemhi_present: bool) -> None:

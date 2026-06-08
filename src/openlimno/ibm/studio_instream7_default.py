@@ -89,9 +89,7 @@ def _crs_unit_factor(crs: Any) -> float:
     earlier foot-or-nothing detector as exactly this hazard.
     """
     if crs is None:
-        raise ValueError(
-            "shapefile has no CRS — cannot translate coordinates to metres."
-        )
+        raise ValueError("shapefile has no CRS — cannot translate coordinates to metres.")
     try:
         unit = crs.axis_info[0].unit_name.lower()
     except (AttributeError, IndexError) as exc:
@@ -107,9 +105,7 @@ def _crs_unit_factor(crs: Any) -> float:
         return 1.0
     if "foot" in unit:
         return 0.3048
-    raise ValueError(
-        f"shapefile CRS {crs!r} has unrecognised linear unit {unit!r}."
-    )
+    raise ValueError(f"shapefile CRS {crs!r} has unrecognised linear unit {unit!r}.")
 
 
 def _shapefile_axis_projection(gdf: Any) -> tuple[Any, Any, tuple[float, float], float]:
@@ -166,13 +162,10 @@ def build_studio_scenario_from_instream7_archive(
     cases = discover_instream7_cases(root)
     target = next((c for c in cases if c.case_id == case_id), None)
     if target is None:
-        raise FileNotFoundError(
-            f"inSTREAM 7 case '{case_id}' not found under {root}"
-        )
+        raise FileNotFoundError(f"inSTREAM 7 case '{case_id}' not found under {root}")
     if not target.species:
         raise ValueError(
-            f"inSTREAM 7 case '{target.case_id}' has no species — "
-            "cannot build a Studio scenario."
+            f"inSTREAM 7 case '{target.case_id}' has no species — cannot build a Studio scenario."
         )
     # Pick a single reach (multi-reach scenarios are loaded one reach at a
     # time; the Studio is single-reach by design). Initial-population
@@ -243,8 +236,8 @@ def build_studio_scenario_from_instream7_archive(
     raw_centred = np.vstack([cents.x.values - origin[0], cents.y.values - origin[1]]).T
     proj_native = raw_centred @ axis
     lateral_native = raw_centred @ perp
-    cx = (proj_native - proj_native.min()) * factor   # = station_m
-    cy = lateral_native * factor                       # = lateral offset
+    cx = (proj_native - proj_native.min()) * factor  # = station_m
+    cy = lateral_native * factor  # = lateral offset
 
     order = np.argsort(proj_m)
     cells: list[dict[str, object]] = []
@@ -292,8 +285,7 @@ def build_studio_scenario_from_instream7_archive(
         outline = _unary_union(list(gdf.geometry)).buffer(0).convex_hull
         xs_ext, ys_ext = outline.exterior.coords.xy
         vertices = np.vstack(
-            [np.asarray(xs_ext, float) - origin[0],
-             np.asarray(ys_ext, float) - origin[1]],
+            [np.asarray(xs_ext, float) - origin[0], np.asarray(ys_ext, float) - origin[1]],
         ).T
         v_station = (vertices @ axis - proj_native.min()) * factor
         v_lateral = (vertices @ perp) * factor
@@ -324,10 +316,7 @@ def build_studio_scenario_from_instream7_archive(
             ]
         )
     if len(centerline_m) < 2:
-        centerline_m = [
-            [round(float(s), 2), 0.0]
-            for s in np.linspace(0.0, reach_length_m, 40)
-        ]
+        centerline_m = [[round(float(s), 2), 0.0] for s in np.linspace(0.0, reach_length_m, 40)]
 
     # Triple-review caught the cm→mm bug here (Codex P1, Claude
     # "cohort structure collapsed"). The official ``Length mode`` column
@@ -347,12 +336,8 @@ def build_studio_scenario_from_instream7_archive(
             initial_population = reach_filtered
     total_init = int(initial_population["Number"].sum())
     if total_init <= 0:
-        raise ValueError(
-            f"inSTREAM 7 case '{target.case_id}' has an empty initial population."
-        )
-    weighted_cm = float(
-        (initial_population["Number"] * initial_population["Length mode"]).sum()
-    )
+        raise ValueError(f"inSTREAM 7 case '{target.case_id}' has an empty initial population.")
+    weighted_cm = float((initial_population["Number"] * initial_population["Length mode"]).sum())
     initial_length_mm = (weighted_cm * 10.0) / total_init
     cohorts = [
         {

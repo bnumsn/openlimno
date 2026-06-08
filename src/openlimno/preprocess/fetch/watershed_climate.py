@@ -25,6 +25,7 @@ The aggregator is reach-source-agnostic: pass any one-point fetcher
 that returns a DataFrame with ``T_water_C_stefan`` (or another named
 column) and we'll spread it over the watershed.
 """
+
 from __future__ import annotations
 
 import json
@@ -86,14 +87,10 @@ def watershed_sample_points(
         ``[(lat, lon), ...]`` of length 5: centroid + 4 inset corners.
     """
     if not 0.0 <= inset_fraction < 0.5:
-        raise ValueError(
-            f"inset_fraction={inset_fraction} must be in [0, 0.5)"
-        )
+        raise ValueError(f"inset_fraction={inset_fraction} must be in [0, 0.5)")
     lo_min, la_min, lo_max, la_max = bbox
     if lo_max <= lo_min or la_max <= la_min:
-        raise ValueError(
-            f"Invalid bbox: {bbox}. Need lon_max>lon_min, lat_max>lat_min."
-        )
+        raise ValueError(f"Invalid bbox: {bbox}. Need lon_max>lon_min, lat_max>lat_min.")
     dx = (lo_max - lo_min) * inset_fraction
     dy = (la_max - la_min) * inset_fraction
     centroid = ((la_min + la_max) / 2.0, (lo_min + lo_max) / 2.0)
@@ -141,10 +138,7 @@ def _watershed_bbox_from_geojson(
         _walk(data.get("coordinates", []))
 
     if not lons or not lats:
-        raise ValueError(
-            f"No coordinates found in {geojson_path}; not a "
-            f"valid GeoJSON watershed."
-        )
+        raise ValueError(f"No coordinates found in {geojson_path}; not a valid GeoJSON watershed.")
     return (min(lons), min(lats), max(lons), max(lats))
 
 
@@ -209,29 +203,34 @@ def fetch_watershed_climate(
             )
         t_water[:, i] = df["T_water_C_stefan"].astype(float).values
 
-    out_df = pd.DataFrame({
-        "time": times,
-        "T_water_C_mean": t_water.mean(axis=1),
-        "T_water_C_sd": t_water.std(axis=1, ddof=0),
-        "n_samples": np.full(n_days, n_pts, dtype=int),
-    })
+    out_df = pd.DataFrame(
+        {
+            "time": times,
+            "T_water_C_mean": t_water.mean(axis=1),
+            "T_water_C_sd": t_water.std(axis=1, ddof=0),
+            "n_samples": np.full(n_days, n_pts, dtype=int),
+        }
+    )
 
     # Optional columns the underlying fetcher may carry.
     if "T_air_C_mean" in per_point_frames[0].columns:
         t_air = np.stack(
-            [df["T_air_C_mean"].astype(float).values
-             for df in per_point_frames], axis=1,
+            [df["T_air_C_mean"].astype(float).values for df in per_point_frames],
+            axis=1,
         )
         out_df["T_air_C_mean"] = t_air.mean(axis=1)
     if "prcp_mm" in per_point_frames[0].columns:
         prcp = np.stack(
-            [df["prcp_mm"].astype(float).values
-             for df in per_point_frames], axis=1,
+            [df["prcp_mm"].astype(float).values for df in per_point_frames],
+            axis=1,
         )
         out_df["prcp_mm_total"] = prcp.sum(axis=1)
 
     citation = getattr(raw_results[0], "citation", "")
     return WatershedClimateResult(
-        df=out_df, sample_points=points, watershed_bbox=bbox,
-        per_point_results=raw_results, citation=citation,
+        df=out_df,
+        sample_points=points,
+        watershed_bbox=bbox,
+        per_point_results=raw_results,
+        citation=citation,
     )

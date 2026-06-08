@@ -398,7 +398,9 @@ def _optional_face_velocity_series(
             continue
         if any(tok in path_norm for tok in ("boundary", "startingdifferences", "minimum")):
             continue
-        priority = 0 if leaf_norm == "facevelocity" else 1 if leaf_norm == "maximumfacevelocity" else 2
+        priority = (
+            0 if leaf_norm == "facevelocity" else 1 if leaf_norm == "maximumfacevelocity" else 2
+        )
         candidates.append((priority, path, ds))
     if not candidates:
         return None, None, None, "No HEC-RAS face velocity dataset found."

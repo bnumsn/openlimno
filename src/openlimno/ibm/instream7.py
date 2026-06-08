@@ -187,12 +187,7 @@ def parse_instream7_case(root: str | Path, parameter_file: str | Path) -> Instre
     species = _set_string_list(text, "species-list")
     if not reach_names:
         raise ValueError(f"{param_path} does not define reach-names")
-    if not (
-        len(reach_names)
-        == len(time_series_files)
-        == len(depth_files)
-        == len(velocity_files)
-    ):
+    if not (len(reach_names) == len(time_series_files) == len(depth_files) == len(velocity_files)):
         raise ValueError(f"{param_path} has inconsistent reach/file list lengths")
 
     cell_id_field = _set_string(text, "GIS-property-for-cell-ID", "ID_TEXT")
@@ -256,7 +251,9 @@ def parse_instream7_case(root: str | Path, parameter_file: str | Path) -> Instre
         case_id=case_id,
         root=root_path,
         parameter_file=param_path,
-        initial_population_file=_resolve_case_path(root_path, _set_string(text, "initial-population-file")),
+        initial_population_file=_resolve_case_path(
+            root_path, _set_string(text, "initial-population-file")
+        ),
         start_date=_set_string(text, "start-date"),
         end_date=_set_string(text, "end-date"),
         species=species,
@@ -281,7 +278,6 @@ def discover_instream7_cases(root: str | Path) -> tuple[Instream7Case, ...]:
     if not cases:
         raise ValueError(f"No official inSTREAM 7 parameter files found under {root_path}")
     return tuple(cases)
-
 
 
 def _format_netlogo_date(value: pd.Timestamp) -> str:
@@ -375,8 +371,8 @@ def _patch_case_end_date(case: Instream7Case, days: int) -> None:
         count=1,
     )
     patched, frequency_count = re.subn(
-        r'set\s+file-output-frequency\s+[-+]?(?:\d+\.\d*|\.\d+|\d+)',
-        'set file-output-frequency  1',
+        r"set\s+file-output-frequency\s+[-+]?(?:\d+\.\d*|\.\d+|\d+)",
+        "set file-output-frequency  1",
         patched,
         count=1,
     )
@@ -675,7 +671,8 @@ def build_population_from_official_adult_arrivals(
                         "species": species,
                         "age_days": np.full(int(count), 4 * 365, dtype=int),
                         "length_mm": lengths_mm,
-                        "mass_g": profile.weight_a_g_per_cm_b * (lengths_mm / 10.0) ** profile.weight_b
+                        "mass_g": profile.weight_a_g_per_cm_b
+                        * (lengths_mm / 10.0) ** profile.weight_b
                         if profile is not None
                         else 1.15e-5 * lengths_mm**3.0,
                         "cell_id": np.full(int(count), "", dtype=object),
@@ -716,7 +713,9 @@ def read_reach_static_cells(reach: Instream7Reach) -> pd.DataFrame:
             "cell_id": sub[cell_col].astype(str).to_numpy(),
             "reach_id": reach.reach_id,
             "area_m2": pd.to_numeric(sub[area_col], errors="coerce").fillna(0.0).to_numpy(),
-            "hiding_cover": np.maximum(shelter.to_numpy(dtype=float), np.clip(hiding_places / 10.0, 0.0, 1.0)),
+            "hiding_cover": np.maximum(
+                shelter.to_numpy(dtype=float), np.clip(hiding_places / 10.0, 0.0, 1.0)
+            ),
             "feeding_cover": shelter.to_numpy(dtype=float),
             "spawning_cover": spawning.to_numpy(dtype=float),
         }
@@ -742,8 +741,7 @@ def _interpolate_hydraulic_table(wide: pd.DataFrame, role: str, flow_m3s: float)
     max_flow = float(np.nanmax(flows))
     if flow_m3s < min_flow or flow_m3s > max_flow:
         raise ValueError(
-            f"flow {flow_m3s:g} m3/s is outside {role} lookup range "
-            f"{min_flow:g}..{max_flow:g} m3/s"
+            f"flow {flow_m3s:g} m3/s is outside {role} lookup range {min_flow:g}..{max_flow:g} m3/s"
         )
     values = wide.drop(columns=["cell_id"]).to_numpy(dtype=float)
     interpolated = np.asarray(
@@ -773,7 +771,9 @@ def _build_reach_habitat_cells_from_tables(
         "velocity_ms",
         flow_m3s,
     )
-    cells = static.merge(depth, on="cell_id", how="inner").merge(velocity, on="cell_id", how="inner")
+    cells = static.merge(depth, on="cell_id", how="inner").merge(
+        velocity, on="cell_id", how="inner"
+    )
     cells["discharge_m3s"] = float(flow_m3s)
     cells["temperature_c"] = float(temperature_c)
     cells["turbidity_ntu"] = float(turbidity_ntu)
@@ -998,7 +998,6 @@ def _time_series_window(case: Instream7Case, reach: Instream7Reach, days: int) -
     return time_series.head(days).reset_index(drop=True)
 
 
-
 def _next_global_fish_id_after(frame: pd.DataFrame, current_next_id: int) -> int:
     if frame.empty or "fish_id" not in frame:
         return current_next_id
@@ -1023,9 +1022,7 @@ def run_instream7_official_benchmark(
     out.mkdir(parents=True, exist_ok=True)
     selected = set(case_ids or ())
     cases = [
-        case
-        for case in discover_instream7_cases(root)
-        if not selected or case.case_id in selected
+        case for case in discover_instream7_cases(root) if not selected or case.case_id in selected
     ]
     if not cases:
         raise ValueError(f"No inSTREAM 7 cases selected by {sorted(selected)}")
@@ -1190,9 +1187,8 @@ def run_instream7_official_benchmark(
                 summary["turbidity_ntu"] = np.nan
                 forcing_lookup = pd.DataFrame.from_records(forcing_rows)
                 for forcing_row in forcing_lookup.to_dict("records"):
-                    mask = (
-                        (summary["day"] == int(forcing_row["day"]))
-                        & (summary["reach_id"].astype(str) == str(forcing_row["reach_id"]))
+                    mask = (summary["day"] == int(forcing_row["day"])) & (
+                        summary["reach_id"].astype(str) == str(forcing_row["reach_id"])
                     )
                     for column in (
                         "official_date",

@@ -1,4 +1,5 @@
 """Spatial water-temperature raster fetcher built on Open-Meteo samples."""
+
 from __future__ import annotations
 
 from collections.abc import Callable

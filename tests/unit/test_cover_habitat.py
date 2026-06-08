@@ -4,6 +4,7 @@ Hand-roll a tiny WorldCover raster + a polyline / polygon mask, run
 through cover_si_from_* — pin the class→SI mapping, the buffer
 geometry, and the histogram aggregation.
 """
+
 from __future__ import annotations
 
 import json
@@ -20,8 +21,15 @@ def _write_lulc(path: Path, arr: np.ndarray, lon0=100.0, lat0=38.0, px_deg=5e-5)
     h, w = arr.shape
     transform = from_origin(lon0, lat0, px_deg, px_deg)
     with rasterio.open(
-        path, "w", driver="GTiff", height=h, width=w, count=1,
-        dtype="uint8", crs="EPSG:4326", transform=transform,
+        path,
+        "w",
+        driver="GTiff",
+        height=h,
+        width=w,
+        count=1,
+        dtype="uint8",
+        crs="EPSG:4326",
+        transform=transform,
     ) as dst:
         dst.write(arr, 1)
 
@@ -32,6 +40,7 @@ def test_default_riparian_cover_si_covers_all_worldcover_codes():
     silently."""
     from openlimno.habitat import DEFAULT_RIPARIAN_COVER_SI
     from openlimno.preprocess.fetch import WORLDCOVER_CLASSES
+
     assert set(DEFAULT_RIPARIAN_COVER_SI) == set(WORLDCOVER_CLASSES)
     # And every SI must be in [0, 1]
     for code, si in DEFAULT_RIPARIAN_COVER_SI.items():
@@ -42,6 +51,7 @@ def test_default_cover_si_priors_match_habitat_literature():
     """Sanity: tree cover ≥ shrubland ≥ grassland ≥ cropland ≥ built-up.
     Wetland sits between tree and grassland."""
     from openlimno.habitat import DEFAULT_RIPARIAN_COVER_SI
+
     assert (
         DEFAULT_RIPARIAN_COVER_SI[10]
         > DEFAULT_RIPARIAN_COVER_SI[20]
@@ -49,13 +59,18 @@ def test_default_cover_si_priors_match_habitat_literature():
         > DEFAULT_RIPARIAN_COVER_SI[40]
         > DEFAULT_RIPARIAN_COVER_SI[50]
     )
-    assert DEFAULT_RIPARIAN_COVER_SI[10] >= DEFAULT_RIPARIAN_COVER_SI[90] >= DEFAULT_RIPARIAN_COVER_SI[30]
+    assert (
+        DEFAULT_RIPARIAN_COVER_SI[10]
+        >= DEFAULT_RIPARIAN_COVER_SI[90]
+        >= DEFAULT_RIPARIAN_COVER_SI[30]
+    )
 
 
 def test_cover_si_from_lulc_raster_aggregates_inside_polygon(tmp_path):
     from shapely.geometry import box
 
     from openlimno.habitat import cover_si_from_lulc_raster
+
     # 10×10 raster: top half grassland (30, SI=0.4), bottom half cropland (40, SI=0.2)
     arr = np.zeros((10, 10), dtype=np.uint8)
     arr[:5, :] = 30
@@ -74,6 +89,7 @@ def test_cover_si_from_lulc_raster_respects_custom_table(tmp_path):
     from shapely.geometry import box
 
     from openlimno.habitat import cover_si_from_lulc_raster
+
     arr = np.full((4, 4), 30, dtype=np.uint8)  # all grassland
     tif = tmp_path / "lulc.tif"
     _write_lulc(tif, arr)
@@ -81,7 +97,9 @@ def test_cover_si_from_lulc_raster_respects_custom_table(tmp_path):
     # Custom table puts grassland at SI=1.0 (e.g., for a grazing-
     # adapted fish species)
     si, _ = cover_si_from_lulc_raster(
-        tif, full, cover_si_table={30: 1.0},
+        tif,
+        full,
+        cover_si_table={30: 1.0},
     )
     assert si == pytest.approx(1.0)
 
@@ -92,6 +110,7 @@ def test_cover_si_from_lulc_raster_fails_on_all_nodata(tmp_path):
     from shapely.geometry import box
 
     from openlimno.habitat import cover_si_from_lulc_raster
+
     arr = np.zeros((4, 4), dtype=np.uint8)  # all no-data
     tif = tmp_path / "lulc.tif"
     _write_lulc(tif, arr)
@@ -105,6 +124,7 @@ def test_riparian_buffer_polyline_size_correct():
     ≈ length × 2 × 50 m + 2 × π × 25² (end caps). Pin the cos(lat)
     correction so a buffer at 60°N has the right metric width."""
     from openlimno.habitat import riparian_buffer_from_polyline
+
     # Equator: 1° lon ≈ 111 320 m. 0.001° polyline = ~111 m long.
     coords = [(100.0, 0.0), (100.001, 0.0)]
     buf = riparian_buffer_from_polyline(coords, buffer_m=50.0)
@@ -113,13 +133,14 @@ def test_riparian_buffer_polyline_size_correct():
     # + π × 50² ≈ 7854 m². Total ≈ 18 986 m².
     # But here we have lat/lon area; convert via 1 deg² ≈
     # (111_320)² × cos(0)² m² at the equator.
-    DEG2_TO_M2 = 111_320 ** 2  # at the equator
+    DEG2_TO_M2 = 111_320**2  # at the equator
     area_m2 = buf.area * DEG2_TO_M2
     assert 16_000 < area_m2 < 22_000, f"buffer area {area_m2} m²"
 
 
 def test_riparian_buffer_rejects_invalid_inputs():
     from openlimno.habitat import riparian_buffer_from_polyline
+
     with pytest.raises(ValueError, match="≥ 2 vertices"):
         riparian_buffer_from_polyline([(100.0, 38.0)])
     with pytest.raises(ValueError, match="buffer_m"):
@@ -133,6 +154,7 @@ def test_cover_si_from_polyline_aggregates_along_river(tmp_path):
     LULC zones → mean SI ≈ 0.5.
     """
     from openlimno.habitat import cover_si_from_polyline
+
     # 100×100 px raster at 5e-5 deg/px ≈ 5.5 m/px at the equator.
     # Top half (rows 0..49) = tree cover; bottom half = built-up.
     arr = np.zeros((100, 100), dtype=np.uint8)
@@ -159,6 +181,7 @@ def test_watershed_cover_si_runs_against_geojson(tmp_path):
     GeoJSON polygon file (the shape ``write_watershed_geojson``
     produces)."""
     from openlimno.habitat import watershed_cover_si
+
     arr = np.full((10, 10), 10, dtype=np.uint8)  # all tree
     tif = tmp_path / "lulc.tif"
     _write_lulc(tif, arr)
@@ -167,13 +190,15 @@ def test_watershed_cover_si_runs_against_geojson(tmp_path):
         "properties": {"area_km2": 0.1},
         "geometry": {
             "type": "Polygon",
-            "coordinates": [[
-                [100.0, 38.0 - 10 * 5e-5],
-                [100.0 + 10 * 5e-5, 38.0 - 10 * 5e-5],
-                [100.0 + 10 * 5e-5, 38.0],
-                [100.0, 38.0],
-                [100.0, 38.0 - 10 * 5e-5],
-            ]],
+            "coordinates": [
+                [
+                    [100.0, 38.0 - 10 * 5e-5],
+                    [100.0 + 10 * 5e-5, 38.0 - 10 * 5e-5],
+                    [100.0 + 10 * 5e-5, 38.0],
+                    [100.0, 38.0],
+                    [100.0, 38.0 - 10 * 5e-5],
+                ]
+            ],
         },
     }
     gp = tmp_path / "ws.geojson"
@@ -186,6 +211,7 @@ def test_watershed_cover_si_runs_against_geojson(tmp_path):
 
 def test_cover_si_summary_orders_by_pixel_count():
     from openlimno.habitat import cover_si_summary
+
     hist = {10: 50, 30: 100, 40: 25}
     df = cover_si_summary(hist)
     assert list(df["class_code"].values) == [30, 10, 40]
@@ -198,8 +224,12 @@ def test_cover_si_summary_orders_by_pixel_count():
 
 def test_cover_si_summary_handles_empty_hist():
     from openlimno.habitat import cover_si_summary
+
     df = cover_si_summary({})
     assert list(df.columns) == [
-        "class_code", "pixel_count", "fraction", "cover_si",
+        "class_code",
+        "pixel_count",
+        "fraction",
+        "cover_si",
     ]
     assert len(df) == 0

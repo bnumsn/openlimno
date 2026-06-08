@@ -9,6 +9,7 @@ import ``_INDEX_HTML`` from here.
 ⚠️ This asset is part of the R-IBM-STUDIO-CONSOLIDATE dev-only surface.
 Do not add new UX features here. Migration target is the PyQt6 Studio
 (``openlimno.studio``) per ADR-0016 cleanup track."""
+
 from __future__ import annotations
 
 _INDEX_HTML = r"""<!doctype html>

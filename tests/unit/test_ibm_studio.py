@@ -243,7 +243,9 @@ def test_run_instream7_benchmark_for_studio_returns_capture_metrics(
             paths={"instream7_official_inventory": str(output_dir / "inventory.csv")},
         )
 
-    monkeypatch.setattr(studio, "run_instream7_official_benchmark", fake_run_instream7_official_benchmark)
+    monkeypatch.setattr(
+        studio, "run_instream7_official_benchmark", fake_run_instream7_official_benchmark
+    )
     monkeypatch.setattr(
         studio,
         "_official_case_river_view",
@@ -258,7 +260,13 @@ def test_run_instream7_benchmark_for_studio_returns_capture_metrics(
     )
 
     result = run_instream7_benchmark_for_studio(
-        {"fixture": str(tmp_path), "case_id": "ExampleA", "days": 1, "seed": 11, "stochastic": False},
+        {
+            "fixture": str(tmp_path),
+            "case_id": "ExampleA",
+            "days": 1,
+            "seed": 11,
+            "stochastic": False,
+        },
         tmp_path / "runs",
     )
 

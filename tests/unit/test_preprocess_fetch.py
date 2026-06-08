@@ -9,6 +9,7 @@ access). These tests cover the bits that can run offline:
 * error surface when callers misuse the API (invalid bbox, out-of-
   coverage lats).
 """
+
 from __future__ import annotations
 
 import json
@@ -74,8 +75,7 @@ def test_request_key_differs_by_params():
     a = _request_key("http://x/", {"lon_min": -114.0})
     b = _request_key("http://x/", {"lon_min": -113.85})
     assert a != b, (
-        "REGRESSION: cache key ignores params — different bboxes will "
-        "reuse the same cached subset"
+        "REGRESSION: cache key ignores params — different bboxes will reuse the same cached subset"
     )
 
 
@@ -90,14 +90,16 @@ def test_cached_fetch_writes_then_serves_from_disk(monkeypatch, tmp_path):
         call_count["n"] += 1
         return b"hello world"
 
-    e1 = cached_fetch(subdir="test", url="http://x/", params={"a": 1},
-                     suffix=".bin", fetch_fn=fake_fetch)
+    e1 = cached_fetch(
+        subdir="test", url="http://x/", params={"a": 1}, suffix=".bin", fetch_fn=fake_fetch
+    )
     assert e1.cache_hit is False
     assert e1.path.read_bytes() == b"hello world"
     assert call_count["n"] == 1
 
-    e2 = cached_fetch(subdir="test", url="http://x/", params={"a": 1},
-                     suffix=".bin", fetch_fn=fake_fetch)
+    e2 = cached_fetch(
+        subdir="test", url="http://x/", params={"a": 1}, suffix=".bin", fetch_fn=fake_fetch
+    )
     assert e2.cache_hit is True
     assert call_count["n"] == 1, (
         "REGRESSION: cache hit still invoked fetch_fn — the whole "
@@ -114,9 +116,11 @@ def test_cached_fetch_records_sha256(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     payload = b"x" * 1000
     import hashlib
+
     expected = hashlib.sha256(payload).hexdigest()
-    e = cached_fetch(subdir="t", url="http://x/", params=None,
-                    suffix=".bin", fetch_fn=lambda: payload)
+    e = cached_fetch(
+        subdir="t", url="http://x/", params=None, suffix=".bin", fetch_fn=lambda: payload
+    )
     assert e.sha256 == expected
 
 
@@ -126,8 +130,9 @@ def test_cached_fetch_writes_meta_json_with_fetch_time(monkeypatch, tmp_path):
     provenance.json downstream.
     """
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-    cached_fetch(subdir="t", url="http://x/data", params={"q": "y"},
-                suffix=".bin", fetch_fn=lambda: b"abc")
+    cached_fetch(
+        subdir="t", url="http://x/data", params={"q": "y"}, suffix=".bin", fetch_fn=lambda: b"abc"
+    )
     metas = list((tmp_path / "openlimno" / "t").glob("*.meta.json"))
     assert len(metas) == 1
     meta = json.loads(metas[0].read_text())
@@ -217,6 +222,7 @@ def test_nwis_rating_curve_emits_clear_migration_error():
     clear pointer to the workaround instead of a silent 404.
     """
     from openlimno.preprocess.fetch.nwis import fetch_nwis_rating_curve
+
     with pytest.raises(NotImplementedError, match="migration"):
         fetch_nwis_rating_curve("13305000")
 
@@ -227,17 +233,22 @@ def test_nwis_rating_curve_emits_clear_migration_error():
 def test_sidecar_record_writes_json_with_sha(tmp_path):
     """record_fetch writes a JSON list with the file's actual SHA-256."""
     from openlimno.preprocess.fetch import read_sidecar, record_fetch
+
     (tmp_path / "data").mkdir()
     produced = tmp_path / "data" / "Q.csv"
     produced.write_text("time,Q\n2024-01-01,1.0\n")
     rec = record_fetch(
         tmp_path,
-        label="discharge", source_type="usgs_nwis",
-        source_url="https://example.org/nwis", fetch_time="2026-05-12T00:00:00",
+        label="discharge",
+        source_type="usgs_nwis",
+        source_url="https://example.org/nwis",
+        fetch_time="2026-05-12T00:00:00",
         produced_file="data/Q.csv",
-        params={"site_id": "13305000"}, notes="hello",
+        params={"site_id": "13305000"},
+        notes="hello",
     )
     import hashlib
+
     expected = hashlib.sha256(b"time,Q\n2024-01-01,1.0\n").hexdigest()
     assert rec.produced_sha256 == expected
     records = read_sidecar(tmp_path)
@@ -251,14 +262,27 @@ def test_sidecar_record_is_idempotent_by_label(tmp_path):
     re-running init-from-osm doesn't stack stale records).
     """
     from openlimno.preprocess.fetch import read_sidecar, record_fetch
+
     (tmp_path / "data").mkdir()
     f = tmp_path / "data" / "Q.csv"
     f.write_text("a")
-    record_fetch(tmp_path, label="d", source_type="x",
-                source_url="u1", fetch_time="t1", produced_file="data/Q.csv")
+    record_fetch(
+        tmp_path,
+        label="d",
+        source_type="x",
+        source_url="u1",
+        fetch_time="t1",
+        produced_file="data/Q.csv",
+    )
     f.write_text("b")
-    record_fetch(tmp_path, label="d", source_type="x",
-                source_url="u2", fetch_time="t2", produced_file="data/Q.csv")
+    record_fetch(
+        tmp_path,
+        label="d",
+        source_type="x",
+        source_url="u2",
+        fetch_time="t2",
+        produced_file="data/Q.csv",
+    )
     records = read_sidecar(tmp_path)
     assert len(records) == 1, (
         f"REGRESSION: duplicate records for label 'd' — re-running "
@@ -274,11 +298,17 @@ def test_sidecar_record_raises_on_missing_file(tmp_path):
     will silently fail reproduce later.
     """
     from openlimno.preprocess.fetch import record_fetch
+
     (tmp_path / "data").mkdir()
     with pytest.raises(FileNotFoundError, match="produced_file"):
-        record_fetch(tmp_path, label="x", source_type="y",
-                    source_url="u", fetch_time="t",
-                    produced_file="data/does_not_exist.csv")
+        record_fetch(
+            tmp_path,
+            label="x",
+            source_type="y",
+            source_url="u",
+            fetch_time="t",
+            produced_file="data/does_not_exist.csv",
+        )
 
 
 def test_sidecar_missing_returns_empty_list(tmp_path):
@@ -287,6 +317,7 @@ def test_sidecar_missing_returns_empty_list(tmp_path):
     this unconditionally.
     """
     from openlimno.preprocess.fetch import read_sidecar
+
     assert read_sidecar(tmp_path) == []
 
 
@@ -296,11 +327,18 @@ def test_sidecar_verify_detects_file_drift(tmp_path):
     auto-fetched data.
     """
     from openlimno.preprocess.fetch import record_fetch, verify_sidecar
+
     (tmp_path / "data").mkdir()
     f = tmp_path / "data" / "Q.csv"
     f.write_text("original content")
-    record_fetch(tmp_path, label="d", source_type="x",
-                source_url="u", fetch_time="t", produced_file="data/Q.csv")
+    record_fetch(
+        tmp_path,
+        label="d",
+        source_type="x",
+        source_url="u",
+        fetch_time="t",
+        produced_file="data/Q.csv",
+    )
     # Tamper
     f.write_text("tampered content")
     results = verify_sidecar(tmp_path)
@@ -313,11 +351,18 @@ def test_sidecar_verify_detects_file_drift(tmp_path):
 
 def test_sidecar_verify_detects_missing_file(tmp_path):
     from openlimno.preprocess.fetch import record_fetch, verify_sidecar
+
     (tmp_path / "data").mkdir()
     f = tmp_path / "data" / "Q.csv"
     f.write_text("x")
-    record_fetch(tmp_path, label="d", source_type="x",
-                source_url="u", fetch_time="t", produced_file="data/Q.csv")
+    record_fetch(
+        tmp_path,
+        label="d",
+        source_type="x",
+        source_url="u",
+        fetch_time="t",
+        produced_file="data/Q.csv",
+    )
     f.unlink()
     results = verify_sidecar(tmp_path)
     assert results[0][1] is False
@@ -326,10 +371,17 @@ def test_sidecar_verify_detects_missing_file(tmp_path):
 
 def test_sidecar_verify_passes_on_unmodified(tmp_path):
     from openlimno.preprocess.fetch import record_fetch, verify_sidecar
+
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "Q.csv").write_text("x")
-    record_fetch(tmp_path, label="d", source_type="x",
-                source_url="u", fetch_time="t", produced_file="data/Q.csv")
+    record_fetch(
+        tmp_path,
+        label="d",
+        source_type="x",
+        source_url="u",
+        fetch_time="t",
+        produced_file="data/Q.csv",
+    )
     results = verify_sidecar(tmp_path)
     assert results[0][1] is True
     assert results[0][2] == ""
@@ -344,10 +396,9 @@ def test_sidecar_corrupt_json_raises_loudly(tmp_path):
         SidecarCorruptedError,
         read_sidecar,
     )
+
     (tmp_path / "data").mkdir()
-    (tmp_path / "data" / ".openlimno_external_sources.json").write_text(
-        "{partial json"
-    )
+    (tmp_path / "data" / ".openlimno_external_sources.json").write_text("{partial json")
     with pytest.raises(SidecarCorruptedError, match="not valid JSON"):
         read_sidecar(tmp_path)
 
@@ -360,10 +411,9 @@ def test_sidecar_wrong_root_type_raises_loudly(tmp_path):
         SidecarCorruptedError,
         read_sidecar,
     )
+
     (tmp_path / "data").mkdir()
-    (tmp_path / "data" / ".openlimno_external_sources.json").write_text(
-        '{"not": "a list"}'
-    )
+    (tmp_path / "data" / ".openlimno_external_sources.json").write_text('{"not": "a list"}')
     with pytest.raises(SidecarCorruptedError, match="root type"):
         read_sidecar(tmp_path)
 
@@ -374,6 +424,7 @@ def test_dem_rejects_oversize_bbox():
     OOM-kill the process. Reject at entry with a clear cap message.
     """
     from openlimno.preprocess.fetch.dem import fetch_copernicus_dem
+
     with pytest.raises(ValueError, match="exceeds the safety cap"):
         # 10×10 = 100 deg² > 9 cap
         fetch_copernicus_dem(-114.0, 44.0, -104.0, 54.0)
@@ -388,6 +439,7 @@ def test_sidecar_rejects_produced_file_outside_case_dir(tmp_path):
     it at the API boundary.
     """
     from openlimno.preprocess.fetch import record_fetch
+
     (tmp_path / "data").mkdir()
     # Create a file OUTSIDE case_dir
     outside = tmp_path.parent / "outside.txt"
@@ -395,8 +447,11 @@ def test_sidecar_rejects_produced_file_outside_case_dir(tmp_path):
     try:
         with pytest.raises(ValueError, match="escapes case_dir"):
             record_fetch(
-                tmp_path, label="evil", source_type="x",
-                source_url="u", fetch_time="t",
+                tmp_path,
+                label="evil",
+                source_type="x",
+                source_url="u",
+                fetch_time="t",
                 produced_file=str(outside),
             )
     finally:
@@ -406,14 +461,18 @@ def test_sidecar_rejects_produced_file_outside_case_dir(tmp_path):
 def test_sidecar_rejects_relative_path_escaping_case_dir(tmp_path):
     """Same protection via ``../`` traversal in the relative path."""
     from openlimno.preprocess.fetch import record_fetch
+
     (tmp_path / "data").mkdir()
     # Create something accessible via ../
     (tmp_path.parent / "evil.txt").write_text("secret")
     try:
         with pytest.raises(ValueError, match="escapes case_dir"):
             record_fetch(
-                tmp_path, label="evil", source_type="x",
-                source_url="u", fetch_time="t",
+                tmp_path,
+                label="evil",
+                source_type="x",
+                source_url="u",
+                fetch_time="t",
                 produced_file="../evil.txt",
             )
     finally:
@@ -427,6 +486,7 @@ def test_daymet_rejects_inverted_year_range():
     """Start > end would yield empty Daymet results + a confusing
     upstream error. Reject at module entry with a clear message."""
     from openlimno.preprocess.fetch import fetch_daymet_daily
+
     with pytest.raises(ValueError, match="start_year"):
         fetch_daymet_daily(44.9, -113.9, start_year=2024, end_year=2020)
 
@@ -438,6 +498,7 @@ def test_daymet_rejects_pre_1980_year():
     mislabelling. Pre-validate locally so the user sees the error.
     """
     from openlimno.preprocess.fetch import fetch_daymet_daily
+
     with pytest.raises(ValueError, match="Daymet v4 coverage"):
         fetch_daymet_daily(44.9, -113.9, start_year=1950, end_year=1955)
 
@@ -447,6 +508,7 @@ def test_daymet_rejects_out_of_domain_lat():
     passing a European or African lat would otherwise hit a generic
     HTTP 400; reject locally with a pointer at ERA5-Land instead."""
     from openlimno.preprocess.fetch import fetch_daymet_daily
+
     with pytest.raises(ValueError, match="Daymet"):
         fetch_daymet_daily(48.85, 2.35, 2024, 2024)  # Paris
 
@@ -460,6 +522,7 @@ def test_daymet_stefan_constants_are_named():
         STEFAN_AIR_TO_WATER_A,
         STEFAN_AIR_TO_WATER_B,
     )
+
     assert STEFAN_AIR_TO_WATER_A == 5.0
     assert STEFAN_AIR_TO_WATER_B == 0.75
 
@@ -481,6 +544,7 @@ def test_overpass_query_function_matches_actual_fetch():
         build_overpass_query,
         fetch_river_polyline,
     )
+
     # Sanity: build_overpass_query is called from fetch_river_polyline
     src = inspect.getsource(fetch_river_polyline)
     assert "build_overpass_query(" in src, (
@@ -508,6 +572,7 @@ def test_dem_accepts_3deg_bbox():
     # coverage at high lat) so we can tell that the size-cap check
     # already passed.
     from openlimno.preprocess.fetch.dem import fetch_copernicus_dem
+
     # 1°×1° well under cap — would proceed to fetch, but we don't
     # have network in the test; we expect it to raise something OTHER
     # than the size-cap error.
@@ -523,6 +588,7 @@ def test_dem_accepts_3deg_bbox():
 # ---------------------------------------------------------------------
 def test_open_meteo_rejects_inverted_year_range():
     from openlimno.preprocess.fetch import fetch_open_meteo_daily
+
     with pytest.raises(ValueError, match="start_year"):
         fetch_open_meteo_daily(31.23, 121.47, start_year=2024, end_year=2020)
 
@@ -533,6 +599,7 @@ def test_open_meteo_rejects_pre_1940_year():
     locally. Mirrors the Daymet pre-1980 guard.
     """
     from openlimno.preprocess.fetch import fetch_open_meteo_daily
+
     with pytest.raises(ValueError, match="Open-Meteo archive coverage"):
         fetch_open_meteo_daily(31.23, 121.47, start_year=1900, end_year=1905)
 
@@ -544,6 +611,7 @@ def test_open_meteo_rejects_invalid_lat_lon():
     grid cell.
     """
     from openlimno.preprocess.fetch import fetch_open_meteo_daily
+
     with pytest.raises(ValueError, match="lat="):
         fetch_open_meteo_daily(95.0, 121.47, 2024, 2024)
     with pytest.raises(ValueError, match="lon="):
@@ -557,13 +625,16 @@ def test_open_meteo_reuses_stefan_constants_from_daymet():
     T_water columns. Single source of truth lives in daymet.py.
     """
     from openlimno.preprocess.fetch import daymet, openmeteo
+
     assert openmeteo.STEFAN_AIR_TO_WATER_A is daymet.STEFAN_AIR_TO_WATER_A
     assert openmeteo.STEFAN_AIR_TO_WATER_B is daymet.STEFAN_AIR_TO_WATER_B
 
 
 def _fake_open_meteo_response(
-    *, include_precip: bool = False,
-    elevation: float = 12.0, snapped_lat: float = 31.25,
+    *,
+    include_precip: bool = False,
+    elevation: float = 12.0,
+    snapped_lat: float = 31.25,
     snapped_lon: float = 121.5,
 ) -> bytes:
     """Build a minimal Open-Meteo archive JSON payload (3-day window)."""
@@ -586,7 +657,8 @@ def _fake_open_meteo_response(
 
 
 def test_open_meteo_parses_response_into_daymet_compatible_schema(
-    monkeypatch, tmp_path,
+    monkeypatch,
+    tmp_path,
 ):
     """End-to-end parse path: inject a canned JSON payload via the
     cache (so no network is needed), then verify the produced
@@ -596,19 +668,27 @@ def test_open_meteo_parses_response_into_daymet_compatible_schema(
 
     class _Resp:
         content = _fake_open_meteo_response()
-        def raise_for_status(self): pass
+
+        def raise_for_status(self):
+            pass
 
     def fake_get(url, params=None, timeout=None):  # noqa: ARG001
         return _Resp()
 
     monkeypatch.setattr(
-        "openlimno.preprocess.fetch.openmeteo.requests.get", fake_get,
+        "openlimno.preprocess.fetch.openmeteo.requests.get",
+        fake_get,
     )
     from openlimno.preprocess.fetch import fetch_open_meteo_daily
+
     res = fetch_open_meteo_daily(31.23, 121.47, 2024, 2024)
 
     assert list(res.df.columns) == [
-        "time", "tmax_C", "tmin_C", "T_air_C_mean", "T_water_C_stefan",
+        "time",
+        "tmax_C",
+        "tmin_C",
+        "T_air_C_mean",
+        "T_water_C_stefan",
     ], "schema must equal Daymet's so downstream code is source-agnostic"
     assert len(res.df) == 3
     # Stefan check: a=5.0, b=0.75 → at tmean=26, T_water=24.5
@@ -629,15 +709,22 @@ def test_open_meteo_include_precip_adds_column(monkeypatch, tmp_path):
 
     class _Resp:
         content = _fake_open_meteo_response(include_precip=True)
-        def raise_for_status(self): pass
+
+        def raise_for_status(self):
+            pass
 
     monkeypatch.setattr(
         "openlimno.preprocess.fetch.openmeteo.requests.get",
         lambda url, params=None, timeout=None: _Resp(),
     )
     from openlimno.preprocess.fetch import fetch_open_meteo_daily
+
     res = fetch_open_meteo_daily(
-        31.23, 121.47, 2024, 2024, include_precip=True,
+        31.23,
+        121.47,
+        2024,
+        2024,
+        include_precip=True,
     )
     assert "prcp_mm" in res.df.columns
     assert res.df["prcp_mm"].tolist() == [0.0, 1.5, 8.2]
@@ -648,8 +735,11 @@ def test_open_meteo_water_temp_is_clipped_at_zero(monkeypatch, tmp_path):
     streams in ice-free state stay ≥ 0 °C. Same clip as Daymet."""
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     payload = {
-        "latitude": 60.0, "longitude": 30.0, "elevation": 100.0,
-        "timezone": "UTC", "utc_offset_seconds": 0,
+        "latitude": 60.0,
+        "longitude": 30.0,
+        "elevation": 100.0,
+        "timezone": "UTC",
+        "utc_offset_seconds": 0,
         "daily": {
             "time": ["2024-01-01"],
             "temperature_2m_max": [-10.0],
@@ -659,13 +749,16 @@ def test_open_meteo_water_temp_is_clipped_at_zero(monkeypatch, tmp_path):
 
     class _Resp:
         content = json.dumps(payload).encode()
-        def raise_for_status(self): pass
+
+        def raise_for_status(self):
+            pass
 
     monkeypatch.setattr(
         "openlimno.preprocess.fetch.openmeteo.requests.get",
         lambda url, params=None, timeout=None: _Resp(),
     )
     from openlimno.preprocess.fetch import fetch_open_meteo_daily
+
     res = fetch_open_meteo_daily(60.0, 30.0, 2024, 2024)
     # T_air_mean = -15. Stefan(−15) = 5 + 0.75×(−15) = −6.25 → clipped 0.
     assert res.df.iloc[0]["T_water_C_stefan"] == 0.0
@@ -678,16 +771,22 @@ def test_open_meteo_raises_on_missing_daily_block(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
 
     class _Resp:
-        content = json.dumps({
-            "error": True, "reason": "rate limited",
-        }).encode()
-        def raise_for_status(self): pass
+        content = json.dumps(
+            {
+                "error": True,
+                "reason": "rate limited",
+            }
+        ).encode()
+
+        def raise_for_status(self):
+            pass
 
     monkeypatch.setattr(
         "openlimno.preprocess.fetch.openmeteo.requests.get",
         lambda url, params=None, timeout=None: _Resp(),
     )
     from openlimno.preprocess.fetch import fetch_open_meteo_daily
+
     with pytest.raises(RuntimeError, match="missing 'daily'"):
         fetch_open_meteo_daily(31.23, 121.47, 2024, 2024)
 
@@ -703,26 +802,31 @@ def test_open_meteo_cache_key_includes_bbox_like_params(monkeypatch, tmp_path):
         def __init__(self, lat, lon):
             self._lat = lat
             self._lon = lon
+
         @property
         def content(self):
             return _fake_open_meteo_response(
-                snapped_lat=self._lat, snapped_lon=self._lon,
+                snapped_lat=self._lat,
+                snapped_lon=self._lon,
             )
-        def raise_for_status(self): pass
+
+        def raise_for_status(self):
+            pass
 
     def fake_get(url, params=None, timeout=None):  # noqa: ARG001
         call_log.append(dict(params))
         return _Resp(float(params["latitude"]), float(params["longitude"]))
 
     monkeypatch.setattr(
-        "openlimno.preprocess.fetch.openmeteo.requests.get", fake_get,
+        "openlimno.preprocess.fetch.openmeteo.requests.get",
+        fake_get,
     )
     from openlimno.preprocess.fetch import fetch_open_meteo_daily
+
     fetch_open_meteo_daily(31.23, 121.47, 2024, 2024)  # Shanghai
     fetch_open_meteo_daily(40.71, -74.01, 2024, 2024)  # NYC
     assert len(call_log) == 2, (
-        "REGRESSION: cache reused Shanghai entry for NYC — cache key "
-        "doesn't include lat/lon"
+        "REGRESSION: cache reused Shanghai entry for NYC — cache key doesn't include lat/lon"
     )
 
 
@@ -731,6 +835,7 @@ def test_open_meteo_cache_key_includes_bbox_like_params(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------
 def test_watershed_sample_points_returns_centroid_plus_4_corners():
     from openlimno.preprocess.fetch import watershed_sample_points
+
     bbox = (100.0, 38.0, 101.0, 39.0)
     pts = watershed_sample_points(bbox, inset_fraction=0.1)
     assert len(pts) == 5
@@ -751,6 +856,7 @@ def test_watershed_sample_points_returns_centroid_plus_4_corners():
 
 def test_watershed_sample_points_rejects_invalid_inputs():
     from openlimno.preprocess.fetch import watershed_sample_points
+
     with pytest.raises(ValueError, match="inset_fraction"):
         watershed_sample_points((0, 0, 1, 1), inset_fraction=0.6)
     with pytest.raises(ValueError, match="Invalid bbox"):
@@ -764,24 +870,29 @@ def test_watershed_bbox_from_geojson_recovers_extent(tmp_path):
     from openlimno.preprocess.fetch.watershed_climate import (
         _watershed_bbox_from_geojson,
     )
+
     geojson = {
         "type": "FeatureCollection",
-        "features": [{
-            "type": "Feature",
-            "properties": {"area_km2": 100.0, "n_basins": 3},
-            "geometry": {
-                "type": "MultiPolygon",
-                "coordinates": [
-                    [[
-                        [100.10, 38.10],
-                        [100.30, 38.10],
-                        [100.30, 38.30],
-                        [100.10, 38.30],
-                        [100.10, 38.10],
-                    ]],
-                ],
-            },
-        }],
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"area_km2": 100.0, "n_basins": 3},
+                "geometry": {
+                    "type": "MultiPolygon",
+                    "coordinates": [
+                        [
+                            [
+                                [100.10, 38.10],
+                                [100.30, 38.10],
+                                [100.30, 38.30],
+                                [100.10, 38.30],
+                                [100.10, 38.10],
+                            ]
+                        ],
+                    ],
+                },
+            }
+        ],
     }
     gp = tmp_path / "ws.geojson"
     gp.write_text(json.dumps(geojson))
@@ -798,14 +909,20 @@ def test_watershed_climate_aggregates_5_points_with_fake_fetcher(tmp_path):
         WatershedClimateResult,
         fetch_watershed_climate,
     )
+
     geojson = {
         "type": "Feature",
         "geometry": {
             "type": "Polygon",
-            "coordinates": [[
-                [100.0, 38.0], [101.0, 38.0],
-                [101.0, 39.0], [100.0, 39.0], [100.0, 38.0],
-            ]],
+            "coordinates": [
+                [
+                    [100.0, 38.0],
+                    [101.0, 38.0],
+                    [101.0, 39.0],
+                    [100.0, 39.0],
+                    [100.0, 38.0],
+                ]
+            ],
         },
     }
     gp = tmp_path / "ws.geojson"
@@ -815,21 +932,26 @@ def test_watershed_climate_aggregates_5_points_with_fake_fetcher(tmp_path):
     class _FakeRes:
         df: object
         citation: str = "fake citation"
+
     @dataclass
     class _Holder:
         df: pd.DataFrame
         citation: str = "fake citation"
+
     import pandas as _pd
+
     @dataclass
     class _Wrap:
         def __init__(self, lat):
             # T linearly depends on lat → spread across the 5 points
-            self.df = _pd.DataFrame({
-                "time": ["2024-01-01", "2024-01-02"],
-                "T_water_C_stefan": [lat + 0.0, lat + 1.0],
-                "T_air_C_mean": [lat - 2.0, lat - 1.0],
-                "prcp_mm": [0.0, 1.0],
-            })
+            self.df = _pd.DataFrame(
+                {
+                    "time": ["2024-01-01", "2024-01-02"],
+                    "T_water_C_stefan": [lat + 0.0, lat + 1.0],
+                    "T_air_C_mean": [lat - 2.0, lat - 1.0],
+                    "prcp_mm": [0.0, 1.0],
+                }
+            )
             self.citation = "fake"
 
     def fake_fetcher(lat, lon, sy, ey):
@@ -841,8 +963,12 @@ def test_watershed_climate_aggregates_5_points_with_fake_fetcher(tmp_path):
     assert res.watershed_bbox == pytest.approx((100.0, 38.0, 101.0, 39.0))
     df = res.df
     assert list(df.columns) == [
-        "time", "T_water_C_mean", "T_water_C_sd", "n_samples",
-        "T_air_C_mean", "prcp_mm_total",
+        "time",
+        "T_water_C_mean",
+        "T_water_C_sd",
+        "n_samples",
+        "T_air_C_mean",
+        "prcp_mm_total",
     ]
     assert len(df) == 2
     # All 5 sample points contribute
@@ -868,12 +994,14 @@ def test_watershed_climate_aggregates_5_points_with_fake_fetcher(tmp_path):
 # ---------------------------------------------------------------------
 def test_hydrosheds_rejects_unknown_region():
     from openlimno.preprocess.fetch import fetch_hydrobasins
+
     with pytest.raises(ValueError, match="not a HydroSHEDS continental code"):
         fetch_hydrobasins(region="xx", level=12)
 
 
 def test_hydrosheds_rejects_invalid_level():
     from openlimno.preprocess.fetch import fetch_hydrobasins
+
     with pytest.raises(ValueError, match="supported range"):
         fetch_hydrobasins(region="as", level=13)
     with pytest.raises(ValueError, match="supported range"):
@@ -908,6 +1036,7 @@ def _build_mini_hydrobasins(shp_dir, basins):
     Returns the .shp Path.
     """
     from osgeo import ogr, osr
+
     shp_path = shp_dir / "hybas_xx_lev12_v1c.shp"
     drv = ogr.GetDriverByName("ESRI Shapefile")
     ds = drv.CreateDataSource(str(shp_path))
@@ -937,17 +1066,34 @@ def test_hydrosheds_upstream_walk_simple_chain(tmp_path):
     upstream(1) = {1,2,3}; upstream(4) = {4}.
     """
     basins = [
-        {"hybas_id": 1, "next_down": 0, "sub_area": 100.0,
-         "wkt": "POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))"},
-        {"hybas_id": 2, "next_down": 1, "sub_area":  50.0,
-         "wkt": "POLYGON((1 0, 2 0, 2 1, 1 1, 1 0))"},
-        {"hybas_id": 3, "next_down": 2, "sub_area":  20.0,
-         "wkt": "POLYGON((2 0, 3 0, 3 1, 2 1, 2 0))"},
-        {"hybas_id": 4, "next_down": 0, "sub_area": 999.0,
-         "wkt": "POLYGON((10 10, 11 10, 11 11, 10 11, 10 10))"},
+        {
+            "hybas_id": 1,
+            "next_down": 0,
+            "sub_area": 100.0,
+            "wkt": "POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))",
+        },
+        {
+            "hybas_id": 2,
+            "next_down": 1,
+            "sub_area": 50.0,
+            "wkt": "POLYGON((1 0, 2 0, 2 1, 1 1, 1 0))",
+        },
+        {
+            "hybas_id": 3,
+            "next_down": 2,
+            "sub_area": 20.0,
+            "wkt": "POLYGON((2 0, 3 0, 3 1, 2 1, 2 0))",
+        },
+        {
+            "hybas_id": 4,
+            "next_down": 0,
+            "sub_area": 999.0,
+            "wkt": "POLYGON((10 10, 11 10, 11 11, 10 11, 10 10))",
+        },
     ]
     shp = _build_mini_hydrobasins(tmp_path, basins)
     from openlimno.preprocess.fetch import upstream_basin_ids
+
     assert upstream_basin_ids(shp, 1) == [1, 2, 3]
     assert upstream_basin_ids(shp, 2) == [2, 3]
     assert upstream_basin_ids(shp, 3) == [3]
@@ -957,11 +1103,16 @@ def test_hydrosheds_upstream_walk_simple_chain(tmp_path):
 @pytest.mark.osgeo
 def test_hydrosheds_upstream_walk_unknown_id_raises(tmp_path):
     basins = [
-        {"hybas_id": 1, "next_down": 0, "sub_area": 1.0,
-         "wkt": "POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))"},
+        {
+            "hybas_id": 1,
+            "next_down": 0,
+            "sub_area": 1.0,
+            "wkt": "POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))",
+        },
     ]
     shp = _build_mini_hydrobasins(tmp_path, basins)
     from openlimno.preprocess.fetch import upstream_basin_ids
+
     with pytest.raises(ValueError, match="not found"):
         upstream_basin_ids(shp, 999)
 
@@ -969,11 +1120,16 @@ def test_hydrosheds_upstream_walk_unknown_id_raises(tmp_path):
 @pytest.mark.osgeo
 def test_hydrosheds_find_basin_at_inside(tmp_path):
     basins = [
-        {"hybas_id": 7, "next_down": 0, "sub_area": 10.0,
-         "wkt": "POLYGON((10 20, 11 20, 11 21, 10 21, 10 20))"},
+        {
+            "hybas_id": 7,
+            "next_down": 0,
+            "sub_area": 10.0,
+            "wkt": "POLYGON((10 20, 11 20, 11 21, 10 21, 10 20))",
+        },
     ]
     shp = _build_mini_hydrobasins(tmp_path, basins)
     from openlimno.preprocess.fetch import find_basin_at
+
     hit = find_basin_at(shp, lat=20.5, lon=10.5)
     assert hit is not None
     assert hit["HYBAS_ID"] == 7
@@ -983,26 +1139,44 @@ def test_hydrosheds_find_basin_at_inside(tmp_path):
 @pytest.mark.osgeo
 def test_hydrosheds_find_basin_at_outside_returns_none(tmp_path):
     basins = [
-        {"hybas_id": 7, "next_down": 0, "sub_area": 10.0,
-         "wkt": "POLYGON((10 20, 11 20, 11 21, 10 21, 10 20))"},
+        {
+            "hybas_id": 7,
+            "next_down": 0,
+            "sub_area": 10.0,
+            "wkt": "POLYGON((10 20, 11 20, 11 21, 10 21, 10 20))",
+        },
     ]
     shp = _build_mini_hydrobasins(tmp_path, basins)
     from openlimno.preprocess.fetch import find_basin_at
+
     assert find_basin_at(shp, lat=0.0, lon=0.0) is None
 
 
 @pytest.mark.osgeo
 def test_hydrosheds_write_watershed_geojson_aggregates_area(tmp_path):
     basins = [
-        {"hybas_id": 1, "next_down": 0, "sub_area": 100.0,
-         "wkt": "POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))"},
-        {"hybas_id": 2, "next_down": 1, "sub_area":  50.0,
-         "wkt": "POLYGON((1 0, 2 0, 2 1, 1 1, 1 0))"},
-        {"hybas_id": 3, "next_down": 2, "sub_area":  20.0,
-         "wkt": "POLYGON((2 0, 3 0, 3 1, 2 1, 2 0))"},
+        {
+            "hybas_id": 1,
+            "next_down": 0,
+            "sub_area": 100.0,
+            "wkt": "POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))",
+        },
+        {
+            "hybas_id": 2,
+            "next_down": 1,
+            "sub_area": 50.0,
+            "wkt": "POLYGON((1 0, 2 0, 2 1, 1 1, 1 0))",
+        },
+        {
+            "hybas_id": 3,
+            "next_down": 2,
+            "sub_area": 20.0,
+            "wkt": "POLYGON((2 0, 3 0, 3 1, 2 1, 2 0))",
+        },
     ]
     shp = _build_mini_hydrobasins(tmp_path, basins)
     from openlimno.preprocess.fetch import write_watershed_geojson
+
     out = tmp_path / "ws.geojson"
     summary = write_watershed_geojson(shp, [1, 2, 3], out)
     assert out.exists()
@@ -1025,11 +1199,16 @@ def test_hydrosheds_write_watershed_geojson_missing_basin_raises(tmp_path):
     must FAIL — otherwise the produced watershed is a silent
     under-estimate and downstream stats are wrong."""
     basins = [
-        {"hybas_id": 1, "next_down": 0, "sub_area": 100.0,
-         "wkt": "POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))"},
+        {
+            "hybas_id": 1,
+            "next_down": 0,
+            "sub_area": 100.0,
+            "wkt": "POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))",
+        },
     ]
     shp = _build_mini_hydrobasins(tmp_path, basins)
     from openlimno.preprocess.fetch import write_watershed_geojson
+
     with pytest.raises(RuntimeError, match="Missing first 5"):
         write_watershed_geojson(shp, [1, 99], tmp_path / "ws.geojson")
 
@@ -1053,6 +1232,7 @@ def test_hydrosheds_does_not_enable_global_ogr_exceptions():
     from osgeo import ogr
 
     import openlimno.preprocess.fetch.hydrosheds  # noqa: F401
+
     # Force a fresh import to be sure module-init didn't leave state
     importlib.reload(openlimno.preprocess.fetch.hydrosheds)
     # In exception mode GetUseExceptions() returns 1.
@@ -1074,24 +1254,34 @@ def test_fetch_package_exposes_all_fetchers_at_top_level():
     ``__all__`` ImportError to flag it.
     """
     from openlimno.preprocess import fetch
+
     expected_callables = [
         # v0.3.0
-        "fetch_copernicus_dem", "fetch_nwis_daily_discharge",
-        "fetch_nwis_rating_curve", "find_nwis_stations_near",
-        "cached_fetch", "record_fetch", "read_sidecar", "verify_sidecar",
+        "fetch_copernicus_dem",
+        "fetch_nwis_daily_discharge",
+        "fetch_nwis_rating_curve",
+        "find_nwis_stations_near",
+        "cached_fetch",
+        "record_fetch",
+        "read_sidecar",
+        "verify_sidecar",
         # v0.3.1
         "fetch_daymet_daily",
         # v0.3.2
         "fetch_open_meteo_daily",
         # v0.3.3
-        "fetch_hydrobasins", "fetch_hydrorivers", "find_basin_at",
-        "upstream_basin_ids", "write_watershed_geojson",
+        "fetch_hydrobasins",
+        "fetch_hydrorivers",
+        "find_basin_at",
+        "upstream_basin_ids",
+        "write_watershed_geojson",
         # v0.3.4
         "fetch_esa_worldcover",
         # v0.3.5
         "fetch_soilgrids",
         # v0.3.6
-        "match_species", "fetch_gbif_occurrences",
+        "match_species",
+        "fetch_gbif_occurrences",
     ]
     for name in expected_callables:
         attr = getattr(fetch, name, None)
@@ -1112,18 +1302,23 @@ def test_fetch_package_exposes_all_result_dataclasses():
     annotations (`OpenMeteoFetchResult`, etc.) rely on these being
     re-exported at the package root."""
     from openlimno.preprocess import fetch
+
     expected_types = [
-        "CacheEntry", "DEMFetchResult", "NWISFetchResult",
-        "DaymetFetchResult", "OpenMeteoFetchResult",
-        "HydroshedsLayerResult", "WorldCoverFetchResult",
+        "CacheEntry",
+        "DEMFetchResult",
+        "NWISFetchResult",
+        "DaymetFetchResult",
+        "OpenMeteoFetchResult",
+        "HydroshedsLayerResult",
+        "WorldCoverFetchResult",
         "SoilGridsFetchResult",
-        "SpeciesMatchResult", "SpeciesOccurrencesResult",
+        "SpeciesMatchResult",
+        "SpeciesOccurrencesResult",
         "ExternalSourceRecord",
     ]
     for name in expected_types:
         assert isinstance(getattr(fetch, name, None), type), (
-            f"REGRESSION: {name} not exported as a type at "
-            f"openlimno.preprocess.fetch"
+            f"REGRESSION: {name} not exported as a type at openlimno.preprocess.fetch"
         )
         assert name in fetch.__all__
 
@@ -1140,6 +1335,7 @@ def test_cn_hydro_fetch_raises_when_no_adapter_registered():
         ChinaHydroNotEnabledError,
         fetch_china_discharge,
     )
+
     with pytest.raises(ChinaHydroNotEnabledError) as exc:
         fetch_china_discharge("mwr_river", "60100200", "2024-01-01", "2024-01-07")
     msg = str(exc.value)
@@ -1151,6 +1347,7 @@ def test_cn_hydro_list_registered_adapters_empty_by_default():
     """OpenLimno itself MUST never register an adapter. Pin the
     registry empty so a future PR that quietly adds one is caught."""
     from openlimno.preprocess.fetch import list_registered_adapters
+
     assert list_registered_adapters() == []
 
 
@@ -1171,15 +1368,19 @@ def test_cn_hydro_register_adapter_dispatches_correctly():
 
     class _FakeAdapter(ChinaHydroAdapter):
         source_key = "test_fake_source"
+
         def fetch_discharge(self, station_id, start, end):
-            df = pd.DataFrame({
-                "time": [f"{start} 08:00:00"],
-                "discharge_m3s": [42.0],
-                "water_level_m": [3.14],
-                "station_id": [station_id],
-            })
+            df = pd.DataFrame(
+                {
+                    "time": [f"{start} 08:00:00"],
+                    "discharge_m3s": [42.0],
+                    "water_level_m": [3.14],
+                    "station_id": [station_id],
+                }
+            )
             return ChinaDischargeResult(
-                df=df, station_id=station_id,
+                df=df,
+                station_id=station_id,
                 source_name="test_fake_source",
                 citation="Fake citation for unit test",
             )
@@ -1188,7 +1389,10 @@ def test_cn_hydro_register_adapter_dispatches_correctly():
         register_adapter(_FakeAdapter())
         assert "test_fake_source" in list_registered_adapters()
         res = fetch_china_discharge(
-            "test_fake_source", "60100200", "2024-01-01", "2024-01-07",
+            "test_fake_source",
+            "60100200",
+            "2024-01-01",
+            "2024-01-07",
         )
         assert res.station_id == "60100200"
         assert res.df.iloc[0]["discharge_m3s"] == 42.0
@@ -1205,10 +1409,13 @@ def test_cn_hydro_register_rejects_empty_source_key():
         ChinaHydroAdapter,
         register_adapter,
     )
+
     class _BadAdapter(ChinaHydroAdapter):
         source_key = ""  # not allowed
+
         def fetch_discharge(self, station_id, start, end):
             raise NotImplementedError
+
     with pytest.raises(ValueError, match="non-empty string"):
         register_adapter(_BadAdapter())
 
@@ -1222,9 +1429,16 @@ def test_cn_hydro_module_contains_no_crawler_imports():
     import inspect
 
     from openlimno.preprocess.fetch import cn_hydro
+
     src = inspect.getsource(cn_hydro)
-    for forbidden in ("import requests", "import httpx", "import bs4",
-                      "import lxml", "import fontTools", "from fontTools"):
+    for forbidden in (
+        "import requests",
+        "import httpx",
+        "import bs4",
+        "import lxml",
+        "import fontTools",
+        "from fontTools",
+    ):
         assert forbidden not in src, (
             f"REGRESSION: cn_hydro.py contains {forbidden!r} — that "
             f"violates the v0.4 fetch-system charter (no crawler code "
@@ -1241,6 +1455,7 @@ def test_fishbase_starter_table_includes_common_phabsim_species():
     `examples/lemhi/quickstart.py` etc. lose their habitat-traits
     fallback."""
     from openlimno.preprocess.fetch import list_starter_species
+
     species = list_starter_species()
     # Lemhi case uses Oncorhynchus mykiss; anywhere_bbox uses
     # Schizothorax prenanti; common carp / Atlantic salmon /
@@ -1253,9 +1468,7 @@ def test_fishbase_starter_table_includes_common_phabsim_species():
         "Ctenopharyngodon idella",
         "Schizothorax prenanti",
     ):
-        assert required in species, (
-            f"REGRESSION: {required!r} dropped from FishBase starter table"
-        )
+        assert required in species, f"REGRESSION: {required!r} dropped from FishBase starter table"
 
 
 def test_fishbase_traits_returns_dataclass_for_known_species():
@@ -1265,6 +1478,7 @@ def test_fishbase_traits_returns_dataclass_for_known_species():
         FishBaseTraits,
         fetch_fishbase_traits,
     )
+
     t = fetch_fishbase_traits("Oncorhynchus mykiss")
     assert t is not None
     assert isinstance(t, FishBaseTraits)
@@ -1283,6 +1497,7 @@ def test_fishbase_traits_is_case_insensitive():
     the lookup must be case-insensitive so users don't get false
     'not in starter table' answers."""
     from openlimno.preprocess.fetch import fetch_fishbase_traits
+
     a = fetch_fishbase_traits("Salmo trutta")
     b = fetch_fishbase_traits("salmo trutta")
     c = fetch_fishbase_traits("SALMO TRUTTA")
@@ -1294,11 +1509,13 @@ def test_fishbase_traits_returns_none_for_unknown():
     """A no-match return must be ``None`` (callable's responsibility
     to fall back to a manual species-traits YAML) — NOT a raise."""
     from openlimno.preprocess.fetch import fetch_fishbase_traits
+
     assert fetch_fishbase_traits("Frabnitzia notarealius") is None
 
 
 def test_fishbase_traits_rejects_empty_name():
     from openlimno.preprocess.fetch import fetch_fishbase_traits
+
     with pytest.raises(ValueError, match="non-empty"):
         fetch_fishbase_traits("")
     with pytest.raises(ValueError, match="non-empty"):
@@ -1313,6 +1530,7 @@ def test_fishbase_starter_csv_water_types_all_valid():
         fetch_fishbase_traits,
         list_starter_species,
     )
+
     for name in list_starter_species():
         t = fetch_fishbase_traits(name)
         assert t.water_type in WATER_TYPES, (
@@ -1326,6 +1544,7 @@ def test_fishbase_starter_csv_iucn_codes_all_valid():
         fetch_fishbase_traits,
         list_starter_species,
     )
+
     for name in list_starter_species():
         t = fetch_fishbase_traits(name)
         assert t.iucn_status in IUCN_STATUSES, (
@@ -1340,15 +1559,13 @@ def test_fishbase_starter_csv_temp_ranges_consistent():
         fetch_fishbase_traits,
         list_starter_species,
     )
+
     for name in list_starter_species():
         t = fetch_fishbase_traits(name)
         assert t.temperature_min_C < t.temperature_max_C, (
-            f"{name}: T range inverted ({t.temperature_min_C}, "
-            f"{t.temperature_max_C})"
+            f"{name}: T range inverted ({t.temperature_min_C}, {t.temperature_max_C})"
         )
-        assert t.depth_min_m <= t.depth_max_m, (
-            f"{name}: depth range inverted"
-        )
+        assert t.depth_min_m <= t.depth_max_m, f"{name}: depth range inverted"
 
 
 # ---------------------------------------------------------------------
@@ -1356,6 +1573,7 @@ def test_fishbase_starter_csv_temp_ranges_consistent():
 # ---------------------------------------------------------------------
 def test_species_match_rejects_empty_name():
     from openlimno.preprocess.fetch import match_species
+
     with pytest.raises(ValueError, match="non-empty"):
         match_species("")
     with pytest.raises(ValueError, match="non-empty"):
@@ -1364,22 +1582,24 @@ def test_species_match_rejects_empty_name():
 
 def _fake_gbif_match_response(name="Salmo trutta", usage_key=8215487):
     """Build a minimal /species/match response."""
-    return json.dumps({
-        "usageKey": usage_key,
-        "scientificName": f"{name} Linnaeus, 1758",
-        "canonicalName": name,
-        "rank": "SPECIES",
-        "status": "ACCEPTED",
-        "confidence": 99,
-        "matchType": "EXACT",
-        "kingdom": "Animalia",
-        "phylum": "Chordata",
-        "class": "Actinopterygii",
-        "order": "Salmoniformes",
-        "family": "Salmonidae",
-        "genus": "Salmo",
-        "species": name,
-    }).encode()
+    return json.dumps(
+        {
+            "usageKey": usage_key,
+            "scientificName": f"{name} Linnaeus, 1758",
+            "canonicalName": name,
+            "rank": "SPECIES",
+            "status": "ACCEPTED",
+            "confidence": 99,
+            "matchType": "EXACT",
+            "kingdom": "Animalia",
+            "phylum": "Chordata",
+            "class": "Actinopterygii",
+            "order": "Salmoniformes",
+            "family": "Salmonidae",
+            "genus": "Salmo",
+            "species": name,
+        }
+    ).encode()
 
 
 def test_species_match_parses_response(monkeypatch, tmp_path):
@@ -1387,13 +1607,16 @@ def test_species_match_parses_response(monkeypatch, tmp_path):
 
     class _Resp:
         content = _fake_gbif_match_response()
-        def raise_for_status(self): pass
+
+        def raise_for_status(self):
+            pass
 
     monkeypatch.setattr(
         "openlimno.preprocess.fetch.species.requests.get",
         lambda url, params=None, timeout=None: _Resp(),
     )
     from openlimno.preprocess.fetch import match_species
+
     res = match_species("Salmo trutta")
     assert res.usage_key == 8215487
     assert res.canonical_name == "Salmo trutta"
@@ -1410,17 +1633,24 @@ def test_species_match_handles_no_match(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
 
     class _Resp:
-        content = json.dumps({
-            "confidence": 80, "matchType": "NONE",
-            "synonym": False, "note": "no match",
-        }).encode()
-        def raise_for_status(self): pass
+        content = json.dumps(
+            {
+                "confidence": 80,
+                "matchType": "NONE",
+                "synonym": False,
+                "note": "no match",
+            }
+        ).encode()
+
+        def raise_for_status(self):
+            pass
 
     monkeypatch.setattr(
         "openlimno.preprocess.fetch.species.requests.get",
         lambda url, params=None, timeout=None: _Resp(),
     )
     from openlimno.preprocess.fetch import match_species
+
     res = match_species("Frabnitzia notarealius")
     assert res.usage_key is None
     assert res.match_type == "NONE"
@@ -1429,6 +1659,7 @@ def test_species_match_handles_no_match(monkeypatch, tmp_path):
 
 def test_species_occurrence_rejects_bad_bbox():
     from openlimno.preprocess.fetch import fetch_gbif_occurrences
+
     with pytest.raises(ValueError, match="Invalid bbox"):
         fetch_gbif_occurrences(123, (10.0, 20.0, 5.0, 25.0))  # lon_max < lon_min
     with pytest.raises(ValueError, match="latitudes outside"):
@@ -1437,6 +1668,7 @@ def test_species_occurrence_rejects_bad_bbox():
 
 def test_species_occurrence_rejects_limit_out_of_range():
     from openlimno.preprocess.fetch import fetch_gbif_occurrences
+
     with pytest.raises(ValueError, match="GBIF cap"):
         fetch_gbif_occurrences(123, (10.0, 20.0, 11.0, 21.0), limit=500)
     with pytest.raises(ValueError, match="GBIF cap"):
@@ -1448,32 +1680,36 @@ def test_species_bbox_to_wkt_format():
     explicit closure. Pin the string so an API change is a visible
     diff."""
     from openlimno.preprocess.fetch.species import _bbox_to_wkt
+
     wkt = _bbox_to_wkt((100.10, 38.10, 100.30, 38.30))
-    assert wkt == (
-        "POLYGON(("
-        "100.1 38.1, 100.3 38.1, 100.3 38.3, 100.1 38.3, 100.1 38.1"
-        "))"
-    )
+    assert wkt == ("POLYGON((100.1 38.1, 100.3 38.1, 100.3 38.3, 100.1 38.3, 100.1 38.1))")
 
 
 def _fake_gbif_occurrence_page(count=2, total=2, end=True, offset=0):
     """Build a minimal /occurrence/search response page."""
     results = []
     for i in range(count):
-        results.append({
-            "scientificName": "Salmo trutta Linnaeus, 1758",
-            "decimalLatitude": 38.15 + 0.01 * i,
-            "decimalLongitude": 100.15 + 0.01 * i,
-            "eventDate": f"2024-0{i+1}-15T10:00:00",
-            "basisOfRecord": "HUMAN_OBSERVATION",
-            "datasetName": "iNaturalist",
-            "country": "China",
-            "license": "CC_BY_NC_4_0",
-        })
-    return json.dumps({
-        "offset": offset, "limit": 300, "endOfRecords": end,
-        "count": total, "results": results,
-    }).encode()
+        results.append(
+            {
+                "scientificName": "Salmo trutta Linnaeus, 1758",
+                "decimalLatitude": 38.15 + 0.01 * i,
+                "decimalLongitude": 100.15 + 0.01 * i,
+                "eventDate": f"2024-0{i + 1}-15T10:00:00",
+                "basisOfRecord": "HUMAN_OBSERVATION",
+                "datasetName": "iNaturalist",
+                "country": "China",
+                "license": "CC_BY_NC_4_0",
+            }
+        )
+    return json.dumps(
+        {
+            "offset": offset,
+            "limit": 300,
+            "endOfRecords": end,
+            "count": total,
+            "results": results,
+        }
+    ).encode()
 
 
 def test_species_occurrence_single_page(monkeypatch, tmp_path):
@@ -1481,17 +1717,25 @@ def test_species_occurrence_single_page(monkeypatch, tmp_path):
 
     class _Resp:
         content = _fake_gbif_occurrence_page(count=2, total=2, end=True)
-        def raise_for_status(self): pass
+
+        def raise_for_status(self):
+            pass
 
     monkeypatch.setattr(
         "openlimno.preprocess.fetch.species.requests.get",
         lambda url, params=None, timeout=None: _Resp(),
     )
     from openlimno.preprocess.fetch import fetch_gbif_occurrences
+
     res = fetch_gbif_occurrences(8215487, (100.1, 38.1, 100.3, 38.3))
     assert list(res.df.columns) == [
-        "scientific_name", "decimal_latitude", "decimal_longitude",
-        "event_date", "basis_of_record", "dataset_name", "country",
+        "scientific_name",
+        "decimal_latitude",
+        "decimal_longitude",
+        "event_date",
+        "basis_of_record",
+        "dataset_name",
+        "country",
         "license",
     ]
     assert len(res.df) == 2
@@ -1505,33 +1749,48 @@ def test_species_occurrence_filters_null_coordinates(monkeypatch, tmp_path):
     Filter defensively so downstream geometry never sees NaN."""
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
 
-    payload = json.dumps({
-        "offset": 0, "limit": 300, "endOfRecords": True, "count": 2,
-        "results": [
-            {"scientificName": "X", "decimalLatitude": 38.1,
-             "decimalLongitude": 100.1, "basisOfRecord": "OBS"},
-            {"scientificName": "X", "decimalLatitude": None,
-             "decimalLongitude": None, "basisOfRecord": "OBS"},
-        ],
-    }).encode()
+    payload = json.dumps(
+        {
+            "offset": 0,
+            "limit": 300,
+            "endOfRecords": True,
+            "count": 2,
+            "results": [
+                {
+                    "scientificName": "X",
+                    "decimalLatitude": 38.1,
+                    "decimalLongitude": 100.1,
+                    "basisOfRecord": "OBS",
+                },
+                {
+                    "scientificName": "X",
+                    "decimalLatitude": None,
+                    "decimalLongitude": None,
+                    "basisOfRecord": "OBS",
+                },
+            ],
+        }
+    ).encode()
 
     class _Resp:
         content = payload
-        def raise_for_status(self): pass
+
+        def raise_for_status(self):
+            pass
 
     monkeypatch.setattr(
         "openlimno.preprocess.fetch.species.requests.get",
         lambda url, params=None, timeout=None: _Resp(),
     )
     from openlimno.preprocess.fetch import fetch_gbif_occurrences
+
     res = fetch_gbif_occurrences(123, (100.0, 38.0, 100.5, 38.5))
-    assert len(res.df) == 1, (
-        "REGRESSION: null-coordinate row leaked into the occurrence df"
-    )
+    assert len(res.df) == 1, "REGRESSION: null-coordinate row leaked into the occurrence df"
 
 
 def test_species_occurrence_paginates_until_end_of_records(
-    monkeypatch, tmp_path,
+    monkeypatch,
+    tmp_path,
 ):
     """When endOfRecords=False, the fetcher walks subsequent pages.
     Pin the loop so a future refactor that drops pagination would
@@ -1541,14 +1800,16 @@ def test_species_occurrence_paginates_until_end_of_records(
     pages = [
         _fake_gbif_occurrence_page(count=2, total=5, end=False, offset=0),
         _fake_gbif_occurrence_page(count=2, total=5, end=False, offset=2),
-        _fake_gbif_occurrence_page(count=1, total=5, end=True,  offset=4),
+        _fake_gbif_occurrence_page(count=1, total=5, end=True, offset=4),
     ]
     call = {"n": 0}
 
     class _Resp:
         def __init__(self, content):
             self.content = content
-        def raise_for_status(self): pass
+
+        def raise_for_status(self):
+            pass
 
     def fake_get(url, params=None, timeout=None):
         idx = call["n"]
@@ -1556,11 +1817,16 @@ def test_species_occurrence_paginates_until_end_of_records(
         return _Resp(pages[idx])
 
     monkeypatch.setattr(
-        "openlimno.preprocess.fetch.species.requests.get", fake_get,
+        "openlimno.preprocess.fetch.species.requests.get",
+        fake_get,
     )
     from openlimno.preprocess.fetch import fetch_gbif_occurrences
+
     res = fetch_gbif_occurrences(
-        8215487, (100.1, 38.1, 100.3, 38.3), limit=2, max_pages=10,
+        8215487,
+        (100.1, 38.1, 100.3, 38.3),
+        limit=2,
+        max_pages=10,
     )
     assert call["n"] == 3, f"expected 3 page calls, got {call['n']}"
     assert res.n_pages_fetched == 3
@@ -1575,17 +1841,26 @@ def test_species_occurrence_respects_max_pages_cap(monkeypatch, tmp_path):
 
     class _Resp:
         content = _fake_gbif_occurrence_page(
-            count=2, total=1000, end=False, offset=0,
+            count=2,
+            total=1000,
+            end=False,
+            offset=0,
         )
-        def raise_for_status(self): pass
+
+        def raise_for_status(self):
+            pass
 
     monkeypatch.setattr(
         "openlimno.preprocess.fetch.species.requests.get",
         lambda url, params=None, timeout=None: _Resp(),
     )
     from openlimno.preprocess.fetch import fetch_gbif_occurrences
+
     res = fetch_gbif_occurrences(
-        8215487, (100.1, 38.1, 100.3, 38.3), limit=2, max_pages=1,
+        8215487,
+        (100.1, 38.1, 100.3, 38.3),
+        limit=2,
+        max_pages=1,
     )
     assert res.n_pages_fetched == 1
     assert res.total_matched == 1000  # GBIF says more, but we stopped
@@ -1597,6 +1872,7 @@ def test_species_occurrence_respects_max_pages_cap(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------
 def test_soilgrids_rejects_invalid_lat_lon():
     from openlimno.preprocess.fetch import fetch_soilgrids
+
     with pytest.raises(ValueError, match="lat="):
         fetch_soilgrids(95.0, 100.0)
     with pytest.raises(ValueError, match="lon="):
@@ -1605,18 +1881,21 @@ def test_soilgrids_rejects_invalid_lat_lon():
 
 def test_soilgrids_rejects_unknown_depth():
     from openlimno.preprocess.fetch import fetch_soilgrids
+
     with pytest.raises(ValueError, match="unknown depth"):
         fetch_soilgrids(38.0, 100.0, depths=("0-3cm",))
 
 
 def test_soilgrids_rejects_unknown_statistic():
     from openlimno.preprocess.fetch import fetch_soilgrids
+
     with pytest.raises(ValueError, match="statistic="):
         fetch_soilgrids(38.0, 100.0, statistic="median")
 
 
 def test_soilgrids_rejects_empty_property_list():
     from openlimno.preprocess.fetch import fetch_soilgrids
+
     with pytest.raises(ValueError, match="at least one property"):
         fetch_soilgrids(38.0, 100.0, properties=())
 
@@ -1630,6 +1909,7 @@ def test_soilgrids_constants_match_api_schema():
         DEFAULT_DEPTHS,
         DEFAULT_PROPERTIES,
     )
+
     assert "0-5cm" in ALL_DEPTHS
     assert "100-200cm" in ALL_DEPTHS
     assert "mean" in ALL_STATISTICS
@@ -1647,24 +1927,31 @@ def _fake_soilgrids_response(properties=("clay", "sand"), depths=("0-5cm",)):
         d_factor = 10 if p in ("clay", "sand", "silt", "soc", "phh2o") else 100
         depth_entries = []
         for d in depths:
-            depth_entries.append({
-                "range": {"top_depth": 0, "bottom_depth": 5, "unit_depth": "cm"},
-                "label": d,
-                "values": {
-                    "Q0.05": 100, "Q0.5": 250, "Q0.95": 400,
-                    "mean": 250, "uncertainty": 50,
+            depth_entries.append(
+                {
+                    "range": {"top_depth": 0, "bottom_depth": 5, "unit_depth": "cm"},
+                    "label": d,
+                    "values": {
+                        "Q0.05": 100,
+                        "Q0.5": 250,
+                        "Q0.95": 400,
+                        "mean": 250,
+                        "uncertainty": 50,
+                    },
+                }
+            )
+        layers.append(
+            {
+                "name": p,
+                "unit_measure": {
+                    "d_factor": d_factor,
+                    "mapped_units": "g/kg" if d_factor == 10 else "cg/cm³",
+                    "target_units": "g/kg" if d_factor == 10 else "kg/dm³",
+                    "uncertainty_unit": "",
                 },
-            })
-        layers.append({
-            "name": p,
-            "unit_measure": {
-                "d_factor": d_factor,
-                "mapped_units": "g/kg" if d_factor == 10 else "cg/cm³",
-                "target_units": "g/kg" if d_factor == 10 else "kg/dm³",
-                "uncertainty_unit": "",
-            },
-            "depths": depth_entries,
-        })
+                "depths": depth_entries,
+            }
+        )
     payload = {
         "type": "Feature",
         "geometry": {"type": "Point", "coordinates": [100.0, 38.0]},
@@ -1682,16 +1969,23 @@ def test_soilgrids_parses_response_and_applies_d_factor(monkeypatch, tmp_path):
 
     class _Resp:
         content = _fake_soilgrids_response(("clay",), ("0-5cm",))
-        def raise_for_status(self): pass
+
+        def raise_for_status(self):
+            pass
 
     monkeypatch.setattr(
         "openlimno.preprocess.fetch.soilgrids.requests.get",
         lambda url, params=None, timeout=None: _Resp(),
     )
     from openlimno.preprocess.fetch import fetch_soilgrids
+
     res = fetch_soilgrids(38.0, 100.0, properties=("clay",), depths=("0-5cm",))
     assert list(res.df.columns) == [
-        "property", "depth", "statistic", "value", "unit",
+        "property",
+        "depth",
+        "statistic",
+        "value",
+        "unit",
     ]
     row = res.df.iloc[0]
     assert row["property"] == "clay"
@@ -1709,13 +2003,16 @@ def test_soilgrids_get_raises_on_missing_combo(monkeypatch, tmp_path):
 
     class _Resp:
         content = _fake_soilgrids_response(("clay",), ("0-5cm",))
-        def raise_for_status(self): pass
+
+        def raise_for_status(self):
+            pass
 
     monkeypatch.setattr(
         "openlimno.preprocess.fetch.soilgrids.requests.get",
         lambda url, params=None, timeout=None: _Resp(),
     )
     from openlimno.preprocess.fetch import fetch_soilgrids
+
     res = fetch_soilgrids(38.0, 100.0, properties=("clay",), depths=("0-5cm",))
     with pytest.raises(KeyError, match="sand"):
         res.get("sand", "0-5cm")
@@ -1728,18 +2025,23 @@ def test_soilgrids_raises_when_response_empty(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
 
     class _Resp:
-        content = json.dumps({
-            "type": "Feature",
-            "geometry": {"type": "Point", "coordinates": [0, 0]},
-            "properties": {"layers": []},
-        }).encode()
-        def raise_for_status(self): pass
+        content = json.dumps(
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [0, 0]},
+                "properties": {"layers": []},
+            }
+        ).encode()
+
+        def raise_for_status(self):
+            pass
 
     monkeypatch.setattr(
         "openlimno.preprocess.fetch.soilgrids.requests.get",
         lambda url, params=None, timeout=None: _Resp(),
     )
     from openlimno.preprocess.fetch import fetch_soilgrids
+
     with pytest.raises(RuntimeError, match="no layers"):
         fetch_soilgrids(0.0, 0.0)
 
@@ -1750,7 +2052,9 @@ def test_soilgrids_cache_key_distinguishes_points(monkeypatch, tmp_path):
 
     class _Resp:
         content = _fake_soilgrids_response(("clay",), ("0-5cm",))
-        def raise_for_status(self): pass
+
+        def raise_for_status(self):
+            pass
 
     def fake_get(url, params=None, timeout=None):
         # params is list of tuples here
@@ -1758,9 +2062,11 @@ def test_soilgrids_cache_key_distinguishes_points(monkeypatch, tmp_path):
         return _Resp()
 
     monkeypatch.setattr(
-        "openlimno.preprocess.fetch.soilgrids.requests.get", fake_get,
+        "openlimno.preprocess.fetch.soilgrids.requests.get",
+        fake_get,
     )
     from openlimno.preprocess.fetch import fetch_soilgrids
+
     fetch_soilgrids(38.0, 100.0, properties=("clay",), depths=("0-5cm",))
     fetch_soilgrids(45.0, -73.0, properties=("clay",), depths=("0-5cm",))
     assert len(seen) == 2, (
@@ -1774,6 +2080,7 @@ def test_soilgrids_cache_key_distinguishes_points(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------
 def test_worldcover_rejects_invalid_bbox():
     from openlimno.preprocess.fetch import fetch_esa_worldcover
+
     with pytest.raises(ValueError, match="Invalid bbox"):
         fetch_esa_worldcover(101.0, 38.0, 100.0, 38.5)  # lon_max < lon_min
 
@@ -1781,6 +2088,7 @@ def test_worldcover_rejects_invalid_bbox():
 def test_worldcover_rejects_out_of_coverage():
     """Antarctica falls outside the (60°S, 84°N) ESA WorldCover window."""
     from openlimno.preprocess.fetch import fetch_esa_worldcover
+
     with pytest.raises(ValueError, match="60.S to 84.N"):
         fetch_esa_worldcover(0.0, -75.0, 1.0, -74.0)
 
@@ -1790,12 +2098,14 @@ def test_worldcover_rejects_antimeridian_crossing():
     hit non-existent tiles or pull the wrong half of the world.
     Reject with a hint at splitting the query."""
     from openlimno.preprocess.fetch import fetch_esa_worldcover
+
     with pytest.raises(ValueError, match="antimeridian"):
         fetch_esa_worldcover(170.0, 0.0, 190.0, 1.0)
 
 
 def test_worldcover_rejects_unknown_year():
     from openlimno.preprocess.fetch import fetch_esa_worldcover
+
     with pytest.raises(ValueError, match="released WorldCover epoch"):
         fetch_esa_worldcover(100.0, 38.0, 100.5, 38.5, year=2022)
 
@@ -1804,12 +2114,14 @@ def test_worldcover_rejects_oversized_bbox():
     """A 30°×30° bbox would pull dozens of 100-MB tiles + OOM the
     merge step. Enforce a deg² cap at the entry point."""
     from openlimno.preprocess.fetch import fetch_esa_worldcover
+
     with pytest.raises(ValueError, match="safety cap"):
         fetch_esa_worldcover(0.0, 0.0, 30.0, 30.0)
 
 
 def test_worldcover_tile_name_n36_e114():
     from openlimno.preprocess.fetch.worldcover import _tile_name
+
     assert _tile_name(36, 114) == "N36E114"
     assert _tile_name(-3, 117) == "S03E117"
     assert _tile_name(36, -123) == "N36W123"
@@ -1822,6 +2134,7 @@ def test_worldcover_tiles_for_bbox_3deg_grid():
     and a bbox straddling a 3° boundary must yield both neighbours.
     """
     from openlimno.preprocess.fetch.worldcover import _tiles_for_bbox
+
     # Inside the N36-E114 tile
     assert _tiles_for_bbox(114.5, 36.5, 114.8, 36.8) == [(36, 114)]
     # Straddle the 117° longitude line → two tiles
@@ -1839,28 +2152,29 @@ def test_worldcover_tiles_for_bbox_exact_3deg_edge_no_extra_tile():
     tiny epsilon to avoid the off-by-one.
     """
     from openlimno.preprocess.fetch.worldcover import _tiles_for_bbox
+
     # lat_max=39.0 is the south edge of the N39 tile; the bbox stays
     # entirely in N36.
     res = _tiles_for_bbox(114.5, 36.5, 114.8, 39.0)
-    assert res == [(36, 114)], (
-        f"REGRESSION: exact-edge bbox pulled extra tile(s): {res}"
-    )
+    assert res == [(36, 114)], f"REGRESSION: exact-edge bbox pulled extra tile(s): {res}"
 
 
 def test_worldcover_class_codes_are_complete():
     """11 LCCS classes — pin them so a future addition (or rename) is
     a visible diff rather than a silent histogram-coverage gap."""
     from openlimno.preprocess.fetch import WORLDCOVER_CLASSES
+
     assert WORLDCOVER_CLASSES[10] == "tree_cover"
     assert WORLDCOVER_CLASSES[40] == "cropland"
     assert WORLDCOVER_CLASSES[80] == "permanent_water_bodies"
     assert WORLDCOVER_CLASSES[95] == "mangroves"
     assert WORLDCOVER_CLASSES[100] == "moss_and_lichen"
-    assert set(WORLDCOVER_CLASSES) == {10,20,30,40,50,60,70,80,90,95,100}
+    assert set(WORLDCOVER_CLASSES) == {10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 100}
 
 
 def test_worldcover_epochs_match_versions():
     from openlimno.preprocess.fetch import WORLDCOVER_EPOCHS
+
     assert WORLDCOVER_EPOCHS == {2020: "v100", 2021: "v200"}
 
 
@@ -1869,6 +2183,7 @@ def test_worldcover_pixel_area_scales_with_cos_lat():
     the equator (cos 60° = 0.5). Pin the cos(lat) correction so an
     inadvertent removal would show up immediately."""
     from openlimno.preprocess.fetch.worldcover import _pixel_area_km2
+
     eq = _pixel_area_km2(0.0, 1.0 / 12000)  # ESA pixel ≈ 1/12000°
     hi = _pixel_area_km2(60.0, 1.0 / 12000)
     assert hi / eq == pytest.approx(0.5, rel=1e-3)
@@ -1884,12 +2199,19 @@ def test_worldcover_compute_class_histogram_aggregates_correctly(tmp_path):
     from openlimno.preprocess.fetch.worldcover import _compute_class_histogram
 
     # 10×10 raster, 5 m pixel (5e-5°) — mix of cropland(40) and built(50).
-    arr = _np.array([[40]*5 + [50]*5]*10, dtype=_np.uint8)
+    arr = _np.array([[40] * 5 + [50] * 5] * 10, dtype=_np.uint8)
     transform = from_origin(100.0, 38.0, 5e-5, 5e-5)
     tif = tmp_path / "fake.tif"
     with rasterio.open(
-        tif, "w", driver="GTiff", height=10, width=10, count=1,
-        dtype="uint8", crs="EPSG:4326", transform=transform,
+        tif,
+        "w",
+        driver="GTiff",
+        height=10,
+        width=10,
+        count=1,
+        dtype="uint8",
+        crs="EPSG:4326",
+        transform=transform,
     ) as dst:
         dst.write(arr, 1)
     counts, km2 = _compute_class_histogram(tif, lat_center=38.0)
@@ -1911,12 +2233,19 @@ def test_worldcover_compute_class_histogram_excludes_nodata(tmp_path):
 
     from openlimno.preprocess.fetch.worldcover import _compute_class_histogram
 
-    arr = _np.array([[0,0,40,40]] * 4, dtype=_np.uint8)
+    arr = _np.array([[0, 0, 40, 40]] * 4, dtype=_np.uint8)
     transform = from_origin(100.0, 38.0, 5e-5, 5e-5)
     tif = tmp_path / "fake.tif"
     with rasterio.open(
-        tif, "w", driver="GTiff", height=4, width=4, count=1,
-        dtype="uint8", crs="EPSG:4326", transform=transform,
+        tif,
+        "w",
+        driver="GTiff",
+        height=4,
+        width=4,
+        count=1,
+        dtype="uint8",
+        crs="EPSG:4326",
+        transform=transform,
     ) as dst:
         dst.write(arr, 1)
     counts, _km2 = _compute_class_histogram(tif, lat_center=38.0)
@@ -1929,6 +2258,7 @@ def test_hydrosheds_url_format_matches_provider_convention():
     distribution; a silent 404 would re-fetch on every cache miss.
     """
     import openlimno.preprocess.fetch.hydrosheds as h
+
     assert "data.hydrosheds.org" in h.HYDROSHEDS_BASE
     assert h.HYDROSHEDS_REGIONS["as"] == "Asia"
     assert 12 in h.HYDROBASINS_LEVELS

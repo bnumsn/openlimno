@@ -9,6 +9,7 @@ R17-4: AEQD antimeridian-aware longitude mean.
 R17-5: Transformer.from_crs cached.
 R17-10: _open_safe context-manager wrapper.
 """
+
 from __future__ import annotations
 
 import textwrap
@@ -81,11 +82,9 @@ def test_v360_r171_file_uri_case_insensitive() -> None:
     """v3.6.0 R17-1 (gemini): ``FILE://`` (uppercase scheme) is
     a valid RFC 3986 §3.1 form and must redact the same as
     ``file://``. Pre-v3.6.0 only the lowercase form matched."""
-    for form in ("file:///etc/secret", "FILE:///etc/secret",
-                 "File:///etc/secret"):
+    for form in ("file:///etc/secret", "FILE:///etc/secret", "File:///etc/secret"):
         assert _uri_looks_absolute(form), (
-            f"v3.6.0 R17-1 regression: {form!r} not detected "
-            f"as absolute (case-sensitivity bug)."
+            f"v3.6.0 R17-1 regression: {form!r} not detected as absolute (case-sensitivity bug)."
         )
 
 
@@ -106,6 +105,7 @@ def test_v360_r172_open_safe_fd_docstring_no_false_windows_claim() -> None:
     is honest about this. Pin via source-inspection that the
     false claim is gone."""
     import inspect
+
     src = inspect.getsource(Case._open_safe_fd)
     assert "post-open fstat consistency check" not in src, (
         "v3.6.0 R17-2 regression: the false Windows-fstat claim "
@@ -127,8 +127,7 @@ def test_v360_r174_aeqd_antimeridian_centre() -> None:
     coords = [(179.5, 70.0), (-179.5, 70.0)]
     geom = riparian_buffer_from_polyline(coords, buffer_m=5000.0)
     assert geom.is_valid, (
-        "v3.6.0 R17-4 regression: dateline-crossing polyline "
-        "produced an invalid geometry."
+        "v3.6.0 R17-4 regression: dateline-crossing polyline produced an invalid geometry."
     )
     assert geom.area > 0
 
@@ -154,8 +153,7 @@ def test_v360_r175_transformer_cached_across_calls() -> None:
         _aeqd_transformer_to(70, -120)
     info = _aeqd_transformer_to.cache_info()
     assert info.misses == 1 and info.hits == 4, (
-        f"v3.6.0 R17-5 regression: cache stats wrong — "
-        f"{info}. Expected 1 miss + 4 hits."
+        f"v3.6.0 R17-5 regression: cache stats wrong — {info}. Expected 1 miss + 4 hits."
     )
 
 
@@ -183,6 +181,7 @@ def test_v360_r1710_open_safe_closes_on_exception(tmp_path: Path) -> None:
     instead, just confirm the exception propagates AND no
     ResourceWarning is emitted."""
     import warnings
+
     case = _make_case(tmp_path / "case_dir")
     target = case.case_dir / "data.txt"
     target.write_text("hi\n")
@@ -229,14 +228,17 @@ def test_v360_r173_trust_roots_fallback_emits_diagnostic(
         wua_q_plot=tmp_path / "out" / "wua_q_curve.png",
     )
     monkeypatch.setattr(
-        ctl_mod, "run_case_with_plots", lambda *a, **kw: fake_result,
+        ctl_mod,
+        "run_case_with_plots",
+        lambda *a, **kw: fake_result,
     )
 
     # Build a SYNTACTICALLY-BROKEN YAML so Case.from_yaml raises
     # YAMLError on parse — the new except path.
     broken_yaml = tmp_path / "broken.yaml"
     broken_yaml.write_text(
-        "openlimno: '0.2'\ncase: { name: t,\n", encoding="utf-8",
+        "openlimno: '0.2'\ncase: { name: t,\n",
+        encoding="utf-8",
     )
     summary, _png, trust_roots = ctl_mod._run_case_for_worker(broken_yaml)
     captured = capsys.readouterr()

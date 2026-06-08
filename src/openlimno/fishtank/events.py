@@ -72,7 +72,7 @@ class Event:
     day: float
     kind: str
     value: float
-    target: str = ""        # for kind="dose": which state to bump
+    target: str = ""  # for kind="dose": which state to bump
     repeat_days: float = 0.0
 
     def __post_init__(self) -> None:
@@ -153,7 +153,10 @@ class EventSchedule:
 
 
 def apply_event(
-    chem: Chemistry, params: Params, event: Event, tap: TapWater,
+    chem: Chemistry,
+    params: Params,
+    event: Event,
+    tap: TapWater,
 ) -> tuple[Chemistry, Params]:
     """Apply one event, returning (new_chemistry, new_params).
 

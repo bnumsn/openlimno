@@ -81,12 +81,14 @@ def test_calibrate_respects_bounds() -> None:
 
 def _write_minimal_calibration_case(tmp_path):
     xs_path = tmp_path / "cross_section.parquet"
-    pd.DataFrame({
-        "station_m": [0.0, 0.0, 0.0, 0.0],
-        "point_index": [0, 1, 2, 3],
-        "distance_m": [-5.0, -4.999, 4.999, 5.0],
-        "elevation_m": [5.0, 0.0, 0.0, 5.0],
-    }).to_parquet(xs_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0, 0.0, 0.0, 0.0],
+            "point_index": [0, 1, 2, 3],
+            "distance_m": [-5.0, -4.999, 4.999, 5.0],
+            "elevation_m": [5.0, 0.0, 0.0, 5.0],
+        }
+    ).to_parquet(xs_path, index=False)
     (tmp_path / "mesh.nc").write_bytes(b"placeholder")
     case_yaml = tmp_path / "case.yaml"
     case_yaml.write_text(

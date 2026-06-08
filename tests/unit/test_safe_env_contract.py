@@ -11,6 +11,7 @@ The test invokes ``safe_env env`` from a poisoned environment and
 parses the resulting variable list. A regression that adds a forbidden
 prefix to the allowlist would fail immediately.
 """
+
 from __future__ import annotations
 
 import os
@@ -70,7 +71,11 @@ def _run_safe_env_dump(extra_env: dict) -> dict:
     # Bash-source the snippet then run ``safe_env env``.
     cmd = ["bash", "-c", f". '{SAFE_ENV_SH}' && safe_env env"]
     result = subprocess.run(
-        cmd, env=poisoned_env, capture_output=True, text=True, check=True,
+        cmd,
+        env=poisoned_env,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     out: dict = {}
     for line in result.stdout.splitlines():
@@ -118,9 +123,16 @@ def test_safe_env_drops_unknown_arbitrary_var():
     )
 
 
-@pytest.mark.parametrize("prefix_pattern", [
-    "OPENAI_", "ANTHROPIC_", "GOOGLE_", "GEMINI_", "CODEX_",
-])
+@pytest.mark.parametrize(
+    "prefix_pattern",
+    [
+        "OPENAI_",
+        "ANTHROPIC_",
+        "GOOGLE_",
+        "GEMINI_",
+        "CODEX_",
+    ],
+)
 def test_safe_env_blocks_provider_prefix_wildcard(prefix_pattern):
     """For each provider prefix, a hypothetical brand-new env var
     must be dropped. Defends against the blocklist-creep failure mode
@@ -136,10 +148,19 @@ def test_safe_env_blocks_provider_prefix_wildcard(prefix_pattern):
     )
 
 
-@pytest.mark.parametrize("var", [
-    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
-    "http_proxy", "https_proxy", "no_proxy", "all_proxy",
-])
+@pytest.mark.parametrize(
+    "var",
+    [
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
+        "all_proxy",
+    ],
+)
 def test_safe_env_preserves_proxy_vars(var):
     """Corporate-network users have proxy vars set; without them
     reviewer CLIs can't reach their backends. The allowlist must
@@ -156,10 +177,16 @@ def test_safe_env_preserves_proxy_vars(var):
     )
 
 
-@pytest.mark.parametrize("var", [
-    "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
-    "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS",
-])
+@pytest.mark.parametrize(
+    "var",
+    [
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "REQUESTS_CA_BUNDLE",
+        "CURL_CA_BUNDLE",
+        "NODE_EXTRA_CA_CERTS",
+    ],
+)
 def test_safe_env_preserves_ca_bundle_vars(var):
     """Intercepting-proxy / custom-CA setups need these. Gemini CLI
     is a Node app — ``NODE_EXTRA_CA_CERTS`` matters specifically for
@@ -177,18 +204,21 @@ def test_safe_env_preserves_ca_bundle_vars(var):
     )
 
 
-@pytest.mark.parametrize(("var", "value"), [
-    ("LANG", "en_US.UTF-8"),
-    ("LC_ALL", "en_US.UTF-8"),
-    ("TMPDIR", "/var/tmp"),
-    ("XDG_DATA_HOME", "/home/u/.local/share"),
-    ("XDG_CONFIG_HOME", "/home/u/.config"),
-    ("XDG_CACHE_HOME", "/home/u/.cache"),
-    ("XDG_RUNTIME_DIR", "/run/user/1000"),
-    ("USER", "testuser"),
-    ("SHELL", "/usr/bin/zsh"),
-    ("TERM", "xterm-256color"),
-])
+@pytest.mark.parametrize(
+    ("var", "value"),
+    [
+        ("LANG", "en_US.UTF-8"),
+        ("LC_ALL", "en_US.UTF-8"),
+        ("TMPDIR", "/var/tmp"),
+        ("XDG_DATA_HOME", "/home/u/.local/share"),
+        ("XDG_CONFIG_HOME", "/home/u/.config"),
+        ("XDG_CACHE_HOME", "/home/u/.cache"),
+        ("XDG_RUNTIME_DIR", "/run/user/1000"),
+        ("USER", "testuser"),
+        ("SHELL", "/usr/bin/zsh"),
+        ("TERM", "xterm-256color"),
+    ],
+)
 def test_safe_env_preserves_runtime_locale_xdg_vars(var, value):
     """Locale + XDG dirs + tempdir + shell metadata must pass through.
 
@@ -216,9 +246,12 @@ def test_safe_env_preserves_display_for_oauth_flow():
     DISPLAY (or WAYLAND_DISPLAY), the CLI falls back to console-only
     auth which is harder to drive headlessly.
     """
-    inside = _run_safe_env_dump({
-        "DISPLAY": ":0", "WAYLAND_DISPLAY": "wayland-0",
-    })
+    inside = _run_safe_env_dump(
+        {
+            "DISPLAY": ":0",
+            "WAYLAND_DISPLAY": "wayland-0",
+        }
+    )
     assert inside.get("DISPLAY") == ":0"
     assert inside.get("WAYLAND_DISPLAY") == "wayland-0"
 
@@ -230,8 +263,10 @@ def test_triple_review_script_sources_safe_env():
     real invocation path.
     """
     script = (REPO / "scripts" / "triple_review.sh").read_text()
-    assert ". \"$(dirname \"$0\")/lib/safe_env.sh\"" in script or \
-           "source \"$(dirname \"$0\")/lib/safe_env.sh\"" in script, (
+    assert (
+        '. "$(dirname "$0")/lib/safe_env.sh"' in script
+        or 'source "$(dirname "$0")/lib/safe_env.sh"' in script
+    ), (
         "triple_review.sh must source scripts/lib/safe_env.sh so the "
         "contract tested in this file applies to actual reviewer "
         "invocations. If you inlined a copy, the contract diverges."
@@ -242,9 +277,5 @@ def test_triple_review_script_sources_safe_env():
         "Legacy env -u OPENAI_* blocklist still present in "
         "triple_review.sh — should be using safe_env"
     )
-    assert "env -u ANTHROPIC_" not in script, (
-        "Legacy env -u ANTHROPIC_* blocklist still present"
-    )
-    assert "env -u GOOGLE_" not in script, (
-        "Legacy env -u GOOGLE_* blocklist still present"
-    )
+    assert "env -u ANTHROPIC_" not in script, "Legacy env -u ANTHROPIC_* blocklist still present"
+    assert "env -u GOOGLE_" not in script, "Legacy env -u GOOGLE_* blocklist still present"

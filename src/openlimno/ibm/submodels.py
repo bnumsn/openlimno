@@ -164,7 +164,9 @@ def validate_submodel_selection(selection: Mapping[str, object] | None) -> list[
             continue
         if raw_id not in ids_by_slot[slot]:
             allowed = ", ".join(sorted(ids_by_slot[slot]))
-            errors.append(f"submodels/{slot}: unsupported submodel id {raw_id!r}; expected {allowed}")
+            errors.append(
+                f"submodels/{slot}: unsupported submodel id {raw_id!r}; expected {allowed}"
+            )
     return errors
 
 

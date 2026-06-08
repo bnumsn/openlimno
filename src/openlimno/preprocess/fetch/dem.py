@@ -16,6 +16,7 @@ Where the tile covers a 1°×1° patch centered at the named integer
 lat/lon. We pick all tiles overlapping the user bbox and merge them
 with rasterio.merge.
 """
+
 from __future__ import annotations
 
 import math
@@ -82,7 +83,10 @@ def _tiles_for_bbox(
 
 
 def fetch_copernicus_dem(
-    lon_min: float, lat_min: float, lon_max: float, lat_max: float,
+    lon_min: float,
+    lat_min: float,
+    lon_max: float,
+    lat_max: float,
     out_path: str | Path | None = None,
 ) -> DEMFetchResult:
     """Fetch Copernicus GLO-30 DEM over a lat/lon bbox.
@@ -139,8 +143,10 @@ def fetch_copernicus_dem(
         # would reuse the smaller earlier subset and silently produce
         # mostly-zero rasters outside the original window.
         tile_params = {
-            "lon_min": round(lon_min, 6), "lat_min": round(lat_min, 6),
-            "lon_max": round(lon_max, 6), "lat_max": round(lat_max, 6),
+            "lon_min": round(lon_min, 6),
+            "lat_min": round(lat_min, 6),
+            "lon_max": round(lon_max, 6),
+            "lat_max": round(lat_max, 6),
         }
         try:
             ce = cached_fetch(
@@ -187,8 +193,7 @@ def fetch_copernicus_dem(
 
     if out_path is None:
         out_path = cache_dir("dem") / (
-            f"cop30_merge_{lon_min:.4f}_{lat_min:.4f}_"
-            f"{lon_max:.4f}_{lat_max:.4f}.tif"
+            f"cop30_merge_{lon_min:.4f}_{lat_min:.4f}_{lon_max:.4f}_{lat_max:.4f}.tif"
         )
     out_path = Path(out_path)
     with rasterio.open(out_path, "w", **out_meta) as dst:
@@ -218,9 +223,7 @@ def _stream_tile_subset(
         raise _TileNotFoundError(str(e)) from e
     try:
         # Compute window from bbox
-        window = rasterio.windows.from_bounds(
-            lon_min, lat_min, lon_max, lat_max, src.transform
-        )
+        window = rasterio.windows.from_bounds(lon_min, lat_min, lon_max, lat_max, src.transform)
         # Round to integer pixels (rasterio 1.5: keyword-only op) + clamp.
         window = window.round_offsets(op="floor").round_lengths(op="ceil")
         full_window = rasterio.windows.Window(0, 0, src.width, src.height)
@@ -230,13 +233,9 @@ def _stream_tile_subset(
             # Bbox edge touches tile boundary but no real overlap — common
             # when ``lat_max`` equals the next tile's SW lat (math.floor
             # promotes it to the upper tile, which has zero overlap).
-            raise _TileNotFoundError(
-                f"Tile {tile_url} doesn't overlap bbox: {e}"
-            ) from e
+            raise _TileNotFoundError(f"Tile {tile_url} doesn't overlap bbox: {e}") from e
         if window.width <= 0 or window.height <= 0:
-            raise _TileNotFoundError(
-                f"Tile {tile_url} doesn't overlap bbox after pixel snap"
-            )
+            raise _TileNotFoundError(f"Tile {tile_url} doesn't overlap bbox after pixel snap")
         data = src.read(window=window)
         transform = src.window_transform(window)
         profile = src.profile.copy()
@@ -258,7 +257,10 @@ def _stream_tile_subset(
 
 def clip_centerline_to_bbox(
     centerline: Sequence[tuple[float, float]],
-    lon_min: float, lat_min: float, lon_max: float, lat_max: float,
+    lon_min: float,
+    lat_min: float,
+    lon_max: float,
+    lat_max: float,
 ) -> list[tuple[float, float]]:
     """Restrict a (lon, lat) polyline to vertices inside a bbox.
 
@@ -273,7 +275,8 @@ def clip_centerline_to_bbox(
     caller can fall back to a different reach selection.
     """
     out = [
-        (lon, lat) for lon, lat in centerline
+        (lon, lat)
+        for lon, lat in centerline
         if lon_min <= lon <= lon_max and lat_min <= lat <= lat_max
     ]
     if len(out) < 2:
@@ -348,6 +351,7 @@ def cut_cross_sections_from_dem(
         # Reproject centerline to DEM CRS for sampling
         if dem_src.crs.to_epsg() != 4326:
             from pyproj import Transformer
+
             xf = Transformer.from_crs("EPSG:4326", dem_src.crs, always_xy=True)
         else:
             xf = None
@@ -394,8 +398,11 @@ def cut_cross_sections_from_dem(
 
 
 def _interp_centerline(
-    cl: np.ndarray, seg_m: np.ndarray, target_m: float,
-    m_per_deg_lat: float, m_per_deg_lon: float,
+    cl: np.ndarray,
+    seg_m: np.ndarray,
+    target_m: float,
+    m_per_deg_lat: float,
+    m_per_deg_lon: float,
 ) -> tuple[float, float, float, float]:
     """Linear-interpolate (lon, lat) + local tangent direction at arc
     length ``target_m`` along the centerline.
