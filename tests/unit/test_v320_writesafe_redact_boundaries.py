@@ -184,9 +184,9 @@ def test_v320_r1410_path_redact_default_off(tmp_path: Path) -> None:
     msg = str(exc.value)
     assert "redacted" not in msg, f"Default mode unexpectedly stripped paths. Got: {msg}"
     # Verbose form: the full case dir path is present. Match the resolved
-    # tmp_path — the message emits .resolve()d paths, which on Windows can
-    # differ from the raw tmp_path in case/short-form.
-    assert str(tmp_path.resolve()) in msg, (
+    # tmp_path, and collapse the repr-doubled backslashes the message emits for
+    # the allowed-roots list on Windows (`['C:\\Users\\...']`).
+    assert str(tmp_path.resolve()) in msg.replace("\\\\", "\\"), (
         f"Default mode did not include the case dir path. Got: {msg}"
     )
 
