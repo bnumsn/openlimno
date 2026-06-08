@@ -183,8 +183,12 @@ def test_v320_r1410_path_redact_default_off(tmp_path: Path) -> None:
         case._resolve_safe("../../../etc/passwd")
     msg = str(exc.value)
     assert "redacted" not in msg, f"Default mode unexpectedly stripped paths. Got: {msg}"
-    # Verbose form: full /tmp/.../case_dir path is present.
-    assert str(tmp_path) in msg, f"Default mode did not include the case dir path. Got: {msg}"
+    # Verbose form: the full case dir path is present. Match the resolved
+    # tmp_path, and collapse the repr-doubled backslashes the message emits for
+    # the allowed-roots list on Windows (`['C:\\Users\\...']`).
+    assert str(tmp_path.resolve()) in msg.replace("\\\\", "\\"), (
+        f"Default mode did not include the case dir path. Got: {msg}"
+    )
 
 
 def test_v320_r1410_redact_also_applies_to_write_safe(

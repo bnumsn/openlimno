@@ -167,7 +167,9 @@ def test_v360_r1710_open_safe_context_manager(tmp_path: Path) -> None:
     """
     case = _make_case(tmp_path / "case_dir")
     target = case.case_dir / "data.txt"
-    target.write_text("safe-open test\n")
+    # write_bytes (not write_text) so the newline isn't translated to \r\n on
+    # Windows — _open_safe reads in binary and the assertion is byte-exact.
+    target.write_bytes(b"safe-open test\n")
 
     with case._open_safe(str(target.relative_to(case.case_dir))) as f:
         content = f.read()

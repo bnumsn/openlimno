@@ -467,11 +467,11 @@ def test_v2111_r128_windows_drive_letter_not_url_scheme(
     """
     case_yaml = _write_case_yaml(tmp_path / "case_dir")
     case = _make_case(case_yaml)
-    # On POSIX this resolves to a normal absolute-looking path;
-    # the URL-scheme check must NOT trip. On POSIX `C:/foo` is
-    # treated as a relative path containing a colon, which is
-    # fine — the test is that we don't raise the URL-scheme error.
-    case._resolve_safe("C:/foo/bar.csv")  # must not raise
+    # The URL-scheme check must NOT trip on a drive letter. On POSIX `C:/foo`
+    # is a relative path containing a colon; on Windows it's a real absolute
+    # path (outside the case dir), so pass allow_outside_case=True to bypass
+    # the sandbox and isolate the URL-scheme classification on both platforms.
+    case._resolve_safe("C:/foo/bar.csv", allow_outside_case=True)  # no URL-scheme error
 
 
 def test_v2111_schema_minitems_allows_explicit_empty(
