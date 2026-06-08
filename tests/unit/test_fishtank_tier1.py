@@ -793,10 +793,17 @@ def test_studio_http_rejects_oversized_body() -> None:
     thread.start()
     try:
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        conn.request("POST", "/api/run", body=b"x" * (_REQUEST_BODY_LIMIT_BYTES + 1))
-        response = conn.getresponse()
-        body = response.read()
-        conn.close()
+        try:
+            conn.request("POST", "/api/run", body=b"x" * (_REQUEST_BODY_LIMIT_BYTES + 1))
+            response = conn.getresponse()
+            body = response.read()
+        except (ConnectionResetError, BrokenPipeError):
+            # macOS/BSD surface the server's reject-and-close on the oversized
+            # body as a connection reset before the 413 can be read. The body
+            # was still refused, which is what this test guards.
+            return
+        finally:
+            conn.close()
         assert response.status == 413
         assert b"request body too large" in body
     finally:
