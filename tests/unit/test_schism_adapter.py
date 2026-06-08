@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -70,7 +71,8 @@ def test_build_command_container_docker(tmp_path: Path) -> None:
     )
     cmd = adapter._build_command(tmp_path)
     assert cmd[0] == "docker"
-    assert "--user" in cmd
+    # --user host-uid:gid is POSIX-only (os.getuid absent on Windows).
+    assert ("--user" in cmd) == hasattr(os, "getuid")
     assert "ghcr.io/openlimno/schism:5.11.0" in cmd
     assert "/work" in cmd  # working dir mount target
     assert cmd[-1] == "0"

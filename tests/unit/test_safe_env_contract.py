@@ -16,9 +16,18 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+
+# scripts/lib/safe_env.sh is a POSIX bash helper (sourced by the CI/review
+# shell scripts); exercising it requires a POSIX shell. Not applicable on
+# Windows, where these wrappers are not used.
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="contract tests for the POSIX bash helper scripts/lib/safe_env.sh",
+)
 
 REPO = Path(__file__).resolve().parents[2]
 SAFE_ENV_SH = REPO / "scripts" / "lib" / "safe_env.sh"

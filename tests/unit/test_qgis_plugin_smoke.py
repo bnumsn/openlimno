@@ -216,7 +216,9 @@ def test_v290_run_case_worker_delegates_to_headless_api() -> None:
     assert "mock_case" in summary
     assert "HSI A" in summary
     assert "7 flows" in summary
-    assert "/tmp/mock_out" in summary
+    # normalise separators: the summary renders output_dir with the OS path
+    # separator (`\tmp\mock_out` on Windows).
+    assert "/tmp/mock_out" in summary.replace("\\", "/")
 
     # v2.13.0: the PNG path must also be threaded through so the
     # controller's auto-load step can pick it up.

@@ -291,17 +291,13 @@ class SCHISMAdapter:
             # Container path
             mount = f"{work_dir}:/work"
             if self.container_runtime in ("docker", "podman"):
-                cmd = [
-                    self.container_runtime,
-                    "run",
-                    "--rm",
-                    "--user",
-                    f"{os.getuid()}:{os.getgid()}",
-                    "-v",
-                    mount,
-                    "-w",
-                    "/work",
-                ]
+                cmd = [self.container_runtime, "run", "--rm"]
+                # --user host-uid:gid keeps container outputs owned by the host
+                # user on POSIX. os.getuid/os.getgid don't exist on Windows
+                # (Docker Desktop maps users differently), so omit the flag there.
+                if hasattr(os, "getuid"):
+                    cmd += ["--user", f"{os.getuid()}:{os.getgid()}"]
+                cmd += ["-v", mount, "-w", "/work"]
                 if self.n_procs > 1:
                     cmd.extend(
                         [

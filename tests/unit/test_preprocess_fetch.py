@@ -236,7 +236,9 @@ def test_sidecar_record_writes_json_with_sha(tmp_path):
 
     (tmp_path / "data").mkdir()
     produced = tmp_path / "data" / "Q.csv"
-    produced.write_text("time,Q\n2024-01-01,1.0\n")
+    # write_bytes so the on-disk content (and thus its SHA-256) is byte-exact
+    # on Windows too — write_text would translate \n to \r\n and change the hash.
+    produced.write_bytes(b"time,Q\n2024-01-01,1.0\n")
     rec = record_fetch(
         tmp_path,
         label="discharge",
