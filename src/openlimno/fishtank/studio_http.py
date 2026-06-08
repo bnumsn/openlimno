@@ -328,6 +328,11 @@ def _payload_to_model(
         NO2=_float(tap_doc.get("NO2", 0.0), "tap_water.NO2"),
         NO3=_float(tap_doc.get("NO3", 5.0), "tap_water.NO3"),
         DO=_float(tap_doc.get("DO", 8.5), "tap_water.DO"),
+        # Carbonate buffer of the replacement water: under couple_ph a Studio
+        # water change must mix tap DIC/Alk, else the browser can't rescue a pH
+        # crash with buffered tap (defaults match the tank, so a no-op at Tier-1).
+        DIC=_float(tap_doc.get("DIC", 2.0), "tap_water.DIC"),
+        Alk=_float(tap_doc.get("Alk", 2.0), "tap_water.Alk"),
     )
     return (
         chemistry,

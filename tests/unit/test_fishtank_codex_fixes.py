@@ -51,6 +51,81 @@ def test_fish_timeseries_unknown_id_lists_available():
         fish_timeseries(out, "fish-999")
 
 
+# --- round-2: events bypass validate (set_param / negative dose) -------------
+@pytest.mark.parametrize(
+    "event",
+    [
+        Event(0, "set_param", -1.0, "k_a"),
+        Event(0, "set_param", 20.0, "ph"),
+        Event(0, "set_param", 0.0, "DO_sat"),
+        Event(0, "dose", -5.0, "TAN"),
+    ],
+)
+def test_event_cannot_write_invalid_state_or_params(event):
+    with pytest.raises(ValueError, match="invalid"):
+        simulate(Chemistry(TAN=2), days=5, schedule=EventSchedule(events=[event]))
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        Event(5, "set_param", 0.0, "k_a"),  # power outage: reaeration off
+        Event(5, "set_param", 33.0, "temperature_c"),  # heat wave
+        Event(5, "dose", 4.0, "DO"),  # aerate
+    ],
+)
+def test_valid_events_still_accepted(event):
+    # The post-event guard must not reject legitimate set_param / dose values.
+    r = simulate(days=10, schedule=EventSchedule(events=[event]))
+    assert len(r.timeseries) > 0
+
+
+# --- round-2: tap DIC/Alk closes through Studio backend + provenance ---------
+def test_studio_water_change_mixes_tap_buffer():
+    from openlimno.fishtank.studio_http import run_studio_payload
+
+    payload = {
+        "scenario_id": "t",
+        "tank": {"volume_l": 120, "temperature_c": 25, "ph": 7.4},
+        "run": {"days": 30, "dt_output_hours": 24},
+        "chemistry": {
+            "TAN": 2,
+            "NO3": 5,
+            "X_AOB": 0.5,
+            "X_NOB": 0.5,
+            "DO": 7.5,
+            "DIC": 2.0,
+            "Alk": 2.0,
+        },
+        "parameters": {"ammonia_dose_mg_n_l_day": 4.0, "couple_ph": 1.0},
+        "tap_water": {"NO3": 5, "DO": 8.5, "DIC": 2.0, "Alk": 10.0},
+        "events": [{"day": 20, "kind": "water_change", "value": 0.8}],
+    }
+    out = run_studio_payload(payload)
+    ts = out["timeseries"]
+    before = [r["Alk"] for r in ts if r["day"] < 20][-1]
+    after = [r["Alk"] for r in ts if r["day"] >= 20][0]
+    assert before < 2.0 and after > before  # buffered tap rescued alkalinity
+    # provenance fingerprint must record tap DIC/Alk (else buffer change is invisible)
+    tap_prov = out["provenance"]["inputs"]["tap_water"]
+    assert tap_prov["DIC"] == 2.0 and tap_prov["Alk"] == 10.0
+
+
+# --- round-2: expand() caps a runaway repeat cadence -------------------------
+def test_expand_rejects_runaway_repeat():
+    sched = EventSchedule(events=[Event(0, "water_change", 0.1, repeat_days=0.0001)])
+    with pytest.raises(ValueError, match="expands to"):
+        sched.expand(42.0)
+
+
+# --- round-2: pH-inhibition thresholds need [0,14] and min < opt -------------
+def test_ph_nitrif_thresholds_validated():
+    with pytest.raises(ValueError, match="pH_min_nitrif"):
+        Params(pH_min_nitrif=8.0, pH_opt_nitrif=7.0).validate()
+    with pytest.raises(ValueError, match=r"pH_opt_nitrif.*\[0, 14\]"):
+        Params(pH_opt_nitrif=20.0).validate()
+
+
 # --- #6 input physical-domain validation ----------------------------------
 @pytest.mark.parametrize(
     "kw",
