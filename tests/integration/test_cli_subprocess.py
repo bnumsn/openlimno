@@ -93,7 +93,8 @@ def test_run_lemhi_via_subprocess(tmp_path: Path) -> None:
     # LEMHI_DATA path; the source YAML's `../../data` was relative
     # to examples/lemhi/, which no longer makes sense in tmp_path.
     yaml_text = yaml_text.replace(
-        "    - ../../data", f"    - '{LEMHI_DATA}'",
+        "    - ../../data",
+        f"    - '{LEMHI_DATA}'",
     )
     redirected.write_text(yaml_text)
 

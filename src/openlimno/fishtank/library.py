@@ -113,7 +113,9 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
         "payload": _scenario(
             "fishless-cycle",
             ammonia_dose=2.0,
-            events=[{"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0}],
+            events=[
+                {"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0}
+            ],
         ),
     },
     "seeded_instant_cycle": {
@@ -133,7 +135,9 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
             "seeded-instant-cycle",
             chemistry={"X_AOB": 0.8, "X_NOB": 0.8},
             ammonia_dose=2.0,
-            events=[{"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0}],
+            events=[
+                {"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0}
+            ],
         ),
     },
     "fish_in_disaster": {
@@ -177,7 +181,13 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
             feed_g_day=1.2,
             events=[
                 {"day": 0.0, "kind": "feed", "value": 1.2, "target": "", "repeat_days": 0.0},
-                {"day": 7.0, "kind": "water_change", "value": 0.25, "target": "", "repeat_days": 7.0},
+                {
+                    "day": 7.0,
+                    "kind": "water_change",
+                    "value": 0.25,
+                    "target": "",
+                    "repeat_days": 7.0,
+                },
             ],
         ),
     },
@@ -202,7 +212,9 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
             chemistry={"X_AOB": 2.5, "X_NOB": 2.5},
             ammonia_dose=3.0,
             carbonate=(1.0, 1.2),
-            events=[{"day": 0.0, "kind": "ammonia_dose", "value": 3.0, "target": "", "repeat_days": 0.0}],
+            events=[
+                {"day": 0.0, "kind": "ammonia_dose", "value": 3.0, "target": "", "repeat_days": 0.0}
+            ],
         ),
     },
     "low_oxygen": {
@@ -224,7 +236,9 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
             "low-oxygen",
             ammonia_dose=2.0,
             extra_params={"k_a": 0.3},
-            events=[{"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0}],
+            events=[
+                {"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0}
+            ],
         ),
     },
     "staged_stocking": {
@@ -272,8 +286,20 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
             chemistry={"X_AOB": 2.5, "X_NOB": 2.5},
             ammonia_dose=2.0,
             events=[
-                {"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0},
-                {"day": 7.0, "kind": "water_change", "value": 0.30, "target": "", "repeat_days": 7.0},
+                {
+                    "day": 0.0,
+                    "kind": "ammonia_dose",
+                    "value": 2.0,
+                    "target": "",
+                    "repeat_days": 0.0,
+                },
+                {
+                    "day": 7.0,
+                    "kind": "water_change",
+                    "value": 0.30,
+                    "target": "",
+                    "repeat_days": 7.0,
+                },
             ],
         ),
     },
@@ -299,7 +325,13 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
             feed_g_day=1.2,
             events=[
                 {"day": 0.0, "kind": "feed", "value": 1.2, "target": "", "repeat_days": 0.0},
-                {"day": 20.0, "kind": "wipe_biofilm", "value": 0.85, "target": "", "repeat_days": 0.0},
+                {
+                    "day": 20.0,
+                    "kind": "wipe_biofilm",
+                    "value": 0.85,
+                    "target": "",
+                    "repeat_days": 0.0,
+                },
             ],
         ),
     },
@@ -324,9 +356,27 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
             ammonia_dose=2.0,
             days=25.0,
             events=[
-                {"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0},
-                {"day": 10.0, "kind": "set_param", "value": 0.2, "target": "k_a", "repeat_days": 0.0},
-                {"day": 12.0, "kind": "set_param", "value": 2.0, "target": "k_a", "repeat_days": 0.0},
+                {
+                    "day": 0.0,
+                    "kind": "ammonia_dose",
+                    "value": 2.0,
+                    "target": "",
+                    "repeat_days": 0.0,
+                },
+                {
+                    "day": 10.0,
+                    "kind": "set_param",
+                    "value": 0.2,
+                    "target": "k_a",
+                    "repeat_days": 0.0,
+                },
+                {
+                    "day": 12.0,
+                    "kind": "set_param",
+                    "value": 2.0,
+                    "target": "k_a",
+                    "repeat_days": 0.0,
+                },
             ],
         ),
     },
@@ -353,8 +403,20 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
             "heat-wave",
             ammonia_dose=2.0,
             events=[
-                {"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0},
-                {"day": 5.0, "kind": "set_param", "value": 32.0, "target": "temperature_c", "repeat_days": 0.0},
+                {
+                    "day": 0.0,
+                    "kind": "ammonia_dose",
+                    "value": 2.0,
+                    "target": "",
+                    "repeat_days": 0.0,
+                },
+                {
+                    "day": 5.0,
+                    "kind": "set_param",
+                    "value": 32.0,
+                    "target": "temperature_c",
+                    "repeat_days": 0.0,
+                },
             ],
         ),
     },
@@ -404,7 +466,9 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
             chemistry={"X_AOB": 2.5, "X_NOB": 2.5, "NO3": 10.0, "B_plant": 3.0},
             ammonia_dose=2.0,
             extra_params={"mu_plant": 1.0, "B_plant_max": 15.0},
-            events=[{"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0}],
+            events=[
+                {"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0}
+            ],
         ),
     },
     "denitrification_substrate": {
@@ -429,7 +493,9 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
             chemistry={"X_AOB": 2.5, "X_NOB": 2.5},
             ammonia_dose=2.0,
             extra_params={"k_denit": 0.15, "k_a": 0.6},
-            events=[{"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0}],
+            events=[
+                {"day": 0.0, "kind": "ammonia_dose", "value": 2.0, "target": "", "repeat_days": 0.0}
+            ],
         ),
     },
     "ph_crash_coupled": {
@@ -456,7 +522,9 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
             ammonia_dose=3.0,
             extra_params={"couple_ph": 1.0},
             carbonate=(1.85, 2.0),
-            events=[{"day": 0.0, "kind": "ammonia_dose", "value": 3.0, "target": "", "repeat_days": 0.0}],
+            events=[
+                {"day": 0.0, "kind": "ammonia_dose", "value": 3.0, "target": "", "repeat_days": 0.0}
+            ],
         ),
     },
     "buffer_dosing": {
@@ -482,7 +550,13 @@ _SCENARIOS: dict[str, dict[str, Any]] = {
             extra_params={"couple_ph": 1.0},
             carbonate=(1.85, 2.0),
             events=[
-                {"day": 0.0, "kind": "ammonia_dose", "value": 3.0, "target": "", "repeat_days": 0.0},
+                {
+                    "day": 0.0,
+                    "kind": "ammonia_dose",
+                    "value": 3.0,
+                    "target": "",
+                    "repeat_days": 0.0,
+                },
                 {"day": 7.0, "kind": "dose", "value": 0.5, "target": "Alk", "repeat_days": 7.0},
             ],
         ),

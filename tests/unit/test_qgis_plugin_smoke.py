@@ -89,6 +89,7 @@ def test_v07_fetch_data_into_case_method_exists():
     (toolbar entry would point at AttributeError on click).
     """
     from openlimno.gui_core.controller import Controller
+
     ctl = Controller(host=None)  # type: ignore[arg-type]
     assert hasattr(ctl, "fetch_data_into_case")
     assert callable(ctl.fetch_data_into_case)
@@ -102,6 +103,7 @@ def test_v07_qgis_plugin_wires_fetch_toolbar_entry():
     import inspect
 
     from openlimno.qgis.openlimno_qgis_plugin import plugin as _plugin_mod
+
     src = inspect.getsource(_plugin_mod)
     assert "fetch_data_into_case" in src, (
         "REGRESSION: QGIS plugin no longer wires "
@@ -118,6 +120,7 @@ def test_v08_fetch_data_into_case_uses_qprocess_not_qthread():
     import inspect
 
     from openlimno.gui_core.controller import Controller
+
     src = inspect.getsource(Controller.fetch_data_into_case)
     assert "QProcess" in src, (
         "REGRESSION: fetch_data_into_case no longer uses QProcess; "
@@ -125,6 +128,7 @@ def test_v08_fetch_data_into_case_uses_qprocess_not_qthread():
     )
     # And: the openlimno fetch CLI subcommand it relies on must exist.
     from openlimno.cli import main as _main
+
     fetch_cmd = _main.commands.get("fetch")
     assert fetch_cmd is not None, (
         "REGRESSION: `openlimno fetch` CLI subcommand removed — "
@@ -172,7 +176,9 @@ def test_v290_run_case_worker_delegates_to_headless_api() -> None:
     fake_result.wua_q_plot = Path("/tmp/mock_out/wua_q_curve.png")
 
     with patch.object(
-        ctl_mod, "run_case_with_plots", return_value=fake_result,
+        ctl_mod,
+        "run_case_with_plots",
+        return_value=fake_result,
     ) as mock_fn:
         # v3.5.0 R16-2: tuple widened to 3 (summary, png_path,
         # trust_roots) so the GUI plot autoload can skip the
@@ -185,8 +191,7 @@ def test_v290_run_case_worker_delegates_to_headless_api() -> None:
         )
         summary, png_path, trust_roots = result
         assert isinstance(trust_roots, list), (
-            f"v3.5.0 R16-2: trust_roots must be a list of Paths; "
-            f"got {type(trust_roots).__name__}"
+            f"v3.5.0 R16-2: trust_roots must be a list of Paths; got {type(trust_roots).__name__}"
         )
 
     mock_fn.assert_called_once()
@@ -216,8 +221,7 @@ def test_v290_run_case_worker_delegates_to_headless_api() -> None:
     # v2.13.0: the PNG path must also be threaded through so the
     # controller's auto-load step can pick it up.
     assert png_path == Path("/tmp/mock_out/wua_q_curve.png"), (
-        f"v2.13.0: _run_case_for_worker did not return the wua_q_plot "
-        f"path. Got: {png_path!r}"
+        f"v2.13.0: _run_case_for_worker did not return the wua_q_plot path. Got: {png_path!r}"
     )
 
 

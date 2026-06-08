@@ -146,7 +146,10 @@ def simulate_agent_based_model(scenario: dict[str, Any]) -> dict[str, Any]:
         step = min(dt_days, days - time)
         chem = _advance_agents(chem, params, fish, patches, step, feed_g_day, rng)
         time = round(time + step, 10)
-        while event_cursor < len(expanded_events) and expanded_events[event_cursor].day <= time + 1e-10:
+        while (
+            event_cursor < len(expanded_events)
+            and expanded_events[event_cursor].day <= time + 1e-10
+        ):
             chem, params, feed_g_day = _apply_agent_event(
                 chem, params, feed_g_day, expanded_events[event_cursor], tap, event_rows, patches
             )
@@ -216,9 +219,7 @@ def _advance_agents(
     # panels diverge by ~10x at the default payload.
     dose_source = max(0.0, params.ammonia_dose_mg_n_l_day)
     feed_source = (
-        params.a_exc * feed_g_day / params.volume_l * 1000.0 * live_fraction
-        if fish
-        else 0.0
+        params.a_exc * feed_g_day / params.volume_l * 1000.0 * live_fraction if fish else 0.0
     )
     c.TAN += (dose_source + max(0.0, feed_source)) * dt_days
 
@@ -245,8 +246,12 @@ def _advance_agents(
     no2_oxidized = min(no2_available, raw_rho2 * dt_days)
     actual_rho2 = no2_oxidized / dt_days if dt_days > 0.0 else 0.0
 
-    _grow_patches(aob_fluxes, actual_rho1, raw_rho1, params.Y_AOB, params.b_AOB, params.X_AOB_max, dt_days)
-    _grow_patches(nob_fluxes, actual_rho2, raw_rho2, params.Y_NOB, params.b_NOB, params.X_NOB_max, dt_days)
+    _grow_patches(
+        aob_fluxes, actual_rho1, raw_rho1, params.Y_AOB, params.b_AOB, params.X_AOB_max, dt_days
+    )
+    _grow_patches(
+        nob_fluxes, actual_rho2, raw_rho2, params.Y_NOB, params.b_NOB, params.X_NOB_max, dt_days
+    )
 
     fish_o2 = alive_biomass * 0.014 / params.volume_l * 1000.0
     c.TAN = max(0.0, c.TAN - tan_oxidized)
@@ -305,7 +310,9 @@ def _grow_patches(
     for patch, raw_flux in fluxes:
         share = raw_flux / raw_rho if raw_rho > 0.0 else 1.0 / len(fluxes)
         growth = yield_coeff * actual_rho * share * cap_factor
-        patch.biomass_mg_l = max(0.0001, patch.biomass_mg_l + (growth - decay * patch.biomass_mg_l) * dt_days)
+        patch.biomass_mg_l = max(
+            0.0001, patch.biomass_mg_l + (growth - decay * patch.biomass_mg_l) * dt_days
+        )
 
 
 def _record(
@@ -327,13 +334,19 @@ def _record(
         "NO2": round(chem.NO2, 6),
         "NO3": round(chem.NO3, 6),
         "DO": round(chem.DO, 6),
-        "NH3_free": round(max(0.0, chem.TAN) * nh3_free_fraction(params.ph, params.temperature_c), 6),
+        "NH3_free": round(
+            max(0.0, chem.TAN) * nh3_free_fraction(params.ph, params.temperature_c), 6
+        ),
         "pH": round(params.ph, 4),
         "fish_alive": len(live_fish),
         "fish_biomass_g": round(sum(agent.biomass_g for agent in live_fish), 6),
         "fish_stress_mean": round(mean_stress, 6),
-        "AOB_biomass": round(sum(patch.biomass_mg_l for patch in patches if patch.guild == "AOB"), 6),
-        "NOB_biomass": round(sum(patch.biomass_mg_l for patch in patches if patch.guild == "NOB"), 6),
+        "AOB_biomass": round(
+            sum(patch.biomass_mg_l for patch in patches if patch.guild == "AOB"), 6
+        ),
+        "NOB_biomass": round(
+            sum(patch.biomass_mg_l for patch in patches if patch.guild == "NOB"), 6
+        ),
     }
     rows.append(row)
     if snapshot:
@@ -355,8 +368,12 @@ def _summary(
         "fish_alive": sum(1 for agent in fish if agent.alive),
         "fish_mortality": sum(1 for agent in fish if not agent.alive),
         "mean_fish_stress": final["fish_stress_mean"],
-        "AOB_biomass": round(sum(patch.biomass_mg_l for patch in patches if patch.guild == "AOB"), 6),
-        "NOB_biomass": round(sum(patch.biomass_mg_l for patch in patches if patch.guild == "NOB"), 6),
+        "AOB_biomass": round(
+            sum(patch.biomass_mg_l for patch in patches if patch.guild == "AOB"), 6
+        ),
+        "NOB_biomass": round(
+            sum(patch.biomass_mg_l for patch in patches if patch.guild == "NOB"), 6
+        ),
     }
 
 

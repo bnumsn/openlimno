@@ -157,11 +157,14 @@ class GrowthRiskHabitatModel:
             0.0,
             1.0,
         )
-        predation = pred_weight * (1.0 - hiding_cover) * (
-            profile.predation_base_risk + profile.predation_csi_risk * (1.0 - csi)
+        predation = (
+            pred_weight
+            * (1.0 - hiding_cover)
+            * (profile.predation_base_risk + profile.predation_csi_risk * (1.0 - csi))
         )
         mortality_risk = (
-            1.0 - profile.base_daily_survival
+            1.0
+            - profile.base_daily_survival
             + predation
             + profile.thermal_stress_mortality * thermal_stress
             + profile.hydraulic_stress_mortality * hydraulic_stress
@@ -212,7 +215,8 @@ class BioenergeticGrowthModel:
         )
         respiration_g = mass_g * (
             profile.respiration_fraction * respiration_multiplier
-            + profile.activity_respiration_fraction * min(velocity, profile.max_activity_velocity_ms)
+            + profile.activity_respiration_fraction
+            * min(velocity, profile.max_activity_velocity_ms)
         )
         net_growth_g = np.clip(
             consumption_g - respiration_g,
@@ -249,7 +253,9 @@ class SizePriorityCellChooser:
         growth = np.empty(alive_count, dtype=float)
         mortality = np.empty(alive_count, dtype=float)
         densities = np.zeros(len(cell_values), dtype=float)
-        lengths = pd.to_numeric(fish["length_mm"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+        lengths = (
+            pd.to_numeric(fish["length_mm"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+        )
         order = np.argsort(-(lengths + rng.random(alive_count) * 1e-6))
         area = cell_values["area_m2"].to_numpy(dtype=float)
         base_utility = cell_values["utility"].to_numpy(dtype=float)
@@ -332,10 +338,14 @@ class CrossReachMovementModel:
             fish["reach_order"] = pd.to_numeric(fish["reach_order"], errors="coerce")
             missing_order = fish["reach_order"].isna()
             if bool(missing_order.any()):
-                fish.loc[missing_order, "reach_order"] = fish.loc[
-                    missing_order,
-                    "reach_id",
-                ].astype(str).map(reach_lookup)
+                fish.loc[missing_order, "reach_order"] = (
+                    fish.loc[
+                        missing_order,
+                        "reach_id",
+                    ]
+                    .astype(str)
+                    .map(reach_lookup)
+                )
 
         alive_idx = fish.index[fish["alive"]].to_numpy()
         if len(alive_idx) == 0:
@@ -398,11 +408,12 @@ class CrossReachMovementModel:
                     continue
             elif attempt_probability <= 0.0:
                 continue
-            candidate["migration_score"] = (
-                utility_weight * candidate["utility"].astype(float)
-                + upstream_bias * (current_order - candidate["reach_order"].astype(float))
-            )
-            selected = candidate.iloc[int(np.argmax(candidate["migration_score"].to_numpy(dtype=float)))]
+            candidate["migration_score"] = utility_weight * candidate["utility"].astype(
+                float
+            ) + upstream_bias * (current_order - candidate["reach_order"].astype(float))
+            selected = candidate.iloc[
+                int(np.argmax(candidate["migration_score"].to_numpy(dtype=float)))
+            ]
             selected_order = float(selected["reach_order"])
             if selected_order == current_order:
                 continue
@@ -424,9 +435,13 @@ class NetworkMovementModel:
     habitat_model: GrowthRiskHabitatModel = GrowthRiskHabitatModel()
 
     def _default_links(self, reach_scores: pd.DataFrame) -> pd.DataFrame:
-        reaches = reach_scores[["reach_id", "reach_order"]].drop_duplicates().sort_values(
-            ["reach_order", "reach_id"],
-            kind="mergesort",
+        reaches = (
+            reach_scores[["reach_id", "reach_order"]]
+            .drop_duplicates()
+            .sort_values(
+                ["reach_order", "reach_id"],
+                kind="mergesort",
+            )
         )
         rows: list[dict[str, object]] = []
         records = reaches.to_dict("records")
@@ -463,7 +478,9 @@ class NetworkMovementModel:
         else:
             raw = self._default_links(reach_scores)
         if raw.empty:
-            return pd.DataFrame(columns=["source_reach_id", "target_reach_id", "passage_probability"])
+            return pd.DataFrame(
+                columns=["source_reach_id", "target_reach_id", "passage_probability"]
+            )
         if "passage_probability" not in raw:
             raw["passage_probability"] = 1.0
         raw["source_reach_id"] = raw["source_reach_id"].astype(str)
@@ -533,8 +550,14 @@ class NetworkMovementModel:
                 if target_reach not in score_by_reach.index:
                     continue
                 target = score_by_reach.loc[target_reach]
-                target_order = float(target["reach_order"]) if pd.notna(target["reach_order"]) else np.nan
-                order_term = 0.0 if pd.isna(current_order) or pd.isna(target_order) else current_order - target_order
+                target_order = (
+                    float(target["reach_order"]) if pd.notna(target["reach_order"]) else np.nan
+                )
+                order_term = (
+                    0.0
+                    if pd.isna(current_order) or pd.isna(target_order)
+                    else current_order - target_order
+                )
                 candidate_rows.append(
                     {
                         "reach_id": target_reach,
@@ -579,13 +602,19 @@ class CalibratedReddPlacementModel:
         score = cells["spawning_cover"].to_numpy(dtype=float) * profile.spawning_cover_weight
         score += cells["csi"].to_numpy(dtype=float) * profile.spawning_csi_weight
         if "redd_placement_prior" in cells:
-            score += pd.to_numeric(cells["redd_placement_prior"], errors="coerce").fillna(0.0).to_numpy(
-                dtype=float
+            score += (
+                pd.to_numeric(cells["redd_placement_prior"], errors="coerce")
+                .fillna(0.0)
+                .to_numpy(dtype=float)
             )
         if self.use_hydraulic_survival and {"depth_m", "velocity_ms"}.issubset(cells.columns):
-            depth = pd.to_numeric(cells["depth_m"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+            depth = (
+                pd.to_numeric(cells["depth_m"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+            )
             velocity = (
-                pd.to_numeric(cells["velocity_ms"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+                pd.to_numeric(cells["velocity_ms"], errors="coerce")
+                .fillna(0.0)
+                .to_numpy(dtype=float)
             )
             depth_ok = (depth >= float(profile.redd_min_depth_m)).astype(float)
             scour_ok = (velocity <= float(profile.redd_scour_velocity_ms)).astype(float)
@@ -644,8 +673,8 @@ class ReddRecruitmentModel:
         if spawn_season is None:
             return fish, redds, next_redd_id, 0, 0
         alive = fish["alive"]
-        spawned_season = pd.to_numeric(fish["spawned_season"], errors="coerce").fillna(-1).astype(
-            int
+        spawned_season = (
+            pd.to_numeric(fish["spawned_season"], errors="coerce").fillna(-1).astype(int)
         )
         mature = (
             alive
@@ -661,7 +690,9 @@ class ReddRecruitmentModel:
         length_factor = np.clip(spawner_lengths / reference_length, 0.0, None) ** float(
             profile.fecundity_length_exponent
         )
-        expected_eggs = profile.spawner_female_fraction * profile.fecundity_per_female * length_factor
+        expected_eggs = (
+            profile.spawner_female_fraction * profile.fecundity_per_female * length_factor
+        )
         spawner_cols = ["cell_id"]
         if "reach_id" in fish:
             spawner_cols.append("reach_id")
@@ -689,19 +720,23 @@ class ReddRecruitmentModel:
         else:
             mature_fish["reach_id"] = mature_fish["reach_id"].astype(str)
             missing_reach = mature_fish["reach_id"].eq("") | mature_fish["reach_id"].eq("<NA>")
-            mature_fish.loc[missing_reach, "reach_id"] = mature_fish.loc[
-                missing_reach, "cell_id"
-            ].map(cell_reach).fillna("")
+            mature_fish.loc[missing_reach, "reach_id"] = (
+                mature_fish.loc[missing_reach, "cell_id"].map(cell_reach).fillna("")
+            )
 
         redd_rows: list[dict[str, object]] = []
         total_eggs = 0
-        for _, spawner in mature_fish.sort_values(["reach_id", "cell_id"], kind="mergesort").iterrows():
+        for _, spawner in mature_fish.sort_values(
+            ["reach_id", "cell_id"], kind="mergesort"
+        ).iterrows():
             expected = float(spawner["expected_eggs"])
             egg_count = int(rng.poisson(expected)) if stochastic else int(round(expected))
             if egg_count <= 0:
                 continue
             total_eggs += egg_count
-            spawner_species = str(spawner["species"]) if "species" in mature_fish.columns else profile.species
+            spawner_species = (
+                str(spawner["species"]) if "species" in mature_fish.columns else profile.species
+            )
             redd_rows.append(
                 {
                     "redd_id": next_redd_id,
@@ -820,7 +855,9 @@ class ReddRecruitmentModel:
             )
             next_fish_id += recruits
             total_recruits += recruits
-        recruits_df = pd.concat(recruit_frames, ignore_index=True) if recruit_frames else pd.DataFrame()
+        recruits_df = (
+            pd.concat(recruit_frames, ignore_index=True) if recruit_frames else pd.DataFrame()
+        )
         return redds, recruits_df, next_fish_id, total_recruits
 
 

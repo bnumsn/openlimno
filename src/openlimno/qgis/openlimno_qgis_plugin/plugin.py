@@ -9,6 +9,7 @@ The plugin is in maintenance mode: new features land in OpenLimno Studio
 (``openlimno.studio``) and are picked up here automatically via the
 shared Controller. See memory/project_studio.md.
 """
+
 from __future__ import annotations
 
 import os
@@ -25,6 +26,7 @@ def _ensure_openlimno_importable() -> None:
     """
     try:
         import openlimno.gui_core  # noqa: F401
+
         return
     except ImportError:
         pass
@@ -67,6 +69,7 @@ class OpenLimnoPlugin:
         self.menu = "&OpenLimno"
         _ensure_openlimno_importable()
         from openlimno.gui_core import Controller
+
         self.ctl = Controller(_PluginHost(iface))
 
     # ------------------------------------------------------------------
@@ -95,8 +98,7 @@ class OpenLimnoPlugin:
         _menu_only("Open WUA-Q curve…", self.ctl.open_wua_q)
         _menu_only("Plot cross-section profile…", self.ctl.plot_cross_section)
 
-        a_pick = QAction(icon, "Click cross-section to view profile",
-                            self.iface.mainWindow())
+        a_pick = QAction(icon, "Click cross-section to view profile", self.iface.mainWindow())
         a_pick.setCheckable(True)
         a_pick.triggered.connect(self.ctl.activate_pick_tool)
         self.iface.addPluginToMenu(self.menu, a_pick)

@@ -79,7 +79,9 @@ def run_studio_payload(payload: dict[str, Any]) -> dict[str, Any]:
         carbonate = _mapping(payload.get("carbonate", {}), "carbonate")
         ph_df = diagnostic_ph_trajectory(
             result,
-            initial_alk_meq_l=_float(carbonate.get("initial_alk_meq_l", 1.4), "carbonate.initial_alk_meq_l"),
+            initial_alk_meq_l=_float(
+                carbonate.get("initial_alk_meq_l", 1.4), "carbonate.initial_alk_meq_l"
+            ),
             dic_mmol_l=_float(carbonate.get("dic_mmol_l", 1.45), "carbonate.dic_mmol_l"),
         )
     return _result_payload(result, ph_df)
@@ -106,7 +108,9 @@ def calibrate_studio_payload(payload: dict[str, Any]) -> dict[str, Any]:
         payload,
         max_days=_STUDIO_ODE_MAX_DAYS,
     )
-    obs_path = Path(__file__).resolve().parents[3] / "data" / "aquarium_logs" / "tank_A_fishless.csv"
+    obs_path = (
+        Path(__file__).resolve().parents[3] / "data" / "aquarium_logs" / "tank_A_fishless.csv"
+    )
     obs = read_observation(obs_path)
     result = fit(
         obs,
@@ -244,8 +248,7 @@ class _FishtankStudioHandler(BaseHTTPRequestHandler):
             raise ValueError(f"Content-Length must be non-negative, got {raw_length!r}")
         if n_bytes > _REQUEST_BODY_LIMIT_BYTES:
             raise _PayloadTooLargeError(
-                f"request body too large: {n_bytes} bytes "
-                f"(max {_REQUEST_BODY_LIMIT_BYTES} bytes)"
+                f"request body too large: {n_bytes} bytes (max {_REQUEST_BODY_LIMIT_BYTES} bytes)"
             )
         raw = self.rfile.read(n_bytes) if n_bytes else b"{}"
         data = json.loads(raw.decode("utf-8"))
@@ -326,7 +329,13 @@ def _payload_to_model(
         NO3=_float(tap_doc.get("NO3", 5.0), "tap_water.NO3"),
         DO=_float(tap_doc.get("DO", 8.5), "tap_water.DO"),
     )
-    return chemistry, params, EventSchedule(events=events, tap_water=tap, horizon=days), days, dt_hours
+    return (
+        chemistry,
+        params,
+        EventSchedule(events=events, tap_water=tap, horizon=days),
+        days,
+        dt_hours,
+    )
 
 
 def _payload_with_defaults(payload: dict[str, Any]) -> dict[str, Any]:
@@ -368,7 +377,9 @@ def _result_payload(result: Result, ph_df: Any) -> dict[str, Any]:
         "final_NO3": float(final["NO3"]),
         "min_DO": float(df["DO"].min()),
         "max_NH3_free": float(df["NH3_free"].max()),
-        "final_ph_dynamic": float(ph_records[-1]["ph_dynamic"]) if ph_records else float(final["pH"]),
+        "final_ph_dynamic": float(ph_records[-1]["ph_dynamic"])
+        if ph_records
+        else float(final["pH"]),
     }
     return {
         "ok": True,

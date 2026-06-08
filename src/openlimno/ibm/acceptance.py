@@ -175,7 +175,10 @@ def _exchange_item() -> IBMAcceptanceItem:
         evidence={
             "reader": "openlimno.preprocess.inspect_instream_exchange",
             "writer": "openlimno.preprocess.write_instream_exchange",
-            "tests": ["tests/integration/test_instream_real_fixtures.py", "tests/unit/test_legacy_importers.py"],
+            "tests": [
+                "tests/integration/test_instream_real_fixtures.py",
+                "tests/unit/test_legacy_importers.py",
+            ],
         },
     )
 
@@ -290,7 +293,9 @@ def _netlogo_parity_item(root: Path, *, strict_official: bool) -> IBMAcceptanceI
     )
     if has_short_fixtures:
         status: AcceptanceStatus = "passed"
-        evidence_text = "Offline NetLogo 7.0.2 short-run summaries are present for Example A and Example B."
+        evidence_text = (
+            "Offline NetLogo 7.0.2 short-run summaries are present for Example A and Example B."
+        )
     else:
         status = "failed" if strict_official else "warning"
         evidence_text = "No offline NetLogo BriefPop summary fixtures found."
@@ -362,7 +367,9 @@ def _schism_item(manifest_path: Path) -> IBMAcceptanceItem:
 
 def _calibration_item(manifest_path: Path) -> IBMAcceptanceItem:
     manifest = _read_json(manifest_path)
-    calibration = manifest.get("hydraulic_parameter_calibration", {}) if isinstance(manifest, dict) else {}
+    calibration = (
+        manifest.get("hydraulic_parameter_calibration", {}) if isinstance(manifest, dict) else {}
+    )
     ok = int(calibration.get("n_wse", 0) or 0) > 0 and "wse_rmse_m" in calibration
     return IBMAcceptanceItem(
         id="calibrated_hydraulic_acceptance_metrics",
@@ -415,7 +422,13 @@ def _reporting_item() -> IBMAcceptanceItem:
         openlimno_evidence="This report writes JSON, CSV, and Markdown acceptance artifacts.",
         status="passed",
         exceeds_instream=True,
-        evidence={"artifacts": ["ibm_acceptance_report.json", "ibm_acceptance_matrix.csv", "ibm_acceptance_report.md"]},
+        evidence={
+            "artifacts": [
+                "ibm_acceptance_report.json",
+                "ibm_acceptance_matrix.csv",
+                "ibm_acceptance_report.md",
+            ]
+        },
     )
 
 

@@ -23,6 +23,7 @@ folds it into the run-time ``provenance.json``.
 Format: a JSON list of records. Append-only — multiple fetches in
 one ``init-from-osm`` call become multiple records.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -219,11 +220,14 @@ def verify_sidecar(case_dir: str | Path) -> list[tuple[str, bool, str]]:
             out.append((label, False, f"unreadable: {e}"))
             continue
         if actual != expected:
-            out.append((
-                label, False,
-                f"SHA mismatch: produced_sha={expected[:12]}…, "
-                f"current={actual[:12]}… — file has been modified since fetch"
-            ))
+            out.append(
+                (
+                    label,
+                    False,
+                    f"SHA mismatch: produced_sha={expected[:12]}…, "
+                    f"current={actual[:12]}… — file has been modified since fetch",
+                )
+            )
         else:
             out.append((label, True, ""))
     return out

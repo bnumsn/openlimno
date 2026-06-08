@@ -31,6 +31,7 @@ Citation:
     Ramoino, F., Arino, O. (2022). ESA WorldCover 10 m 2021 v200.
     doi:10.5281/zenodo.7254221. https://esa-worldcover.org/
 """
+
 from __future__ import annotations
 
 import math
@@ -123,13 +124,18 @@ def _tile_name(lat_sw: int, lon_sw: int) -> str:
 
 
 def _tiles_for_bbox(
-    lon_min: float, lat_min: float, lon_max: float, lat_max: float,
+    lon_min: float,
+    lat_min: float,
+    lon_max: float,
+    lat_max: float,
 ) -> list[tuple[int, int]]:
     """Return the (lat_sw, lon_sw) corners of all 3°×3° tiles touching
     the bbox. SW corners are multiples of 3 in both axes (ESA grid).
     """
+
     def _floor3(v: float) -> int:
         return int(math.floor(v / _TILE_DEG)) * _TILE_DEG
+
     out: list[tuple[int, int]] = []
     la_lo = _floor3(lat_min)
     la_hi = _floor3(lat_max - 1e-9)  # exclusive top edge avoids extra tile
@@ -146,7 +152,11 @@ class _TileNotFoundError(Exception):
 
 
 def _stream_tile_subset(
-    tile_url: str, lon_min: float, lat_min: float, lon_max: float, lat_max: float,
+    tile_url: str,
+    lon_min: float,
+    lat_min: float,
+    lon_max: float,
+    lat_max: float,
 ) -> bytes:
     """Pull a bbox window from a remote WorldCover COG via /vsicurl/."""
     vsi_url = f"/vsicurl/{tile_url}"
@@ -155,21 +165,15 @@ def _stream_tile_subset(
     except rasterio.errors.RasterioIOError as e:
         raise _TileNotFoundError(str(e)) from e
     try:
-        window = rasterio.windows.from_bounds(
-            lon_min, lat_min, lon_max, lat_max, src.transform
-        )
+        window = rasterio.windows.from_bounds(lon_min, lat_min, lon_max, lat_max, src.transform)
         window = window.round_offsets(op="floor").round_lengths(op="ceil")
         full_window = rasterio.windows.Window(0, 0, src.width, src.height)
         try:
             window = window.intersection(full_window)
         except rasterio.errors.WindowError as e:
-            raise _TileNotFoundError(
-                f"Tile {tile_url} doesn't overlap bbox: {e}"
-            ) from e
+            raise _TileNotFoundError(f"Tile {tile_url} doesn't overlap bbox: {e}") from e
         if window.width <= 0 or window.height <= 0:
-            raise _TileNotFoundError(
-                f"Tile {tile_url} doesn't overlap bbox after pixel snap"
-            )
+            raise _TileNotFoundError(f"Tile {tile_url} doesn't overlap bbox after pixel snap")
         data = src.read(window=window)
         transform = src.window_transform(window)
         profile = src.profile.copy()
@@ -206,7 +210,8 @@ def _pixel_area_km2(lat_center: float, pixel_size_deg: float) -> float:
 
 
 def _compute_class_histogram(
-    raster_path: Path, lat_center: float,
+    raster_path: Path,
+    lat_center: float,
 ) -> tuple[dict[int, int], dict[int, float]]:
     """Count pixels per class + convert to km².
 
@@ -234,8 +239,13 @@ def _compute_class_histogram(
 
 
 def fetch_esa_worldcover(
-    lon_min: float, lat_min: float, lon_max: float, lat_max: float,
-    *, year: int = 2021, out_path: str | Path | None = None,
+    lon_min: float,
+    lat_min: float,
+    lon_max: float,
+    lat_max: float,
+    *,
+    year: int = 2021,
+    out_path: str | Path | None = None,
 ) -> WorldCoverFetchResult:
     """Fetch ESA WorldCover 10 m LULC over a lat/lon bbox.
 
@@ -293,8 +303,10 @@ def fetch_esa_worldcover(
         fname = f"ESA_WorldCover_10m_{year}_{version}_{stem}_Map.tif"
         tile_url = f"{WORLDCOVER_S3_BASE}/{version}/{year}/map/{fname}"
         tile_params = {
-            "lon_min": round(lon_min, 6), "lat_min": round(lat_min, 6),
-            "lon_max": round(lon_max, 6), "lat_max": round(lat_max, 6),
+            "lon_min": round(lon_min, 6),
+            "lat_min": round(lat_min, 6),
+            "lon_max": round(lon_max, 6),
+            "lat_max": round(lat_max, 6),
             "year": year,
         }
         try:
@@ -341,8 +353,7 @@ def fetch_esa_worldcover(
 
     if out_path is None:
         out_path = cache_dir("worldcover") / (
-            f"wc{year}_merge_{lon_min:.4f}_{lat_min:.4f}_"
-            f"{lon_max:.4f}_{lat_max:.4f}.tif"
+            f"wc{year}_merge_{lon_min:.4f}_{lat_min:.4f}_{lon_max:.4f}_{lat_max:.4f}.tif"
         )
     out_path = Path(out_path)
     with rasterio.open(out_path, "w", **out_meta) as dst:

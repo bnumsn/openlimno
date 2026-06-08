@@ -23,15 +23,15 @@ class Chemistry:
     """Tier-1 state. Dissolved species in mg/L (mg-N/L for N); attached
     bacteria in mg/L on a per-tank-volume bookkeeping basis (SPEC §1)."""
 
-    TAN: float = 0.0      # total ammonia N (NH3 + NH4+)        [mg-N/L]
-    NO2: float = 0.0      # nitrite N                            [mg-N/L]
-    NO3: float = 5.0      # nitrate N                            [mg-N/L]
-    X_AOB: float = 0.02   # ammonia-oxidiser biomass (attached)  [mg/L]
-    X_NOB: float = 0.02   # nitrite-oxidiser biomass (attached)  [mg/L]
-    DO: float = 7.5       # dissolved oxygen                     [mg-O2/L]
+    TAN: float = 0.0  # total ammonia N (NH3 + NH4+)        [mg-N/L]
+    NO2: float = 0.0  # nitrite N                            [mg-N/L]
+    NO3: float = 5.0  # nitrate N                            [mg-N/L]
+    X_AOB: float = 0.02  # ammonia-oxidiser biomass (attached)  [mg/L]
+    X_NOB: float = 0.02  # nitrite-oxidiser biomass (attached)  [mg/L]
+    DO: float = 7.5  # dissolved oxygen                     [mg-O2/L]
     B_plant: float = 0.0  # plant nitrogen pool (Tier-2)         [mg-N/L]
-    DIC: float = 2.0      # dissolved inorganic carbon (Tier-2)  [mmol/L]
-    Alk: float = 2.0      # carbonate alkalinity (Tier-2)        [meq/L]
+    DIC: float = 2.0  # dissolved inorganic carbon (Tier-2)  [mmol/L]
+    Alk: float = 2.0  # carbonate alkalinity (Tier-2)        [meq/L]
 
     def to_vector(self) -> list[float]:
         return [getattr(self, name) for name in STATE_ORDER]
@@ -49,44 +49,44 @@ class Params:
     log rather than trusting them (that's the Hour-3 lesson)."""
 
     # --- nitrification kinetics ---
-    mu_AOB: float = 0.55       # AOB max specific growth         [1/day]
-    mu_NOB: float = 0.40       # NOB max specific growth (slower) [1/day]
-    Y_AOB: float = 0.15        # AOB yield                       [mg-VSS/mg-N]
-    Y_NOB: float = 0.041       # NOB yield                       [mg-VSS/mg-N]
-    K_TAN: float = 1.0         # TAN half-saturation             [mg-N/L]
-    K_NO2: float = 1.3         # NO2 half-saturation             [mg-N/L]
-    K_O_AOB: float = 0.50      # O2 half-sat (AOB)               [mg-O2/L]
-    K_O_NOB: float = 0.68      # O2 half-sat (NOB)               [mg-O2/L]
-    b_AOB: float = 0.10        # AOB decay                       [1/day]
-    b_NOB: float = 0.10        # NOB decay                       [1/day]
+    mu_AOB: float = 0.55  # AOB max specific growth         [1/day]
+    mu_NOB: float = 0.40  # NOB max specific growth (slower) [1/day]
+    Y_AOB: float = 0.15  # AOB yield                       [mg-VSS/mg-N]
+    Y_NOB: float = 0.041  # NOB yield                       [mg-VSS/mg-N]
+    K_TAN: float = 1.0  # TAN half-saturation             [mg-N/L]
+    K_NO2: float = 1.3  # NO2 half-saturation             [mg-N/L]
+    K_O_AOB: float = 0.50  # O2 half-sat (AOB)               [mg-O2/L]
+    K_O_NOB: float = 0.68  # O2 half-sat (NOB)               [mg-O2/L]
+    b_AOB: float = 0.10  # AOB decay                       [1/day]
+    b_NOB: float = 0.10  # NOB decay                       [1/day]
     # --- biofilm carrying capacity (media-limited) ---
-    X_AOB_max: float = 5.0     # AOB attached capacity           [mg/L]
-    X_NOB_max: float = 5.0     # NOB attached capacity           [mg/L]
+    X_AOB_max: float = 5.0  # AOB attached capacity           [mg/L]
+    X_NOB_max: float = 5.0  # NOB attached capacity           [mg/L]
     # --- physical / forcing ---
-    theta: float = 1.07        # Arrhenius factor per degC       [-]
+    theta: float = 1.07  # Arrhenius factor per degC       [-]
     temperature_c: float = 25.0
-    k_a: float = 2.0           # reaeration                      [1/day]
-    DO_sat: float = 8.0        # O2 saturation (const Tier-1)    [mg-O2/L]
-    R_fish: float = 0.0        # fish respiration (const Tier-1) [mg-O2/L/day]
-    a_exc: float = 0.0276      # N excreted per g food           [g-N/g-food]
-    volume_l: float = 120.0    # tank volume                     [L]
-    ph: float = 7.4            # fixed pH in Tier-1              [-]
+    k_a: float = 2.0  # reaeration                      [1/day]
+    DO_sat: float = 8.0  # O2 saturation (const Tier-1)    [mg-O2/L]
+    R_fish: float = 0.0  # fish respiration (const Tier-1) [mg-O2/L/day]
+    a_exc: float = 0.0276  # N excreted per g food           [g-N/g-food]
+    volume_l: float = 120.0  # tank volume                     [L]
+    ph: float = 7.4  # fixed pH in Tier-1              [-]
     # --- Tier-1 TAN sources (additive: total source = abiotic dose + feed) ---
-    ammonia_dose_mg_n_l_day: float = 2.0   # abiotic bottled-ammonia dose [mg-N/L/day]
-    feed_dose_mg_n_l_day: float = 0.0      # feed-derived TAN source (set by feed events) [mg-N/L/day]
+    ammonia_dose_mg_n_l_day: float = 2.0  # abiotic bottled-ammonia dose [mg-N/L/day]
+    feed_dose_mg_n_l_day: float = 0.0  # feed-derived TAN source (set by feed events) [mg-N/L/day]
     # --- Tier-2 plant nitrogen uptake (all 0 ⇒ no plants, Tier-1 unchanged) ---
-    mu_plant: float = 0.0      # plant N-uptake max specific rate [1/day]
-    K_plant_N: float = 0.3     # half-sat for plant N uptake      [mg-N/L]
-    B_plant_max: float = 8.0   # plant N pool carrying capacity   [mg-N/L]
-    b_plant: float = 0.02      # plant decay → mineralised to TAN [1/day]
-    f_no3_pref: float = 0.4    # NO3 uptake relative to NH4 (plants prefer NH4) [-]
+    mu_plant: float = 0.0  # plant N-uptake max specific rate [1/day]
+    K_plant_N: float = 0.3  # half-sat for plant N uptake      [mg-N/L]
+    B_plant_max: float = 8.0  # plant N pool carrying capacity   [mg-N/L]
+    b_plant: float = 0.02  # plant decay → mineralised to TAN [1/day]
+    f_no3_pref: float = 0.4  # NO3 uptake relative to NH4 (plants prefer NH4) [-]
     # --- Tier-2 denitrification (k_denit=0 ⇒ no anoxic N loss, Tier-1) ---
-    k_denit: float = 0.0       # 1st-order NO3→N2 loss rate       [1/day]
-    K_O_denit: float = 0.3     # O2 half-INHIBITION for denit     [mg-O2/L]
+    k_denit: float = 0.0  # 1st-order NO3→N2 loss rate       [1/day]
+    K_O_denit: float = 0.3  # O2 half-INHIBITION for denit     [mg-O2/L]
     # --- Tier-2 pH coupling (couple_ph=0 ⇒ pH fixed at .ph, Tier-1) ---
-    couple_ph: float = 0.0     # >0 ⇒ solve pH from DIC/Alk each step + feed back [-]
-    pH_min_nitrif: float = 6.0 # nitrification stops at/below this pH [-]
-    pH_opt_nitrif: float = 7.0 # full nitrification rate at/above this pH [-]
+    couple_ph: float = 0.0  # >0 ⇒ solve pH from DIC/Alk each step + feed back [-]
+    pH_min_nitrif: float = 6.0  # nitrification stops at/below this pH [-]
+    pH_opt_nitrif: float = 7.0  # full nitrification rate at/above this pH [-]
 
     def with_overrides(self, **kw: float) -> Params:
         valid = {f.name for f in fields(self)}

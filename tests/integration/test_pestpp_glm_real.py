@@ -4,6 +4,7 @@ Run with:
 
     pixi run -e pestpp test-pestpp
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -20,12 +21,14 @@ pytestmark = pytest.mark.pestpp
 
 
 def _write_case(tmp_path: Path) -> Path:
-    pd.DataFrame({
-        "station_m": [0.0, 0.0, 0.0, 0.0],
-        "point_index": [0, 1, 2, 3],
-        "distance_m": [-5.0, -4.999, 4.999, 5.0],
-        "elevation_m": [5.0, 0.0, 0.0, 5.0],
-    }).to_parquet(tmp_path / "cross_section.parquet", index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0, 0.0, 0.0, 0.0],
+            "point_index": [0, 1, 2, 3],
+            "distance_m": [-5.0, -4.999, 4.999, 5.0],
+            "elevation_m": [5.0, 0.0, 0.0, 5.0],
+        }
+    ).to_parquet(tmp_path / "cross_section.parquet", index=False)
     (tmp_path / "mesh.nc").write_bytes(b"placeholder")
     case_yaml = tmp_path / "case.yaml"
     case_yaml.write_text(
@@ -57,10 +60,12 @@ def _write_case(tmp_path: Path) -> Path:
 def test_real_pestpp_glm_runs_openlimno_workspace(tmp_path: Path) -> None:
     """Generated PEST++ files are accepted by a real pestpp-glm binary."""
     case_yaml = _write_case(tmp_path)
-    obs = pd.DataFrame({
-        "h_m": [0.5, 1.0, 1.5],
-        "Q_m3s": [2.5, 6.0, 10.0],
-    })
+    obs = pd.DataFrame(
+        {
+            "h_m": [0.5, 1.0, 1.5],
+            "Q_m3s": [2.5, 6.0, 10.0],
+        }
+    )
     workspace = build_pestpp_glm_workspace(
         case_yaml,
         obs,

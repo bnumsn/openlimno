@@ -15,6 +15,7 @@ Three pins:
   3. Threshold continuity: behavior at lat=60.0 and lat=60.001
      produces similar buffer extents (no discontinuity jump).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -79,10 +80,12 @@ def test_v340_r93_threshold_continuity() -> None:
     from openlimno.habitat.cover import riparian_buffer_from_polyline
 
     just_below = riparian_buffer_from_polyline(
-        [(0.0, 59.9), (0.0, 59.91)], buffer_m=1000.0,
+        [(0.0, 59.9), (0.0, 59.91)],
+        buffer_m=1000.0,
     )
     just_above = riparian_buffer_from_polyline(
-        [(0.0, 60.5), (0.0, 60.51)], buffer_m=1000.0,
+        [(0.0, 60.5), (0.0, 60.51)],
+        buffer_m=1000.0,
     )
     # Areas should be similar in degrees² order-of-magnitude.
     # cos(60°) ≈ 0.5, so the cos-lat path at 59.9° has an ellipse

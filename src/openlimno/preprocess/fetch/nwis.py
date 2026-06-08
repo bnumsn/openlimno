@@ -12,6 +12,7 @@ better to keep the dep surface to ``requests + pandas``.
 NWIS docs:
     https://waterservices.usgs.gov/docs/  (DV/IV/site/measurements)
 """
+
 from __future__ import annotations
 
 import json
@@ -58,14 +59,10 @@ def _fetch_text(url: str, params: dict, subdir: str, suffix: str) -> CacheEntry:
         resp.raise_for_status()
         return resp.content
 
-    return cached_fetch(
-        subdir=subdir, url=url, params=params, suffix=suffix, fetch_fn=_do_fetch
-    )
+    return cached_fetch(subdir=subdir, url=url, params=params, suffix=suffix, fetch_fn=_do_fetch)
 
 
-def fetch_nwis_daily_discharge(
-    site_id: str, start_date: str, end_date: str
-) -> NWISFetchResult:
+def fetch_nwis_daily_discharge(site_id: str, start_date: str, end_date: str) -> NWISFetchResult:
     """Fetch USGS NWIS daily-mean discharge for a stream gauge.
 
     Args:
@@ -168,8 +165,7 @@ def fetch_nwis_rating_curve(site_id: str) -> NWISFetchResult:
     # RDB: tab-separated, lines starting with # are comments, second-last
     # header row is data-types-and-widths
     data_lines = [
-        ln for ln in text.splitlines()
-        if ln and not ln.startswith("#") and not ln.startswith("5s")
+        ln for ln in text.splitlines() if ln and not ln.startswith("#") and not ln.startswith("5s")
     ]
     if not data_lines:
         raise ValueError(
@@ -179,8 +175,12 @@ def fetch_nwis_rating_curve(site_id: str) -> NWISFetchResult:
     df = pd.read_csv(StringIO("\n".join(data_lines)), sep="\t")
     # Quality-flag → sigma fraction mapping (NWIS standard)
     sigma_map = {
-        "Excellent": 0.02, "Good": 0.05, "Fair": 0.08, "Poor": 0.12,
-        "Unspecified": 0.10, "Unknown": 0.10,
+        "Excellent": 0.02,
+        "Good": 0.05,
+        "Fair": 0.08,
+        "Poor": 0.12,
+        "Unspecified": 0.10,
+        "Unknown": 0.10,
     }
     df["gage_height_va"] = pd.to_numeric(df["gage_height_va"], errors="coerce")
     df["discharge_va"] = pd.to_numeric(df["discharge_va"], errors="coerce")
@@ -192,9 +192,8 @@ def fetch_nwis_rating_curve(site_id: str) -> NWISFetchResult:
             "gauge_id": site_id,
             "h_m": df["gage_height_va"] * FT_TO_M,
             "Q_m3s": df["discharge_va"] * CFS_TO_M3S,
-            "sigma_Q": (df["discharge_va"] * CFS_TO_M3S) * df.get(
-                "measured_rating_diff", "Unspecified"
-            ).map(sigma_map).fillna(0.10),
+            "sigma_Q": (df["discharge_va"] * CFS_TO_M3S)
+            * df.get("measured_rating_diff", "Unspecified").map(sigma_map).fillna(0.10),
         }
     ).reset_index(drop=True)
     out = out.sort_values("h_m").reset_index(drop=True)
@@ -202,9 +201,7 @@ def fetch_nwis_rating_curve(site_id: str) -> NWISFetchResult:
     return NWISFetchResult(df=out, cache=cache, parameters=[PARAM_DISCHARGE, PARAM_GAGE_HEIGHT])
 
 
-def find_nwis_stations_near(
-    lat: float, lon: float, radius_deg: float = 0.5
-) -> pd.DataFrame:
+def find_nwis_stations_near(lat: float, lon: float, radius_deg: float = 0.5) -> pd.DataFrame:
     """Find active USGS stream gauges within a bounding box around (lat, lon).
 
     Returns a DataFrame of nearby stations. Use this for case-discovery
@@ -219,8 +216,10 @@ def find_nwis_stations_near(
             most US watersheds, small enough to avoid pulling the
             whole state.
     """
-    bbox = f"{lon - radius_deg:.4f},{lat - radius_deg:.4f}," \
-           f"{lon + radius_deg:.4f},{lat + radius_deg:.4f}"
+    bbox = (
+        f"{lon - radius_deg:.4f},{lat - radius_deg:.4f},"
+        f"{lon + radius_deg:.4f},{lat + radius_deg:.4f}"
+    )
     params = {
         "format": "rdb",
         "bBox": bbox,
@@ -232,12 +231,9 @@ def find_nwis_stations_near(
     cache = _fetch_text(NWIS_SITE, params, subdir="nwis", suffix=".rdb")
     text = cache.path.read_text()
     data_lines = [
-        ln for ln in text.splitlines()
-        if ln and not ln.startswith("#") and not ln.startswith("5s")
+        ln for ln in text.splitlines() if ln and not ln.startswith("#") and not ln.startswith("5s")
     ]
     if len(data_lines) < 2:
-        return pd.DataFrame(
-            columns=["site_no", "station_nm", "dec_lat_va", "dec_long_va"]
-        )
+        return pd.DataFrame(columns=["site_no", "station_nm", "dec_lat_va", "dec_long_va"])
     df = pd.read_csv(StringIO("\n".join(data_lines)), sep="\t", dtype={"site_no": str})
     return df[["site_no", "station_nm", "dec_lat_va", "dec_long_va"]].reset_index(drop=True)

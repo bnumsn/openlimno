@@ -160,8 +160,7 @@ def _render_pest_control(
     slope_bounds: tuple[float, float],
 ) -> str:
     obs_lines = "\n".join(
-        f"{row.obs_name} {float(row.Q_m3s):.12g} 1.0 rating"
-        for row in obs.itertuples(index=False)
+        f"{row.obs_name} {float(row.Q_m3s):.12g} 1.0 rating" for row in obs.itertuples(index=False)
     )
     nobs = len(obs)
     return f"""pcf
@@ -233,14 +232,11 @@ def build_pestpp_glm_workspace(
 
     observed_file.write_text(obs.to_csv(index=False), encoding="utf-8")
     template_file.write_text(
-        "ptf ~\n"
-        "manning_n ~ manning_n ~\n"
-        "slope ~ slope ~\n",
+        "ptf ~\nmanning_n ~ manning_n ~\nslope ~ slope ~\n",
         encoding="utf-8",
     )
     parameter_file.write_text(
-        f"manning_n {initial_n:.12g}\n"
-        f"slope {slope:.12g}\n",
+        f"manning_n {initial_n:.12g}\nslope {slope:.12g}\n",
         encoding="utf-8",
     )
     instruction_lines = ["pif @", "l1"]
@@ -355,8 +351,7 @@ def run_pestpp_glm_workspace(
         exe_path = str(Path(executable).resolve())
     if exe_path is None:
         raise FileNotFoundError(
-            f"Could not find {executable!r}. Install PEST++ or pass "
-            "executable=/path/to/pestpp-glm."
+            f"Could not find {executable!r}. Install PEST++ or pass executable=/path/to/pestpp-glm."
         )
 
     command = (exe_path, control_file.name)
@@ -546,6 +541,7 @@ def apply_optimised_params_to_case_yaml(
     # data was dropped" notice, not a future-behavior heads-up.
     if ignored:
         import warnings as _w
+
         _w.warn(
             f"apply_optimised_params_to_case_yaml: dropped "
             f"unrecognised parameter(s) {sorted(ignored)}; only "
@@ -569,6 +565,7 @@ def apply_optimised_params_to_case_yaml(
     # case.yaml). If ``out_yaml`` escapes the sandbox the dump
     # raises before any bytes hit disk.
     from openlimno.case import Case as _Case
+
     case = _Case(config=config, case_yaml_path=src)
     return dump_round_trip(config, dst, case=case)
 

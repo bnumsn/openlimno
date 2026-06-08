@@ -25,6 +25,7 @@ Coverage (11 tests):
   T10  Render cross-section profile dialog (matplotlib in Qt)
   T11  AppImage shared-lib hygiene (bundled vs host deps)
 """
+
 from __future__ import annotations
 
 import json
@@ -95,9 +96,11 @@ def test_build_bbox():
     out = OUT_ROOT / "case-bbox"
     try:
         from openlimno.preprocess.osm_builder import OSMCaseSpec, build_case
+
         spec = OSMCaseSpec(
             bbox=(-113.95, 44.92, -113.85, 44.98),
-            n_sections=11, reach_length_m=1000,
+            n_sections=11,
+            reach_length_m=1000,
         )
         paths = build_case(spec, out)
         for k in ("case_yaml", "mesh", "cross_section", "hsi_curve"):
@@ -105,8 +108,7 @@ def test_build_bbox():
         loaded = win.ctl._load_case_layers(out)
         assert len(loaded) == 2, f"expected 2 layers, got {loaded}"
         grab(win, "01_build_bbox")
-        record("T1.build_bbox", "PASS",
-                f"3 case files + {len(loaded)} layers")
+        record("T1.build_bbox", "PASS", f"3 case files + {len(loaded)} layers")
     except Exception as e:
         record("T1.build_bbox", "FAIL", f"{type(e).__name__}: {e}")
         traceback.print_exc()
@@ -124,22 +126,31 @@ def test_build_polyline():
     win = reset_window()
     out = OUT_ROOT / "case-polyline"
     geojson = OUT_ROOT / "test_polyline.geojson"
-    geojson.write_text(json.dumps({
-        "type": "Feature",
-        "geometry": {
-            "type": "LineString",
-            "coordinates": [
-                [-113.95, 44.92], [-113.92, 44.93], [-113.89, 44.95],
-                [-113.86, 44.97], [-113.85, 44.98],
-            ],
-        },
-        "properties": {},
-    }))
+    geojson.write_text(
+        json.dumps(
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [
+                        [-113.95, 44.92],
+                        [-113.92, 44.93],
+                        [-113.89, 44.95],
+                        [-113.86, 44.97],
+                        [-113.85, 44.98],
+                    ],
+                },
+                "properties": {},
+            }
+        )
+    )
     try:
         from openlimno.preprocess.osm_builder import OSMCaseSpec, build_case
+
         spec = OSMCaseSpec(
             polyline_geojson=str(geojson),
-            n_sections=7, reach_length_m=500,
+            n_sections=7,
+            reach_length_m=500,
         )
         paths = build_case(spec, out)
         # Verify case.yaml description mentions the polyline
@@ -147,8 +158,7 @@ def test_build_polyline():
         assert "polyline" in case_yaml.lower(), "case.yaml missing polyline ref"
         loaded = win.ctl._load_case_layers(out)
         grab(win, "02_build_polyline")
-        record("T2.build_polyline", "PASS",
-                f"yaml has polyline ref, {len(loaded)} layers loaded")
+        record("T2.build_polyline", "PASS", f"yaml has polyline ref, {len(loaded)} layers loaded")
     except Exception as e:
         record("T2.build_polyline", "FAIL", f"{type(e).__name__}: {e}")
         traceback.print_exc()
@@ -167,17 +177,19 @@ def test_build_river_name():
     out = OUT_ROOT / "case-name"
     try:
         from openlimno.preprocess.osm_builder import OSMCaseSpec, build_case
+
         spec = OSMCaseSpec(
-            river_name="Salmon River", region_name="Idaho",
-            n_sections=7, reach_length_m=300,
+            river_name="Salmon River",
+            region_name="Idaho",
+            n_sections=7,
+            reach_length_m=300,
         )
         paths = build_case(spec, out)
         case_name = Path(paths["case_yaml"]).read_text()
         assert "salmon_river" in case_name.lower(), case_name[:200]
         loaded = win.ctl._load_case_layers(out)
         grab(win, "03_build_river_name")
-        record("T3.build_river_name", "PASS",
-                f"slug = salmon_river, {len(loaded)} layers")
+        record("T3.build_river_name", "PASS", f"slug = salmon_river, {len(loaded)} layers")
     except Exception as e:
         record("T3.build_river_name", "FAIL", f"{type(e).__name__}: {e}")
     finally:
@@ -198,9 +210,11 @@ def test_symlink_refusal():
     (out / "data").symlink_to(real_target)
     try:
         from openlimno.preprocess.osm_builder import OSMCaseSpec, build_case
+
         spec = OSMCaseSpec(
             bbox=(-113.95, 44.92, -113.85, 44.98),
-            n_sections=5, reach_length_m=200,
+            n_sections=5,
+            reach_length_m=200,
         )
         try:
             build_case(spec, out)
@@ -208,8 +222,7 @@ def test_symlink_refusal():
         except ValueError as e:
             if "symlink" not in str(e).lower():
                 raise
-            record("T4.symlink_refusal", "PASS",
-                    f"refused with: {str(e)[:80]}…")
+            record("T4.symlink_refusal", "PASS", f"refused with: {str(e)[:80]}…")
     except Exception as e:
         record("T4.symlink_refusal", "FAIL", f"{type(e).__name__}: {e}")
 
@@ -223,9 +236,11 @@ def test_bad_bbox():
     out = OUT_ROOT / "case-empty-bbox"
     try:
         from openlimno.preprocess.osm_builder import OSMCaseSpec, build_case
+
         spec = OSMCaseSpec(
             bbox=(0.0, 0.0, 0.001, 0.001),  # middle of Atlantic
-            n_sections=5, reach_length_m=200,
+            n_sections=5,
+            reach_length_m=200,
         )
         try:
             build_case(spec, out)
@@ -233,8 +248,7 @@ def test_bad_bbox():
         except ValueError as e:
             if "no waterway" not in str(e).lower():
                 raise
-            record("T5.bad_bbox", "PASS",
-                    f"clean error: {str(e)[:80]}…")
+            record("T5.bad_bbox", "PASS", f"clean error: {str(e)[:80]}…")
     except Exception as e:
         record("T5.bad_bbox", "FAIL", f"{type(e).__name__}: {e}")
 
@@ -262,16 +276,19 @@ def test_run_case():
 
     def patched(cy, summary, tb):
         done.update(value=True, summary=summary, tb=tb)
+
     win.ctl._on_run_finished = patched
     win.ctl.run_case()
 
     # Wait for QThread to finish (max 60s)
     loop = QEventLoop()
+
     def poll():
         if done["value"]:
             loop.quit()
         else:
             QTimer.singleShot(500, poll)
+
     QTimer.singleShot(0, poll)
     QTimer.singleShot(60000, loop.quit)
     loop.exec_()
@@ -311,21 +328,22 @@ def test_open_hydraulic():
 
     # Patch the file dialog
     orig = QFileDialog.getOpenFileName
-    QFileDialog.getOpenFileName = staticmethod(
-        lambda *a, **k: (str(nc), "OpenLimno NetCDF (*.nc)"))
+    QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (str(nc), "OpenLimno NetCDF (*.nc)"))
     try:
         win.ctl.open_hydraulic_nc()
         layers = list(QgsProject.instance().mapLayers().values())
         # Anything that's not the OSM basemap counts as the loaded result
         added = [layer for layer in layers if layer.name() != "OpenStreetMap"]
         if not added:
-            record("T7.open_hydraulic", "FAIL",
-                    f"no layer added; layers={[layer.name() for layer in layers]}")
+            record(
+                "T7.open_hydraulic",
+                "FAIL",
+                f"no layer added; layers={[layer.name() for layer in layers]}",
+            )
         else:
             kind = type(added[0]).__name__
             grab(win, "07_open_hydraulic")
-            record("T7.open_hydraulic", "PASS",
-                    f"{kind}: {added[0].name()}")
+            record("T7.open_hydraulic", "PASS", f"{kind}: {added[0].name()}")
     finally:
         QFileDialog.getOpenFileName = orig
         win.close()
@@ -349,14 +367,19 @@ def test_auto_discovery():
     # _load_case_layers now stashes _xs_parquet directly when memory
     # layers are added (so the click tool works on fresh builds).
     if win.ctl._xs_parquet and win.ctl._hyd_nc:
-        record("T8.auto_discovery", "PASS",
-                f"xs={Path(win.ctl._xs_parquet).name} hyd={Path(win.ctl._hyd_nc).name}")
+        record(
+            "T8.auto_discovery",
+            "PASS",
+            f"xs={Path(win.ctl._xs_parquet).name} hyd={Path(win.ctl._hyd_nc).name}",
+        )
     elif win.ctl._xs_parquet:
-        record("T8.auto_discovery", "PASS",
-                f"xs only (no hydraulics yet) — {Path(win.ctl._xs_parquet).name}")
+        record(
+            "T8.auto_discovery",
+            "PASS",
+            f"xs only (no hydraulics yet) — {Path(win.ctl._xs_parquet).name}",
+        )
     else:
-        record("T8.auto_discovery", "FAIL",
-                "neither path stashed despite case files present")
+        record("T8.auto_discovery", "FAIL", "neither path stashed despite case files present")
     win.close()
 
 
@@ -368,27 +391,25 @@ def test_appimage_launches():
     timeout to confirm it doesn't crash on init."""
     print("\n[TEST 9] AppImage subprocess launch")
     import subprocess
+
     appimage = Path("/mnt/data/openlimno/OpenLimnoStudio-x86_64.AppImage")
     if not appimage.is_file():
         record("T9.appimage_launches", "SKIP", "no AppImage in repo root")
         return
-    env = {"DISPLAY": ":1", "PATH": "/usr/bin:/bin",
-            "QT_QPA_PLATFORM": "offscreen"}
+    env = {"DISPLAY": ":1", "PATH": "/usr/bin:/bin", "QT_QPA_PLATFORM": "offscreen"}
     try:
-        p = subprocess.Popen([str(appimage)], env=env,
-                              stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL)
+        p = subprocess.Popen(
+            [str(appimage)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
         # Wait 8s — if it crashed during init it'll exit; otherwise still
         # alive (running event loop)
         try:
             rc = p.wait(timeout=10)
-            record("T9.appimage_launches", "FAIL",
-                    f"exited early with code {rc}")
+            record("T9.appimage_launches", "FAIL", f"exited early with code {rc}")
         except subprocess.TimeoutExpired:
             p.kill()
             p.wait()
-            record("T9.appimage_launches", "PASS",
-                    "alive after 10s (event loop running)")
+            record("T9.appimage_launches", "PASS", "alive after 10s (event loop running)")
     except Exception as e:
         record("T9.appimage_launches", "FAIL", str(e))
 
@@ -411,6 +432,7 @@ def test_plot_profile():
 
     # Drive _render_profile_dialog directly with prepared rows
     from openlimno.gui_core.controller import _read_wua_parquet
+
     rows = _read_wua_parquet(str(xs))
     stations = sorted({float(r["station_m"]) for r in rows})
     # Patch QDialog.exec to auto-close — we just want the profile to render
@@ -418,9 +440,12 @@ def test_plot_profile():
     QDialog.exec = lambda self_: 0  # simulate Cancel/dismiss
     try:
         win.ctl._hyd_nc = str(nc)  # so renderer picks up WSE
-        win.ctl._render_profile_dialog(rows, stations, stations[len(stations)//2], 7.2)
-        record("T10.plot_profile", "PASS",
-                f"rendered station {stations[len(stations)//2]:g} at Q=7.2")
+        win.ctl._render_profile_dialog(rows, stations, stations[len(stations) // 2], 7.2)
+        record(
+            "T10.plot_profile",
+            "PASS",
+            f"rendered station {stations[len(stations) // 2]:g} at Q=7.2",
+        )
     except Exception as e:
         record("T10.plot_profile", "FAIL", f"{type(e).__name__}: {e}")
         traceback.print_exc()
@@ -442,10 +467,10 @@ def test_appimage_lib_hygiene():
         record("T11.lib_hygiene", "SKIP", "no bundle to check")
         return
     import subprocess
+
     env = os.environ.copy()
     env["LD_LIBRARY_PATH"] = str(bundle)
-    r = subprocess.run(["ldd", str(libqgis)], env=env,
-                        capture_output=True, text=True)
+    r = subprocess.run(["ldd", str(libqgis)], env=env, capture_output=True, text=True)
     # Count how many of the resolved deps come from the bundle vs host
     bundle_count = 0
     host_count = 0
@@ -457,8 +482,11 @@ def test_appimage_lib_hygiene():
             elif target.startswith("/lib") or target.startswith("/usr"):
                 # Some host libs (libc, libstdc++) are unavoidable
                 host_count += 1
-    record("T11.lib_hygiene", "PASS" if bundle_count > 5 else "FAIL",
-            f"{bundle_count} bundled deps, {host_count} host deps")
+    record(
+        "T11.lib_hygiene",
+        "PASS" if bundle_count > 5 else "FAIL",
+        f"{bundle_count} bundled deps, {host_count} host deps",
+    )
 
 
 # ============================================================================

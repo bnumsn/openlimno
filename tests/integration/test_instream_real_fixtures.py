@@ -95,11 +95,14 @@ def _download_zip(
     if not enabled:
         pytest.skip(skip_message)
 
-    target = _fixture_dir(
-        tmp_path_factory,
-        env_var=env_var,
-        name=fixture_dir_name,
-    ) / fixture["name"]
+    target = (
+        _fixture_dir(
+            tmp_path_factory,
+            env_var=env_var,
+            name=fixture_dir_name,
+        )
+        / fixture["name"]
+    )
     expected = fixture["sha256"]
     if target.exists() and _sha256(target) == expected:
         return target
@@ -186,7 +189,9 @@ def test_real_instream_official_benchmark_runs_native_smoke(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
     zip_path = _download_zip(tmp_path_factory)
-    root = extract_instream7_archive(zip_path, _fixture_dir(tmp_path_factory) / "extracted-benchmark")
+    root = extract_instream7_archive(
+        zip_path, _fixture_dir(tmp_path_factory) / "extracted-benchmark"
+    )
     result = run_instream7_official_benchmark(
         root,
         _fixture_dir(tmp_path_factory) / "benchmark-out",
@@ -272,7 +277,11 @@ def _assert_close_to_netlogo(
 ) -> None:
     pairings = [
         ("initial", netlogo[netlogo["light_phase"] == "At setup"], native[native["day"] == 0]),
-        ("after_2_days", netlogo[netlogo["end_time"] == sorted(netlogo["end_time"].unique())[-1]], native[native["day"] == 2]),
+        (
+            "after_2_days",
+            netlogo[netlogo["end_time"] == sorted(netlogo["end_time"].unique())[-1]],
+            native[native["day"] == 2],
+        ),
     ]
     for stage, netlogo_rows, native_rows in pairings:
         netlogo_abundance, netlogo_biomass, netlogo_length = _population_totals(netlogo_rows)
@@ -296,7 +305,9 @@ def test_real_instream_netlogo_brief_short_comparison(
     brief_b = os.environ.get("OPENLIMNO_INSTREAM_NETLOGO_EXAMPLE_B_BRIEF")
 
     zip_path = _download_zip(tmp_path_factory)
-    root = extract_instream7_archive(zip_path, _fixture_dir(tmp_path_factory) / "extracted-netlogo-compare")
+    root = extract_instream7_archive(
+        zip_path, _fixture_dir(tmp_path_factory) / "extracted-netlogo-compare"
+    )
     out = _fixture_dir(tmp_path_factory) / "netlogo-compare-out"
     result = run_instream7_official_benchmark(
         root,

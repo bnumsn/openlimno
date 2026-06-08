@@ -10,6 +10,7 @@ Three closely-related v3.1.0-deferred items, all path-safety adjacent:
   * R11-2: Case.run emits a warning when backend=builtin-1d and
     boundaries is missing AND the case isn't an OSM-bbox stub.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -20,9 +21,14 @@ import yaml
 from openlimno.case import Case
 
 
-def _minimal_yaml(case_dir: Path, *, allowed_data_roots: list[str] | None = None,
-                  output_dir: str = "./out", bbox: list[float] | None = None,
-                  include_boundaries: bool = True) -> Path:
+def _minimal_yaml(
+    case_dir: Path,
+    *,
+    allowed_data_roots: list[str] | None = None,
+    output_dir: str = "./out",
+    bbox: list[float] | None = None,
+    include_boundaries: bool = True,
+) -> Path:
     """Build a minimal valid case YAML for v3.2.0 tests."""
     case_dir.mkdir(parents=True, exist_ok=True)
     lines = [
@@ -40,30 +46,36 @@ def _minimal_yaml(case_dir: Path, *, allowed_data_roots: list[str] | None = None
             lines.append("  allowed_data_roots:")
             for r in allowed_data_roots:
                 lines.append(f"    - '{r}'")
-    lines.extend([
-        "mesh:",
-        "  uri: ./mesh.nc",
-        "hydrodynamics:",
-        "  backend: builtin-1d",
-    ])
+    lines.extend(
+        [
+            "mesh:",
+            "  uri: ./mesh.nc",
+            "hydrodynamics:",
+            "  backend: builtin-1d",
+        ]
+    )
     if include_boundaries:
-        lines.extend([
-            "  boundaries:",
-            "    upstream:",
-            "      type: discharge",
-            "      value: 12.0",
-        ])
-    lines.extend([
-        "habitat:",
-        "  species: [oncorhynchus_mykiss]",
-        "  stages: [spawning]",
-        "  metric: wua-q",
-        "  composite: min",
-        "output:",
-        f"  dir: {output_dir}",
-        "  formats: [csv]",
-        "",
-    ])
+        lines.extend(
+            [
+                "  boundaries:",
+                "    upstream:",
+                "      type: discharge",
+                "      value: 12.0",
+            ]
+        )
+    lines.extend(
+        [
+            "habitat:",
+            "  species: [oncorhynchus_mykiss]",
+            "  stages: [spawning]",
+            "  metric: wua-q",
+            "  composite: min",
+            "output:",
+            f"  dir: {output_dir}",
+            "  formats: [csv]",
+            "",
+        ]
+    )
     p = case_dir / "case.yaml"
     p.write_text("\n".join(lines), encoding="utf-8")
     return p
@@ -108,7 +120,8 @@ def test_v320_write_safe_allows_configured_root(tmp_path: Path) -> None:
     shared_out = tmp_path / "shared_outputs"
     shared_out.mkdir()
     case_yaml = _minimal_yaml(
-        tmp_path / "case_dir", allowed_data_roots=[str(shared_out)],
+        tmp_path / "case_dir",
+        allowed_data_roots=[str(shared_out)],
     )
     case = _make_case(case_yaml)
     p = case._resolve_write_safe(str(shared_out / "my_run/out.csv"))
@@ -128,10 +141,10 @@ def test_v320_output_dir_routes_through_write_safe() -> None:
     """v3.2.0: pin via source-inspection that Case.run's output.dir
     resolution uses _resolve_write_safe (not raw _resolve)."""
     import inspect
+
     src = inspect.getsource(Case.run)
     assert "out_dir = self._resolve_write_safe(" in src, (
-        "v3.2.0 regression: Case.run's output.dir is no longer "
-        "routed through _resolve_write_safe."
+        "v3.2.0 regression: Case.run's output.dir is no longer routed through _resolve_write_safe."
     )
 
 
@@ -139,7 +152,8 @@ def test_v320_output_dir_routes_through_write_safe() -> None:
 # R14-10 — OPENLIMNO_PATH_SAFETY_REDACT
 # ---------------------------------------------------------------------
 def test_v320_r1410_path_redact_strips_absolute_paths(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """v3.2.0 R14-10: when OPENLIMNO_PATH_SAFETY_REDACT=1, the
     path-safety ValueError must NOT contain absolute paths or the
@@ -152,14 +166,10 @@ def test_v320_r1410_path_redact_strips_absolute_paths(
     with pytest.raises(ValueError, match="path-safety") as exc:
         case._resolve_safe("../../../etc/passwd")
     msg = str(exc.value)
-    assert "redacted" in msg, (
-        f"Redact mode did not strip the absolute path. Got: {msg}"
-    )
+    assert "redacted" in msg, f"Redact mode did not strip the absolute path. Got: {msg}"
     # Specific check: the tmp_path directory must NOT appear in the
     # message (it would have, pre-v3.2.0).
-    assert str(tmp_path) not in msg, (
-        f"Redact mode still leaked the case dir path. Got: {msg}"
-    )
+    assert str(tmp_path) not in msg, f"Redact mode still leaked the case dir path. Got: {msg}"
 
 
 def test_v320_r1410_path_redact_default_off(tmp_path: Path) -> None:
@@ -172,17 +182,14 @@ def test_v320_r1410_path_redact_default_off(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="path-safety") as exc:
         case._resolve_safe("../../../etc/passwd")
     msg = str(exc.value)
-    assert "redacted" not in msg, (
-        f"Default mode unexpectedly stripped paths. Got: {msg}"
-    )
+    assert "redacted" not in msg, f"Default mode unexpectedly stripped paths. Got: {msg}"
     # Verbose form: full /tmp/.../case_dir path is present.
-    assert str(tmp_path) in msg, (
-        f"Default mode did not include the case dir path. Got: {msg}"
-    )
+    assert str(tmp_path) in msg, f"Default mode did not include the case dir path. Got: {msg}"
 
 
 def test_v320_r1410_redact_also_applies_to_write_safe(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """v3.2.0 R14-10: the write-safe path emits the same redacted
     form when the env var is on. The same env-var-driven policy
@@ -209,6 +216,7 @@ def test_v320_r112_solver_warns_on_missing_boundaries_no_bbox() -> None:
     Source-inspection pin (the full Case.run end-to-end requires
     mesh + cross-section fixtures; we pin the wiring here)."""
     import inspect
+
     src = inspect.getsource(Case.run)
     assert "v3.2.0 R11-2" in src, (
         "v3.2.0 R11-2 regression: the solver-level missing-boundaries "
@@ -216,8 +224,7 @@ def test_v320_r112_solver_warns_on_missing_boundaries_no_bbox() -> None:
     )
     # Both signals are checked: boundaries absent AND bbox absent.
     assert "boundaries" in src and "bbox" in src, (
-        "v3.2.0 R11-2 regression: the wiring no longer references "
-        "both boundaries and bbox."
+        "v3.2.0 R11-2 regression: the wiring no longer references both boundaries and bbox."
     )
 
 
@@ -278,11 +285,9 @@ def test_v330_r153_source_matches_corrected_intent() -> None:
     # `"bbox" in cfg.get("case", {})`. The broken v3.2.0 had
     # `"bbox" not in cfg.get("case", {})`.
     assert "v3.3.0 R11-2" in src, (
-        "R16-6 regression: v3.3.0 R11-2 marker missing from "
-        "Case.run source."
+        "R16-6 regression: v3.3.0 R11-2 marker missing from Case.run source."
     )
-    assert "\"bbox\" in cfg.get(\"case\", {})" in src or \
-        "'bbox' in cfg.get('case', {})" in src, (
+    assert '"bbox" in cfg.get("case", {})' in src or "'bbox' in cfg.get('case', {})" in src, (
         "R16-6 regression: the corrected `bbox IN case` predicate "
         "was reverted to the broken `NOT in case` form. The v3.2.0 "
         "inversion bug is back."
@@ -334,13 +339,13 @@ def test_v330_r153_r112_silent_when_boundaries_present(
     )
     case = _make_case(case_yaml)
     assert not _r112_warning_fires(case.config), (
-        "v3.3.0 R15-3 regression: bbox + boundaries present "
-        "triggered the warning."
+        "v3.3.0 R15-3 regression: bbox + boundaries present triggered the warning."
     )
 
 
 def test_v330_r151_redact_strips_absolute_uri(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """R15-1 (codex + claude): an absolute URI like
     `output.dir: /etc/leaked_secret_dir` was previously echoed
@@ -358,16 +363,14 @@ def test_v330_r151_redact_strips_absolute_uri(
         case._resolve_safe(str(leak_path))
     msg = str(exc.value)
     assert str(leak_path) not in msg, (
-        f"R15-1 regression: absolute URI leaked through redact "
-        f"mode. Got: {msg}"
+        f"R15-1 regression: absolute URI leaked through redact mode. Got: {msg}"
     )
-    assert "redacted absolute URI" in msg, (
-        f"R15-1 regression: URI marker missing. Got: {msg}"
-    )
+    assert "redacted absolute URI" in msg, f"R15-1 regression: URI marker missing. Got: {msg}"
 
 
 def test_v330_r151_redact_keeps_relative_uri_visible(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """R15-1: relative URIs aren't server-tree content, they're
     user-supplied YAML. The redact contract is server-side
@@ -378,6 +381,4 @@ def test_v330_r151_redact_keeps_relative_uri_visible(
     with pytest.raises(ValueError, match="path-safety") as exc:
         case._resolve_safe("../escapee.csv")
     msg = str(exc.value)
-    assert "escapee.csv" in msg, (
-        f"R15-1 regression: relative URI was over-redacted. Got: {msg}"
-    )
+    assert "escapee.csv" in msg, f"R15-1 regression: relative URI was over-redacted. Got: {msg}"

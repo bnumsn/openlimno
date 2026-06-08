@@ -15,6 +15,7 @@ Public functions:
 openlimno.ibm.instream7 re-exports all 5 public names so existing
 callers (from openlimno.ibm.instream7 import ...) keep working.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -309,9 +310,7 @@ def compare_instream7_native_to_brief(
     merged["abundance_delta_native_minus_netlogo"] = (
         merged["native_abundance"] - merged["netlogo_abundance"]
     )
-    merged["abundance_abs_delta"] = merged[
-        "abundance_delta_native_minus_netlogo"
-    ].abs()
+    merged["abundance_abs_delta"] = merged["abundance_delta_native_minus_netlogo"].abs()
     merged["biomass_delta_native_minus_netlogo_g"] = (
         merged["native_biomass_g"] - merged["netlogo_biomass_g"]
     )
@@ -322,27 +321,19 @@ def compare_instream7_native_to_brief(
     merged["mean_length_delta_native_minus_netlogo_mm"] = (
         merged["native_mean_length_mm"] - merged["netlogo_mean_length_mm"]
     )
-    merged["mean_length_abs_delta_mm"] = merged[
-        "mean_length_delta_native_minus_netlogo_mm"
-    ].abs()
+    merged["mean_length_abs_delta_mm"] = merged["mean_length_delta_native_minus_netlogo_mm"].abs()
 
     both_mean_length_missing = (
-        merged["native_mean_length_mm"].isna()
-        & merged["netlogo_mean_length_mm"].isna()
+        merged["native_mean_length_mm"].isna() & merged["netlogo_mean_length_mm"].isna()
     )
-    merged["abundance_pass"] = (
-        merged["matched"] & (merged["abundance_abs_delta"] <= abundance_tolerance)
+    merged["abundance_pass"] = merged["matched"] & (
+        merged["abundance_abs_delta"] <= abundance_tolerance
     )
-    merged["biomass_pass"] = (
-        merged["matched"]
-        & (merged["biomass_relative_delta"].abs() <= biomass_relative_tolerance)
+    merged["biomass_pass"] = merged["matched"] & (
+        merged["biomass_relative_delta"].abs() <= biomass_relative_tolerance
     )
-    merged["mean_length_pass"] = (
-        merged["matched"]
-        & (
-            (merged["mean_length_abs_delta_mm"] <= mean_length_tolerance_mm)
-            | both_mean_length_missing
-        )
+    merged["mean_length_pass"] = merged["matched"] & (
+        (merged["mean_length_abs_delta_mm"] <= mean_length_tolerance_mm) | both_mean_length_missing
     )
     merged["passed"] = (
         merged["abundance_pass"] & merged["biomass_pass"] & merged["mean_length_pass"]
@@ -360,11 +351,15 @@ def compare_instream7_native_to_brief(
         ],
         default="outside_tolerance",
     )
-    return merged[columns].sort_values(
-        ["netlogo_run", "scenario_id", "reach_id", "species", "comparison_day"],
-        kind="mergesort",
-        na_position="last",
-    ).reset_index(drop=True)
+    return (
+        merged[columns]
+        .sort_values(
+            ["netlogo_run", "scenario_id", "reach_id", "species", "comparison_day"],
+            kind="mergesort",
+            na_position="last",
+        )
+        .reset_index(drop=True)
+    )
 
 
 def summarize_instream7_parity(comparison: pd.DataFrame) -> pd.DataFrame:
@@ -403,10 +398,14 @@ def summarize_instream7_parity(comparison: pd.DataFrame) -> pd.DataFrame:
     ).reset_index()
     summary["failed_rows"] = summary["rows"] - summary["passed_rows"]
     summary["passed"] = summary["failed_rows"] == 0
-    return summary[columns].sort_values(
-        ["scenario_id", "reach_id", "species"],
-        kind="mergesort",
-    ).reset_index(drop=True)
+    return (
+        summary[columns]
+        .sort_values(
+            ["scenario_id", "reach_id", "species"],
+            kind="mergesort",
+        )
+        .reset_index(drop=True)
+    )
 
 
 def write_instream7_parity_report(
@@ -432,5 +431,3 @@ def _column_lookup(columns: pd.Index, name: str) -> str:
     if found is None:
         raise ValueError(f"shapefile missing field {name!r}")
     return found
-
-

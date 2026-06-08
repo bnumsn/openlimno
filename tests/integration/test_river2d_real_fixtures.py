@@ -136,4 +136,6 @@ def test_official_river2d_habitat_wua_csv_imports_cells(
     assert result.table.attrs["openlimno_output_table"] == "habitat_cells"
     assert len(result.table) == 3240
     assert result.table["wua_m2"].sum() == pytest.approx(170.3601)
-    assert result.summary.warnings == ("No area column detected; per-cell WUA is preserved only if present.",)
+    assert result.summary.warnings == (
+        "No area column detected; per-cell WUA is preserved only if present.",
+    )

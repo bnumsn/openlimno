@@ -42,15 +42,13 @@ MIKEIO_FIXTURES = {
 MIKEIO1D_FIXTURES = {
     "mikep_cs_demo.xns11": {
         "url": (
-            "https://raw.githubusercontent.com/DHI/mikeio1d/main/"
-            "tests/testdata/mikep_cs_demo.xns11"
+            "https://raw.githubusercontent.com/DHI/mikeio1d/main/tests/testdata/mikep_cs_demo.xns11"
         ),
         "sha256": "e7b9d31f370922684cbb50a84188826e63a49ee4e5137b22096acd061f000c21",
     },
     "network_river.res1d": {
         "url": (
-            "https://raw.githubusercontent.com/DHI/mikeio1d/main/"
-            "tests/testdata/network_river.res1d"
+            "https://raw.githubusercontent.com/DHI/mikeio1d/main/tests/testdata/network_river.res1d"
         ),
         "sha256": "3f9526cebc2618bf74ad4ed31814d01e98ecd1b3bddd7af738dda5c9a97f17e5",
     },

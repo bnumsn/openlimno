@@ -4,6 +4,7 @@ Both the QGIS plugin and OpenLimno Studio instantiate one ``Controller``
 per session, passing a ``Host`` adapter that exposes the QGIS-iface-shaped
 methods the handlers need. Handlers don't import ``iface`` directly.
 """
+
 from __future__ import annotations
 
 import csv
@@ -55,6 +56,7 @@ def _run_case_for_worker(
     import yaml as _yaml
 
     from openlimno.case import Case
+
     result = run_case_with_plots(case_yaml, plot=True)
     # R16-2: load the Case once just to extract trust_roots. This
     # IS still a parse, but it happens in the background QThread
@@ -152,19 +154,19 @@ def _build_arrow_catch_tuples() -> tuple[tuple[type, ...], tuple[type, ...]]:
         return tuple(classes) if classes else (_NoArrowExceptionAvailable,)
 
     transient = _resolve(
-        "ArrowInvalid",   # corrupt footer / bad data
-        "ArrowIOError",   # I/O underflow
+        "ArrowInvalid",  # corrupt footer / bad data
+        "ArrowIOError",  # I/O underflow
     )
     permanent = _resolve(
-        "ArrowKeyError",            # missing column lookup
-        "ArrowNotImplementedError", # unsupported encoding
-        "ArrowTypeError",           # type coercion failure
-        "ArrowCapacityError",       # >2 GB column
-        "ArrowMemoryError",         # alloc failure (50 ms backoff won't help)
+        "ArrowKeyError",  # missing column lookup
+        "ArrowNotImplementedError",  # unsupported encoding
+        "ArrowTypeError",  # type coercion failure
+        "ArrowCapacityError",  # >2 GB column
+        "ArrowMemoryError",  # alloc failure (50 ms backoff won't help)
         "ArrowSerializationError",  # cannot serialize
-        "ArrowCancelled",           # operation cancelled (user-driven)
-        "ArrowIndexError",          # out-of-bounds
-        "ArrowException",           # forward-compat fallback (parent)
+        "ArrowCancelled",  # operation cancelled (user-driven)
+        "ArrowIndexError",  # out-of-bounds
+        "ArrowException",  # forward-compat fallback (parent)
     )
     return transient, permanent
 
@@ -215,9 +217,7 @@ def _normalize_parquet_exception(exc: BaseException, phase: str) -> NoReturn:
             f"parquet {phase} failed permanently ({type(exc).__name__}): {exc}"
         ) from exc
     if isinstance(exc, MemoryError):
-        raise ParquetSchemaError(
-            f"parquet {phase} OOM ({type(exc).__name__}): {exc}"
-        ) from exc
+        raise ParquetSchemaError(f"parquet {phase} OOM ({type(exc).__name__}): {exc}") from exc
     raise exc  # propagate unclassified (plain ValueError, etc.)
 
 
@@ -306,9 +306,7 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
             # pyarrow's specific error rather than masking it as
             # "missing backend."
             raise pyarrow_error  # noqa: B904 — preserve pyarrow's original cause
-        raise MissingParquetBackend(
-            "neither pyarrow nor GDAL available to read parquet"
-        ) from e
+        raise MissingParquetBackend("neither pyarrow nor GDAL available to read parquet") from e
 
     try:
         return _read_via_ogr(ogr, path)
@@ -320,8 +318,6 @@ def _read_wua_parquet(path: str) -> list[dict[str, Any]]:
             # debugging than OGR's secondary attempt).
             raise pyarrow_error  # noqa: B904 — intentional plain re-raise
         raise
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -421,6 +417,7 @@ class Controller:
                     rows = self._fn(self._p)
                 except Exception as exc:
                     import traceback as _tb
+
                     self.error.emit(
                         f"Could not read {self._p}:\n"
                         f"{type(exc).__name__}: {exc}\n\n"
@@ -496,7 +493,8 @@ class Controller:
             QgsProject.instance().addMapLayer(rast)
         else:
             QMessageBox.warning(
-                self.host.main_window(), "OpenLimno",
+                self.host.main_window(),
+                "OpenLimno",
                 f"Could not load {path} as mesh or raster.",
             )
 
@@ -555,8 +553,9 @@ class Controller:
 
         def _continue_with_rows(rows: list[dict[str, Any]]) -> None:
             if not rows:
-                QMessageBox.warning(self.host.main_window(), "OpenLimno",
-                                    f"Could not read {xs_path}")
+                QMessageBox.warning(
+                    self.host.main_window(), "OpenLimno", f"Could not read {xs_path}"
+                )
                 return
             self._plot_cross_section_dialog(xs_path, rows)
 
@@ -564,7 +563,10 @@ class Controller:
             QMessageBox.warning(self.host.main_window(), "OpenLimno", msg)
 
         self._read_parquet_async(
-            xs_path, _read_wua_parquet, _continue_with_rows, _on_error,
+            xs_path,
+            _read_wua_parquet,
+            _continue_with_rows,
+            _on_error,
             "Reading cross-sections…",
         )
 
@@ -602,6 +604,7 @@ class Controller:
         if hyd_path:
             try:
                 from netCDF4 import Dataset
+
                 ds = Dataset(hyd_path)
                 if "discharge" in ds.variables:
                     discharges = [float(v) for v in ds.variables["discharge"][:]]
@@ -609,10 +612,12 @@ class Controller:
                 cb_q.addItems([f"{q:g}" for q in discharges])
                 form.addRow("Q (m³/s):", cb_q)
             except Exception as e:
-                QMessageBox.warning(self.host.main_window(), "OpenLimno",
-                                      f"Failed to read discharges: {e}")
-        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
-                                QDialogButtonBox.StandardButton.Cancel)
+                QMessageBox.warning(
+                    self.host.main_window(), "OpenLimno", f"Failed to read discharges: {e}"
+                )
+        bb = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
         form.addRow(bb)
@@ -680,11 +685,13 @@ class Controller:
         btn_browse = QPushButton("Browse…")
 
         def _browse() -> None:
-            p, _ = QFileDialog.getOpenFileName(dlg, "Select LineString GeoJSON",
-                                                  "", "GeoJSON (*.geojson *.json)")
+            p, _ = QFileDialog.getOpenFileName(
+                dlg, "Select LineString GeoJSON", "", "GeoJSON (*.geojson *.json)"
+            )
             if p:
                 e_polyline.setText(p)
                 rb_polyline.setChecked(True)
+
         btn_browse.clicked.connect(_browse)
         pl.addWidget(btn_browse)
         form.addRow(rb_polyline, polyline_row)
@@ -726,8 +733,9 @@ class Controller:
         form.addRow("Bed slope:", e_slope)
         form.addRow("Target species id:", e_species)
 
-        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
-                                QDialogButtonBox.StandardButton.Cancel)
+        bb = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
         form.addRow(bb)
@@ -738,6 +746,7 @@ class Controller:
         # the user can't direct the case dir to /etc, ~/.ssh, etc. by
         # putting path traversal in the river-name field.
         import re as _re
+
         def _safe_slug(s: str) -> str:
             return _re.sub(r"[^a-z0-9_\-]", "_", s.lower())[:64] or "case"
 
@@ -749,8 +758,7 @@ class Controller:
             try:
                 lon0, lat0, lon1, lat1 = (float(x) for x in e_bbox.text().split(","))
                 lon_c, lat_c = (lon0 + lon1) / 2, (lat0 + lat1) / 2
-                slug = (f"reach_{lat_c:.4f}_{lon_c:.4f}"
-                          .replace("-", "n").replace(".", "p"))
+                slug = f"reach_{lat_c:.4f}_{lon_c:.4f}".replace("-", "n").replace(".", "p")
             except ValueError:
                 slug = "case"
         else:
@@ -768,7 +776,8 @@ class Controller:
         out_data = Path(out_dir) / "data"
         if out_data.is_symlink() or (out_data.exists() and out_data.resolve() != out_data):
             QMessageBox.warning(
-                self.host.main_window(), "OpenLimno",
+                self.host.main_window(),
+                "OpenLimno",
                 f"{out_data} is a symlink to {out_data.resolve()}.\n\n"
                 f"Pick a real subdirectory (e.g. {default_parent / slug}/) so the "
                 f"case files don't pollute the linked target.",
@@ -791,22 +800,23 @@ class Controller:
             try:
                 lon0, lat0, lon1, lat1 = (float(x) for x in e_bbox.text().split(","))
             except ValueError:
-                QMessageBox.warning(self.host.main_window(), "OpenLimno",
-                                      f"Invalid bbox: {e_bbox.text()!r}")
+                QMessageBox.warning(
+                    self.host.main_window(), "OpenLimno", f"Invalid bbox: {e_bbox.text()!r}"
+                )
                 return
             spec_kwargs["bbox"] = (lon0, lat0, lon1, lat1)
             if e_river.text().strip():
                 spec_kwargs["river_name"] = e_river.text().strip()
         elif rb_polyline.isChecked():
             if not e_polyline.text():
-                QMessageBox.warning(self.host.main_window(), "OpenLimno",
-                                      "Pick a GeoJSON file first.")
+                QMessageBox.warning(
+                    self.host.main_window(), "OpenLimno", "Pick a GeoJSON file first."
+                )
                 return
             spec_kwargs["polyline_geojson"] = e_polyline.text()
         else:
             if not e_river.text().strip():
-                QMessageBox.warning(self.host.main_window(), "OpenLimno",
-                                      "Provide a river name.")
+                QMessageBox.warning(self.host.main_window(), "OpenLimno", "Provide a river name.")
                 return
             spec_kwargs["river_name"] = e_river.text().strip()
             spec_kwargs["region_name"] = e_region.text() or "Idaho"
@@ -819,8 +829,10 @@ class Controller:
         from qgis.PyQt.QtWidgets import QApplication
 
         self.host.message_bar().pushMessage(
-            "OpenLimno", "Fetching OSM polyline + building case…",
-            level=0, duration=10,
+            "OpenLimno",
+            "Fetching OSM polyline + building case…",
+            level=0,
+            duration=10,
         )
         QGuiApplication.setOverrideCursor(Qt.WaitCursor)
         QApplication.processEvents()
@@ -829,8 +841,10 @@ class Controller:
         except Exception as e:
             QGuiApplication.restoreOverrideCursor()
             import traceback
+
             QMessageBox.warning(
-                self.host.main_window(), "OpenLimno",
+                self.host.main_window(),
+                "OpenLimno",
                 f"Case build failed:\n\n{e}\n\n{traceback.format_exc()[-1000:]}",
             )
             return
@@ -839,7 +853,8 @@ class Controller:
         case_yaml_path = Path(paths["case_yaml"])
         loaded = self._load_case_layers(Path(out_dir))
         QMessageBox.information(
-            self.host.main_window(), "OpenLimno",
+            self.host.main_window(),
+            "OpenLimno",
             f"✓ Case built at {out_dir}\n\n"
             f"case.yaml:  {case_yaml_path}\n\n"
             f"Loaded into project: {', '.join(loaded) if loaded else '(no layers)'}",
@@ -862,7 +877,8 @@ class Controller:
             self.host.message_bar().pushMessage(
                 "OpenLimno",
                 "A run is already in progress — wait for it to finish.",
-                level=1, duration=4,
+                level=1,
+                duration=4,
             )
             return
 
@@ -913,22 +929,24 @@ class Controller:
                         "Running headless pipeline (hydraulics + WUA-Q "
                         "+ rasters + composite + provenance)…"
                     )
-                    summary, png_path, trust_roots = (
-                        _run_case_for_worker(self_._case_yaml)
-                    )
+                    summary, png_path, trust_roots = _run_case_for_worker(self_._case_yaml)
                     # v3.5.0 R16-2: emit trust_roots as part of the
                     # finished_ok payload so the GUI thread's plot
                     # autoload doesn't have to re-parse the YAML.
                     self_.finished_ok.emit(
-                        summary, (png_path, trust_roots),
+                        summary,
+                        (png_path, trust_roots),
                     )
                 except Exception:
                     import traceback
+
                     self_.failed.emit(traceback.format_exc())
 
         self.host.message_bar().pushMessage(
-            "OpenLimno", f"Running {case_yaml.name}… (canvas stays responsive)",
-            level=0, duration=3,
+            "OpenLimno",
+            f"Running {case_yaml.name}… (canvas stays responsive)",
+            level=0,
+            duration=3,
         )
         worker = _RunCaseWorker(case_yaml, self.host.main_window())
         worker.status.connect(lambda s: self.host.status_bar().showMessage(s))
@@ -937,12 +955,22 @@ class Controller:
         # a redundant Case.from_yaml on the GUI main thread.
         worker.finished_ok.connect(
             lambda summary, payload: self._on_run_finished(
-                case_yaml, summary, None, payload[0], payload[1],
-            ))
+                case_yaml,
+                summary,
+                None,
+                payload[0],
+                payload[1],
+            )
+        )
         worker.failed.connect(
             lambda tb: self._on_run_finished(
-                case_yaml, None, tb, None, None,
-            ))
+                case_yaml,
+                None,
+                tb,
+                None,
+                None,
+            )
+        )
         self._run_case_worker = worker
         worker.start()
 
@@ -959,7 +987,8 @@ class Controller:
         self.host.status_bar().clearMessage()
         if traceback_text is not None:
             QMessageBox.warning(
-                self.host.main_window(), "OpenLimno",
+                self.host.main_window(),
+                "OpenLimno",
                 f"Run failed:\n\n{traceback_text[-1500:]}",
             )
             return
@@ -977,11 +1006,14 @@ class Controller:
             # v3.5.0 R16-2: thread trust_roots from the worker so the
             # autoload doesn't re-parse the YAML synchronously.
             self._load_wua_q_plot_layer(
-                wua_q_png, case_yaml=case_yaml, trust_roots=trust_roots,
+                wua_q_png,
+                case_yaml=case_yaml,
+                trust_roots=trust_roots,
             )
             loaded_msg += f"\nLoaded {wua_q_png.name} as a raster layer."
         QMessageBox.information(
-            self.host.main_window(), "OpenLimno",
+            self.host.main_window(),
+            "OpenLimno",
             f"✓ Run finished.\n\n{summary or ''}{loaded_msg}",
         )
 
@@ -1096,6 +1128,7 @@ class Controller:
 
         # 2. Default bbox/centre from the case if present, else from canvas.
         import yaml as _yaml
+
         try:
             cfg = _yaml.safe_load(case_yaml.read_text()) or {}
         except Exception:  # noqa: BLE001
@@ -1117,11 +1150,13 @@ class Controller:
         dlg = QDialog(self.host.main_window())
         dlg.setWindowTitle(f"Fetch data into {case_dir.name}/")
         outer = QVBoxLayout(dlg)
-        outer.addWidget(QLabel(
-            f"<b>Case:</b> {case_yaml}<br>"
-            f"<b>Default bbox:</b> ({lo0:.4f}, {la0:.4f}, {lo1:.4f}, {la1:.4f})<br>"
-            f"<b>Default centre:</b> ({ctr_lat:.4f}, {ctr_lon:.4f})"
-        ))
+        outer.addWidget(
+            QLabel(
+                f"<b>Case:</b> {case_yaml}<br>"
+                f"<b>Default bbox:</b> ({lo0:.4f}, {la0:.4f}, {lo1:.4f}, {la1:.4f})<br>"
+                f"<b>Default centre:</b> ({ctr_lat:.4f}, {ctr_lon:.4f})"
+            )
+        )
 
         # DEM group
         gb_dem = QGroupBox("DEM (Copernicus GLO-30, global)")
@@ -1207,8 +1242,9 @@ class Controller:
         clim_form.addRow("end year:", e_clim_ey)
         outer.addWidget(gb_clim)
 
-        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
-                              QDialogButtonBox.StandardButton.Cancel)
+        bb = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
         outer.addWidget(bb)
@@ -1223,15 +1259,19 @@ class Controller:
         # validation logic.
         v = {
             "bbox": (lo0, la0, lo1, la1),
-            "ctr_lat": ctr_lat, "ctr_lon": ctr_lon,
+            "ctr_lat": ctr_lat,
+            "ctr_lon": ctr_lon,
             "case_dir": case_dir,
             "ws_region": e_ws_region.text().strip(),
-            "ws_lat": e_ws_lat.value(), "ws_lon": e_ws_lon.value(),
+            "ws_lat": e_ws_lat.value(),
+            "ws_lon": e_ws_lon.value(),
             "ws_level": e_ws_level.value(),
-            "soil_lat": e_soil_lat.value(), "soil_lon": e_soil_lon.value(),
+            "soil_lat": e_soil_lat.value(),
+            "soil_lon": e_soil_lon.value(),
             "lulc_year": e_lulc_year.value(),
             "sp_name": e_sp_name.text().strip(),
-            "clim_sy": e_clim_sy.value(), "clim_ey": e_clim_ey.value(),
+            "clim_sy": e_clim_sy.value(),
+            "clim_ey": e_clim_ey.value(),
         }
 
         cli_args: list[str] = []
@@ -1240,10 +1280,7 @@ class Controller:
         if gb_ws.isChecked():
             cli_args += [
                 "--fetch-watershed",
-                (
-                    f"hydrosheds:{v['ws_region']}"
-                    f":{v['ws_lat']}:{v['ws_lon']}:{v['ws_level']}"
-                ),
+                (f"hydrosheds:{v['ws_region']}:{v['ws_lat']}:{v['ws_lon']}:{v['ws_level']}"),
             ]
         if gb_soil.isChecked():
             cli_args += [
@@ -1259,7 +1296,8 @@ class Controller:
         if gb_sp.isChecked():
             if not v["sp_name"]:
                 QMessageBox.warning(
-                    self.host.main_window(), "OpenLimno",
+                    self.host.main_window(),
+                    "OpenLimno",
                     "Species fetcher checked but no scientific name given.",
                 )
                 return
@@ -1271,15 +1309,15 @@ class Controller:
         if gb_clim.isChecked():
             cli_args += [
                 "--fetch-climate",
-                (
-                    f"open-meteo:{v['ctr_lat']}:{v['ctr_lon']}"
-                    f":{v['clim_sy']}:{v['clim_ey']}"
-                ),
+                (f"open-meteo:{v['ctr_lat']}:{v['ctr_lon']}:{v['clim_sy']}:{v['clim_ey']}"),
             ]
 
         if not cli_args:
             self.host.message_bar().pushMessage(
-                "OpenLimno", "No fetchers selected.", level=1, duration=3,
+                "OpenLimno",
+                "No fetchers selected.",
+                level=1,
+                duration=3,
             )
             return
 
@@ -1289,7 +1327,8 @@ class Controller:
             self.host.message_bar().pushMessage(
                 "OpenLimno",
                 "A fetch run is already in progress — wait for it to finish.",
-                level=1, duration=4,
+                level=1,
+                duration=4,
             )
             return
 
@@ -1299,10 +1338,10 @@ class Controller:
         # subprocess inherits the same Python (and therefore the same
         # openlimno install).
         import sys as _sys
+
         proc = QProcess(self.host.main_window())
         proc.setProgram(_sys.executable)
-        proc.setArguments(["-m", "openlimno", "fetch",
-                           str(case_yaml), *cli_args])
+        proc.setArguments(["-m", "openlimno", "fetch", str(case_yaml), *cli_args])
         # Merge stderr into stdout so progress + error live in one stream.
         proc.setProcessChannelMode(QProcess.MergedChannels)
 
@@ -1317,6 +1356,7 @@ class Controller:
                 line = raw_line.decode("utf-8", errors="replace").strip()
                 if line and not line.startswith("\x1b"):  # skip ANSI
                     self.host.status_bar().showMessage(line[:160])
+
         proc.readyReadStandardOutput.connect(_on_stdout)
 
         def _on_done(
@@ -1325,18 +1365,20 @@ class Controller:
             _case_dir: Path = case_dir,
         ) -> None:
             from qgis.PyQt.QtCore import QProcess
+
             log_text = bytes(self._fetch_log).decode("utf-8", errors="replace")
             if exit_status == QProcess.CrashExit:
                 self._on_fetch_finished(
-                    _case_dir, None,
+                    _case_dir,
+                    None,
                     f"Subprocess crashed (signal):\n\n{log_text[-2000:]}",
                 )
                 return
             if exit_code != 0:
                 self._on_fetch_finished(
-                    _case_dir, None,
-                    f"Subprocess exited with code {exit_code}:\n\n"
-                    f"{log_text[-2000:]}",
+                    _case_dir,
+                    None,
+                    f"Subprocess exited with code {exit_code}:\n\n{log_text[-2000:]}",
                 )
                 return
             # Success — split log into per-fetch summaries (CLI emits
@@ -1347,35 +1389,39 @@ class Controller:
                 if line.startswith("→") or line.startswith("  →"):
                     summaries.append(line.lstrip("→ ").strip())
             self._on_fetch_finished(_case_dir, summaries, None)
+
         proc.finished.connect(_on_done)
 
         self.host.message_bar().pushMessage(
             "OpenLimno",
-            f"Running {len(cli_args)//2} fetcher(s) in a subprocess — "
-            f"canvas stays responsive…",
-            level=0, duration=3,
+            f"Running {len(cli_args) // 2} fetcher(s) in a subprocess — canvas stays responsive…",
+            level=0,
+            duration=3,
         )
         self._fetch_proc = proc  # type: ignore[attr-defined]
         proc.start()
 
     def _on_fetch_finished(
-        self, case_dir: Path, summaries: Any, traceback_text: Any,
+        self,
+        case_dir: Path,
+        summaries: Any,
+        traceback_text: Any,
     ) -> None:
         from qgis.PyQt.QtWidgets import QMessageBox
+
         self.host.status_bar().clearMessage()
         if traceback_text is not None:
             QMessageBox.warning(
-                self.host.main_window(), "OpenLimno",
+                self.host.main_window(),
+                "OpenLimno",
                 f"Fetch failed:\n\n{traceback_text[-1500:]}",
             )
             return
         text = "\n".join(summaries or []) or "(no fetchers ran)"
         QMessageBox.information(
-            self.host.main_window(), "OpenLimno",
-            (
-                f"✓ Fetch finished. Files written under "
-                f"{case_dir}/data/. Sidecar updated.\n\n{text}"
-            ),
+            self.host.main_window(),
+            "OpenLimno",
+            (f"✓ Fetch finished. Files written under {case_dir}/data/. Sidecar updated.\n\n{text}"),
         )
 
     def _discover_case_yaml(self) -> Path | None:
@@ -1400,8 +1446,7 @@ class Controller:
 
         layer = QgsMeshLayer(str(nc_path), nc_path.stem, "mdal")
         if not layer.isValid():
-            layer = QgsRasterLayer(f'NETCDF:"{nc_path}":water_depth',
-                                     nc_path.stem, "gdal")
+            layer = QgsRasterLayer(f'NETCDF:"{nc_path}":water_depth', nc_path.stem, "gdal")
         if layer.isValid():
             QgsProject.instance().addMapLayer(layer)
 
@@ -1439,14 +1484,15 @@ class Controller:
                 ds = Dataset(str(mesh_nc))
                 xs = ds.variables["node_x"][:]
                 ys = ds.variables["node_y"][:]
-                stations = (ds.variables["station_m"][:]
-                            if "station_m" in ds.variables else range(len(xs)))
+                stations = (
+                    ds.variables["station_m"][:] if "station_m" in ds.variables else range(len(xs))
+                )
                 ds.close()
-                lyr = QgsVectorLayer("Point?crs=EPSG:4326",
-                                       f"{case_dir.name} mesh nodes", "memory")
+                lyr = QgsVectorLayer("Point?crs=EPSG:4326", f"{case_dir.name} mesh nodes", "memory")
                 pr = lyr.dataProvider()
-                pr.addAttributes([QgsField("node_id", QVariant.Int),
-                                    QgsField("station_m", QVariant.Double)])
+                pr.addAttributes(
+                    [QgsField("node_id", QVariant.Int), QgsField("station_m", QVariant.Double)]
+                )
                 lyr.updateFields()
                 feats = []
                 for i, (x, y, s) in enumerate(zip(xs, ys, stations, strict=False)):
@@ -1460,7 +1506,8 @@ class Controller:
                 added.append(lyr.name())
             except Exception as e:
                 self.host.message_bar().pushMessage(
-                    "OpenLimno", f"mesh.ugrid.nc load failed: {e}", level=1, duration=8)
+                    "OpenLimno", f"mesh.ugrid.nc load failed: {e}", level=1, duration=8
+                )
 
         if xs_pq.is_file() and mesh_nc.is_file():
             try:
@@ -1470,8 +1517,9 @@ class Controller:
                 node_y = ds.variables["node_y"][:]
                 stations = list(ds.variables["station_m"][:])
                 ds.close()
-                lyr = QgsVectorLayer("LineString?crs=EPSG:4326",
-                                       f"{case_dir.name} cross-sections", "memory")
+                lyr = QgsVectorLayer(
+                    "LineString?crs=EPSG:4326", f"{case_dir.name} cross-sections", "memory"
+                )
                 pr = lyr.dataProvider()
                 pr.addAttributes([QgsField("station_m", QVariant.Double)])
                 lyr.updateFields()
@@ -1490,10 +1538,14 @@ class Controller:
                     m_per_deg_lon = 111000.0 * math.cos(math.radians(lat)) or 1.0
                     px = -dy / norm
                     py = dx / norm
-                    end1 = QgsPointXY(float(node_x[i]) + px * half / m_per_deg_lon,
-                                        float(node_y[i]) + py * half / m_per_deg_lat)
-                    end2 = QgsPointXY(float(node_x[i]) - px * half / m_per_deg_lon,
-                                        float(node_y[i]) - py * half / m_per_deg_lat)
+                    end1 = QgsPointXY(
+                        float(node_x[i]) + px * half / m_per_deg_lon,
+                        float(node_y[i]) + py * half / m_per_deg_lat,
+                    )
+                    end2 = QgsPointXY(
+                        float(node_x[i]) - px * half / m_per_deg_lon,
+                        float(node_y[i]) - py * half / m_per_deg_lat,
+                    )
                     f = QgsFeature()
                     f.setGeometry(QgsGeometry.fromPolylineXY([end1, end2]))
                     f.setAttributes([float(st)])
@@ -1504,12 +1556,11 @@ class Controller:
                 added.append(lyr.name())
             except Exception as e:
                 self.host.message_bar().pushMessage(
-                    "OpenLimno", f"cross_section.parquet load failed: {e}", level=1, duration=8)
+                    "OpenLimno", f"cross_section.parquet load failed: {e}", level=1, duration=8
+                )
 
         if added:
-            self._zoom_canvas_to_layer(
-                QgsProject.instance().mapLayersByName(added[0])[0]
-            )
+            self._zoom_canvas_to_layer(QgsProject.instance().mapLayersByName(added[0])[0])
         return added
 
     def _zoom_canvas_to_layer(self, layer: Any) -> None:
@@ -1528,8 +1579,7 @@ class Controller:
             dst_crs = canvas.mapSettings().destinationCrs()
             extent = layer.extent()
             if src_crs != dst_crs and src_crs.isValid() and dst_crs.isValid():
-                xform = QgsCoordinateTransform(src_crs, dst_crs,
-                                                  QgsProject.instance())
+                xform = QgsCoordinateTransform(src_crs, dst_crs, QgsProject.instance())
                 extent = xform.transformBoundingBox(extent)
             canvas.setExtent(extent)
             canvas.refresh()
@@ -1582,7 +1632,10 @@ class Controller:
         msg.append(f"xs ✓ {Path(self._xs_parquet).name}" if self._xs_parquet else "xs ✗")
         msg.append(f"hyd ✓ {Path(self._hyd_nc).name}" if self._hyd_nc else "hyd ✗ (bed-only plots)")
         self.host.message_bar().pushMessage(
-            "OpenLimno auto-discovery", " | ".join(msg), level=0, duration=5,
+            "OpenLimno auto-discovery",
+            " | ".join(msg),
+            level=0,
+            duration=5,
         )
 
     def activate_pick_tool(self, checked: bool) -> None:
@@ -1634,11 +1687,13 @@ class Controller:
                     "OpenLimno",
                     f"clicked @ {pt.x():.5f}, {pt.y():.5f} — "
                     f"{len(all_layers)} layer(s), {len(cands)} vector",
-                    level=0, duration=4,
+                    level=0,
+                    duration=4,
                 )
                 if not cands:
                     QMessageBox.information(
-                        controller.host.main_window(), "OpenLimno",
+                        controller.host.main_window(),
+                        "OpenLimno",
                         "No vector layer in this project.",
                     )
                     return
@@ -1653,8 +1708,7 @@ class Controller:
                     # transform the rect filters out everything.
                     layer_crs = layer.crs()
                     if layer_crs.isValid() and canvas_crs.isValid() and layer_crs != canvas_crs:
-                        xform = QgsCoordinateTransform(canvas_crs, layer_crs,
-                                                          QgsProject.instance())
+                        xform = QgsCoordinateTransform(canvas_crs, layer_crs, QgsProject.instance())
                         try:
                             pt_l = xform.transform(pt)
                         except Exception:
@@ -1669,8 +1723,9 @@ class Controller:
                     else:
                         pt_l = pt
                         tol_l = tol
-                    bb = QgsRectangle(pt_l.x() - tol_l, pt_l.y() - tol_l,
-                                        pt_l.x() + tol_l, pt_l.y() + tol_l)
+                    bb = QgsRectangle(
+                        pt_l.x() - tol_l, pt_l.y() - tol_l, pt_l.x() + tol_l, pt_l.y() + tol_l
+                    )
                     req = QgsFeatureRequest().setFilterRect(bb)
                     feats = list(layer.getFeatures(req))
                     if not feats:
@@ -1696,12 +1751,15 @@ class Controller:
                     controller.host.message_bar().pushMessage(
                         "OpenLimno",
                         f"No mesh-node / cross-section feature within {tol:.6f}° of click",
-                        level=1, duration=5,
+                        level=1,
+                        duration=5,
                     )
                     return
                 controller.host.message_bar().pushMessage(
-                    "OpenLimno", f"hit {hit_layer} → station {station:g} m",
-                    level=0, duration=3,
+                    "OpenLimno",
+                    f"hit {hit_layer} → station {station:g} m",
+                    level=0,
+                    duration=3,
                 )
                 controller._plot_at_station(station)
 
@@ -1711,7 +1769,8 @@ class Controller:
             "OpenLimno",
             "Click any mesh node or cross-section to view its profile. "
             "Click the toolbar button again to deactivate.",
-            level=0, duration=10,
+            level=0,
+            duration=10,
         )
 
     def _read_xs_rows_cached(self, path: str, max_retries: int = 3) -> list:
@@ -1745,9 +1804,7 @@ class Controller:
 
         cur = _stat(path)
         # Cache hit — fast path
-        if (cur is not None
-                and cache.get("path") == path
-                and cache.get("stat") == cur):
+        if cur is not None and cache.get("path") == path and cache.get("stat") == cur:
             return cache["rows"]
         # Stat failed — keep stale cache rather than crash
         if cur is None and cache.get("path") == path and cache.get("rows"):
@@ -1803,8 +1860,7 @@ class Controller:
                 continue
             post = _stat(path)
             if post is None:
-                last_error = FileNotFoundError(
-                    f"{path} vanished during read")
+                last_error = FileNotFoundError(f"{path} vanished during read")
                 continue
             if pre == post:
                 self._xs_rows_cache = {"path": path, "stat": pre, "rows": rows}
@@ -1822,8 +1878,9 @@ class Controller:
         from qgis.PyQt.QtWidgets import QMessageBox
 
         if not self._xs_parquet:
-            QMessageBox.warning(self.host.main_window(), "OpenLimno",
-                                  "No cross_section.parquet selected.")
+            QMessageBox.warning(
+                self.host.main_window(), "OpenLimno", "No cross_section.parquet selected."
+            )
             return
         cache_key = self._xs_parquet
 
@@ -1836,8 +1893,10 @@ class Controller:
             QMessageBox.warning(self.host.main_window(), "OpenLimno", msg)
 
         self._read_parquet_async(
-            cache_key, self._read_xs_rows_cached,
-            _continue_with_rows, _on_error,
+            cache_key,
+            self._read_xs_rows_cached,
+            _continue_with_rows,
+            _on_error,
             "Reading cross-section data…",
         )
 
@@ -1860,6 +1919,7 @@ class Controller:
         if self._hyd_nc:
             try:
                 from netCDF4 import Dataset
+
                 ds = Dataset(self._hyd_nc)
                 discharges = [float(v) for v in ds.variables["discharge"][:]]
                 ds.close()
@@ -1871,12 +1931,12 @@ class Controller:
                 form = QFormLayout(dlg)
                 cb = QComboBox()
                 cb.addItems([f"{q:g}" for q in discharges])
-                idx = min(range(len(discharges)),
-                            key=lambda i: abs(discharges[i] - 7.0))
+                idx = min(range(len(discharges)), key=lambda i: abs(discharges[i] - 7.0))
                 cb.setCurrentIndex(idx)
                 form.addRow("Q (m³/s):", cb)
-                bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
-                                        QDialogButtonBox.StandardButton.Cancel)
+                bb = QDialogButtonBox(
+                    QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+                )
                 bb.accepted.connect(dlg.accept)
                 bb.rejected.connect(dlg.reject)
                 form.addRow(bb)
@@ -1905,6 +1965,7 @@ class Controller:
         if target_Q is not None and self._hyd_nc:
             try:
                 from netCDF4 import Dataset
+
                 ds = Dataset(self._hyd_nc)
                 qs = list(ds.variables["discharge"][:])
                 iq = min(range(len(qs)), key=lambda i: abs(float(qs[i]) - target_Q))
@@ -1912,8 +1973,9 @@ class Controller:
                 wse = float(ds.variables["water_surface"][iq, node_idx])
                 ds.close()
             except Exception as e:
-                QMessageBox.warning(self.host.main_window(), "OpenLimno",
-                                      f"WSE extract failed: {e}")
+                QMessageBox.warning(
+                    self.host.main_window(), "OpenLimno", f"WSE extract failed: {e}"
+                )
 
         try:
             from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
@@ -1923,8 +1985,9 @@ class Controller:
                 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
                 from matplotlib.figure import Figure
             except ImportError:
-                QMessageBox.warning(self.host.main_window(), "OpenLimno",
-                                      "matplotlib not available")
+                QMessageBox.warning(
+                    self.host.main_window(), "OpenLimno", "matplotlib not available"
+                )
                 return
 
         plot_dlg = QDialog(self.host.main_window())
@@ -1937,11 +2000,15 @@ class Controller:
         ax.fill_between(d, z, z_min - 0.4, color="#c8a07a", alpha=0.55, zorder=1)
         title = f"Cross-section @ station {target_station:g} m"
         if wse is not None and wse > z_min:
-            ax.axhline(wse, color="#1565c0", lw=2, zorder=4,
-                        label=f"WSE @ Q={target_Q:g} m³/s = {wse:.2f} m")
+            ax.axhline(
+                wse,
+                color="#1565c0",
+                lw=2,
+                zorder=4,
+                label=f"WSE @ Q={target_Q:g} m³/s = {wse:.2f} m",
+            )
             water_z = [max(zi, wse) if zi < wse else zi for zi in z]
-            ax.fill_between(d, z, water_z, color="#90caf9", alpha=0.6,
-                              interpolate=True, zorder=2)
+            ax.fill_between(d, z, water_z, color="#90caf9", alpha=0.6, interpolate=True, zorder=2)
             depth = wse - z_min
             ax.set_title(f"{title} — Q={target_Q:g} m³/s, max depth {depth:.2f} m")
             ax.legend(loc="lower right")

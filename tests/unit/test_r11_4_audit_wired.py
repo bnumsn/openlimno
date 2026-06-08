@@ -32,6 +32,7 @@ Pin via:
    a sandbox-rejection warning and the loader returns None,
    instead of silently reading the escaped file.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -116,7 +117,9 @@ def test_r114_inline_thermal_raster_rejected_when_outside_sandbox(
 
     warnings: list[str] = []
     out = case._maybe_compute_per_section_thermal_si_from_raster(
-        case.config, [object()], warnings,
+        case.config,
+        [object()],
+        warnings,
     )
     assert out is None, (
         "R11-4 audit regression: inline-thermal-raster loader "
@@ -125,10 +128,7 @@ def test_r114_inline_thermal_raster_rejected_when_outside_sandbox(
     assert any(
         "sandbox" in w.lower() or "allowed_data_roots" in w.lower() or "outside" in w.lower()
         for w in warnings
-    ), (
-        f"R11-4 audit regression: sandbox rejection didn't surface "
-        f"in warnings: {warnings}"
-    )
+    ), f"R11-4 audit regression: sandbox rejection didn't surface in warnings: {warnings}"
 
 
 def test_r114_inline_cover_raster_rejected_when_outside_sandbox(
@@ -162,7 +162,9 @@ def test_r114_inline_cover_raster_rejected_when_outside_sandbox(
 
     warnings: list[str] = []
     out = case._maybe_compute_per_section_cover_si_from_raster(
-        case.config, [object()], warnings,
+        case.config,
+        [object()],
+        warnings,
     )
     assert out is None
     assert any(
@@ -198,7 +200,9 @@ def test_r114_inline_thermal_si_per_section_rejected_when_outside_sandbox(
 
     warnings: list[str] = []
     out = case._maybe_load_per_section_thermal_si(
-        case.config, [object()], warnings,
+        case.config,
+        [object()],
+        warnings,
     )
     assert out is None
     assert any(
@@ -234,7 +238,9 @@ def test_r114_inline_cover_si_per_section_rejected_when_outside_sandbox(
 
     warnings: list[str] = []
     out = case._maybe_load_per_section_cover_si(
-        case.config, [object()], warnings,
+        case.config,
+        [object()],
+        warnings,
     )
     assert out is None
     assert any(

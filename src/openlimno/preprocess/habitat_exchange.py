@@ -165,7 +165,11 @@ def _detect_roles(df: pd.DataFrame) -> dict[str, str]:
 
 
 def _table_type(roles: dict[str, str]) -> str:
-    if "cell_id" in roles or ("x" in roles and "y" in roles) or ("area_m2" in roles and "csi" in roles):
+    if (
+        "cell_id" in roles
+        or ("x" in roles and "y" in roles)
+        or ("area_m2" in roles and "csi" in roles)
+    ):
         return "habitat_cells"
     if "wua_m2" in roles or ("area_m2" in roles and "csi" in roles):
         return "wua_summary"
@@ -280,7 +284,9 @@ def _normalize_summary(df: pd.DataFrame, roles: dict[str, str]) -> tuple[pd.Data
     return out, warnings
 
 
-def read_habitat_exchange(path: str | Path, *, source_key: str = "habby-csv") -> HabitatExchangeImportResult:
+def read_habitat_exchange(
+    path: str | Path, *, source_key: str = "habby-csv"
+) -> HabitatExchangeImportResult:
     """Normalize a HABBY/CASiMiR-style delimited/Parquet table.
 
     Returns ``habitat_cells`` when cell-level columns are detected, otherwise

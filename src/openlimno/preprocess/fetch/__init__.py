@@ -19,6 +19,7 @@ Submodules:
     cache      — XDG-cache-aware on-disk cache shared by all fetchers
     sidecar    — external-source provenance sidecar in case_dir/data/
 """
+
 from __future__ import annotations
 
 from openlimno.preprocess.fetch.cache import (

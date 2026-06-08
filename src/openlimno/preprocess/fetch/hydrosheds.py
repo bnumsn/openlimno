@@ -32,6 +32,7 @@ Citation:
     river systems. Hydrological Processes, 27(15): 2171-2186.
     https://www.hydrosheds.org/
 """
+
 from __future__ import annotations
 
 import zipfile
@@ -52,9 +53,15 @@ HYDROSHEDS_BASE = "https://data.hydrosheds.org/file"
 
 # HydroSHEDS continental regions (their two-letter codes).
 HYDROSHEDS_REGIONS = {
-    "af": "Africa", "ar": "Arctic", "as": "Asia", "au": "Australia",
-    "eu": "Europe", "gr": "Greenland", "na": "North America",
-    "sa": "South America", "si": "Siberia",
+    "af": "Africa",
+    "ar": "Arctic",
+    "as": "Asia",
+    "au": "Australia",
+    "eu": "Europe",
+    "gr": "Greenland",
+    "na": "North America",
+    "sa": "South America",
+    "si": "Siberia",
 }
 
 # HydroBASINS supported nesting levels.
@@ -143,8 +150,7 @@ def _safe_extract_zip(zip_path: Path, dest_dir: Path) -> None:
             target = (dest_dir / member).resolve()
             if dest_resolved not in target.parents and target != dest_resolved:
                 raise RuntimeError(
-                    f"refusing to extract {member!r}: would escape "
-                    f"{dest_dir} (zip-slip guard)"
+                    f"refusing to extract {member!r}: would escape {dest_dir} (zip-slip guard)"
                 )
         zf.extractall(dest_dir)
 
@@ -184,10 +190,7 @@ def fetch_hydrobasins(region: str, level: int = 12) -> HydroshedsLayerResult:
     """
     region = _validate_region(region)
     if level not in HYDROBASINS_LEVELS:
-        raise ValueError(
-            f"level={level} not in HydroBASINS supported range "
-            f"{HYDROBASINS_LEVELS}"
-        )
+        raise ValueError(f"level={level} not in HydroBASINS supported range {HYDROBASINS_LEVELS}")
     zip_name = f"hybas_{region}_lev{level:02d}_v1c.zip"
     url = f"{HYDROSHEDS_BASE}/HydroBASINS/standard/{zip_name}"
     # Cache key folds region+level into params so different continents
@@ -204,17 +207,25 @@ def fetch_hydrobasins(region: str, level: int = 12) -> HydroshedsLayerResult:
         return resp.content
 
     cache = cached_fetch(
-        subdir="hydrosheds", url=url, params=params,
-        suffix=".zip", fetch_fn=_do_fetch,
+        subdir="hydrosheds",
+        url=url,
+        params=params,
+        suffix=".zip",
+        fetch_fn=_do_fetch,
     )
     # Unpack into a sibling dir alongside the zip so multiple regions /
     # levels coexist without overwriting each other's shp files.
     unpack_dir = cache_dir(f"hydrosheds/hybas_{region}_lev{level:02d}")
     shp_path = _ensure_unpacked(
-        cache, unpack_dir, f"hybas_{region}_lev{level:02d}_v1c.shp",
+        cache,
+        unpack_dir,
+        f"hybas_{region}_lev{level:02d}_v1c.shp",
     )
     return HydroshedsLayerResult(
-        shp_path=shp_path, cache=cache, region=region, level=level,
+        shp_path=shp_path,
+        cache=cache,
+        region=region,
+        level=level,
         layer_kind="hydrobasins",
     )
 
@@ -234,15 +245,23 @@ def fetch_hydrorivers(region: str) -> HydroshedsLayerResult:
         return resp.content
 
     cache = cached_fetch(
-        subdir="hydrosheds", url=url, params=params,
-        suffix=".zip", fetch_fn=_do_fetch,
+        subdir="hydrosheds",
+        url=url,
+        params=params,
+        suffix=".zip",
+        fetch_fn=_do_fetch,
     )
     unpack_dir = cache_dir(f"hydrosheds/HydroRIVERS_v10_{region}")
     shp_path = _ensure_unpacked(
-        cache, unpack_dir, f"HydroRIVERS_v10_{region}.shp",
+        cache,
+        unpack_dir,
+        f"HydroRIVERS_v10_{region}.shp",
     )
     return HydroshedsLayerResult(
-        shp_path=shp_path, cache=cache, region=region, level=-1,
+        shp_path=shp_path,
+        cache=cache,
+        region=region,
+        level=-1,
         layer_kind="hydrorivers",
     )
 
@@ -251,7 +270,9 @@ def fetch_hydrorivers(region: str) -> HydroshedsLayerResult:
 # Topology + lookup helpers (no geopandas; ogr-only for streaming).
 # ---------------------------------------------------------------------
 def find_basin_at(
-    shp_path: Path | str, lat: float, lon: float,
+    shp_path: Path | str,
+    lat: float,
+    lon: float,
 ) -> dict | None:
     """Return the HydroBASINS feature containing ``(lat, lon)`` — or
     ``None`` if the point falls outside the layer.
@@ -278,8 +299,7 @@ def find_basin_at(
         if not geom.Contains(pt):
             continue
         attrs = {
-            feat.GetFieldDefnRef(i).GetName(): feat.GetField(i)
-            for i in range(feat.GetFieldCount())
+            feat.GetFieldDefnRef(i).GetName(): feat.GetField(i) for i in range(feat.GetFieldCount())
         }
         attrs["geometry_wkt"] = geom.ExportToWkt()
         return attrs
@@ -287,7 +307,8 @@ def find_basin_at(
 
 
 def upstream_basin_ids(
-    shp_path: Path | str, start_hybas_id: int,
+    shp_path: Path | str,
+    start_hybas_id: int,
 ) -> list[int]:
     """Walk ``NEXT_DOWN`` topology to enumerate all basins whose flow
     eventually passes through ``start_hybas_id`` (inclusive).
@@ -308,8 +329,10 @@ def upstream_basin_ids(
     if ds is None:
         raise RuntimeError(f"could not open shapefile {shp_path}")
     layer = ds.GetLayer(0)
-    fields = {layer.GetLayerDefn().GetFieldDefn(i).GetName()
-              for i in range(layer.GetLayerDefn().GetFieldCount())}
+    fields = {
+        layer.GetLayerDefn().GetFieldDefn(i).GetName()
+        for i in range(layer.GetLayerDefn().GetFieldCount())
+    }
     if "HYBAS_ID" not in fields or "NEXT_DOWN" not in fields:
         raise RuntimeError(
             f"shapefile {shp_path} missing HYBAS_ID/NEXT_DOWN — "
@@ -325,9 +348,7 @@ def upstream_basin_ids(
         if nd:  # 0 means "drains to ocean / endorheic sink"
             children.setdefault(nd, []).append(hid)
     if start_hybas_id not in all_ids:
-        raise ValueError(
-            f"start_hybas_id={start_hybas_id} not found in {shp_path}"
-        )
+        raise ValueError(f"start_hybas_id={start_hybas_id} not found in {shp_path}")
     # BFS upstream.
     upstream: list[int] = []
     queue: deque[int] = deque([start_hybas_id])
@@ -393,10 +414,12 @@ def write_watershed_geojson(
         geom = feat.GetGeometryRef()
         if geom is None:
             continue
-        sa = feat.GetField("SUB_AREA") if "SUB_AREA" in {
-            feat.GetFieldDefnRef(i).GetName()
-            for i in range(feat.GetFieldCount())
-        } else None
+        sa = (
+            feat.GetField("SUB_AREA")
+            if "SUB_AREA"
+            in {feat.GetFieldDefnRef(i).GetName() for i in range(feat.GetFieldCount())}
+            else None
+        )
         if sa is not None:
             area_km2 += float(sa)
         x_min, x_max, y_min, y_max = geom.GetEnvelope()

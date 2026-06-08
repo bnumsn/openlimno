@@ -8,6 +8,7 @@ plugin.py wiring without spinning up a full QGIS desktop session.
 Marked as ``qgis`` so the default quality gate can exclude it while the
 QGIS development environment still runs the real plugin wiring.
 """
+
 from __future__ import annotations
 
 import sys
@@ -42,15 +43,25 @@ class _MockIface:
         self._menu_actions: list = []
         self._toolbar_actions: list = []
 
-    def mainWindow(self): return self._mw
-    def mapCanvas(self): return self._canvas
-    def messageBar(self): return self._bar
+    def mainWindow(self):
+        return self._mw
+
+    def mapCanvas(self):
+        return self._canvas
+
+    def messageBar(self):
+        return self._bar
 
     def statusBarIface(self):
         sb = self._mw.statusBar()
+
         class _S:
-            def showMessage(self, m, t=0): sb.showMessage(m, t)
-            def clearMessage(self): sb.clearMessage()
+            def showMessage(self, m, t=0):
+                sb.showMessage(m, t)
+
+            def clearMessage(self):
+                sb.clearMessage()
+
         return _S()
 
     def addPluginToMenu(self, _menu, action):
@@ -122,8 +133,14 @@ def test_controller_methods_callable(plugin):
     """Each action's slot must exist on Controller — protects against
     typos in the wiring after the gui_core refactor."""
     p, _ = plugin
-    for method in ("open_hydraulic_nc", "open_wua_q", "plot_cross_section",
-                     "activate_pick_tool", "build_case_from_osm", "run_case"):
+    for method in (
+        "open_hydraulic_nc",
+        "open_wua_q",
+        "plot_cross_section",
+        "activate_pick_tool",
+        "build_case_from_osm",
+        "run_case",
+    ):
         assert callable(getattr(p.ctl, method)), method
 
 
@@ -164,8 +181,9 @@ def test_read_parquet_async_runs_off_main_thread(plugin, tmp_path):
     loop = QEventLoop()
     QTimer.singleShot(3000, loop.quit)  # safety timeout
 
-    ctl._read_parquet_async(str(tmp_path / "fake.parquet"), slow_read,
-                             on_success, on_error, "test read")
+    ctl._read_parquet_async(
+        str(tmp_path / "fake.parquet"), slow_read, on_success, on_error, "test read"
+    )
     loop.exec()
 
     assert captured["error"] is None, captured["error"]
@@ -177,9 +195,7 @@ def test_read_parquet_async_runs_off_main_thread(plugin, tmp_path):
     assert ctl._read_in_flight is False, (
         "_read_in_flight should reset to False once the worker dispatches"
     )
-    assert ctl._async_handles == set(), (
-        "async handle should be removed once cleanup runs"
-    )
+    assert ctl._async_handles == set(), "async handle should be removed once cleanup runs"
 
 
 def test_read_parquet_async_does_not_leak_qobjects(plugin, tmp_path):
@@ -216,9 +232,9 @@ def test_read_parquet_async_does_not_leak_qobjects(plugin, tmp_path):
 
     # Warm up so any one-shot setup objects materialise before baseline.
     state = {"done": False}
-    ctl._read_parquet_async("/warm", trivial,
-                             lambda r: state.update(done=True),
-                             lambda m: None, "warm")
+    ctl._read_parquet_async(
+        "/warm", trivial, lambda r: state.update(done=True), lambda m: None, "warm"
+    )
     while not state["done"]:
         _spin_event_loop(50)
     _spin_event_loop(200)  # drain deferred-delete queue
@@ -228,9 +244,9 @@ def test_read_parquet_async_does_not_leak_qobjects(plugin, tmp_path):
     N = 25
     for i in range(N):
         st = {"done": False}
-        ctl._read_parquet_async(f"/p{i}", trivial,
-                                 lambda r, st=st: st.update(done=True),
-                                 lambda m: None, "n")
+        ctl._read_parquet_async(
+            f"/p{i}", trivial, lambda r, st=st: st.update(done=True), lambda m: None, "n"
+        )
         while not st["done"]:
             _spin_event_loop(50)
 
@@ -282,8 +298,7 @@ def test_read_parquet_async_uncaught_exception_dispatches_error(plugin, tmp_path
 
     loop = QEventLoop()
     QTimer.singleShot(2000, loop.quit)
-    ctl._read_parquet_async(str(tmp_path / "x.parquet"), bad_read,
-                             on_success, on_error, "test")
+    ctl._read_parquet_async(str(tmp_path / "x.parquet"), bad_read, on_success, on_error, "test")
     loop.exec()
 
     assert captured["error_msg"] is not None, (
@@ -292,8 +307,7 @@ def test_read_parquet_async_uncaught_exception_dispatches_error(plugin, tmp_path
         "modal forever and _read_in_flight stuck True."
     )
     assert "TypeError" in captured["error_msg"], (
-        "Error message should surface the exception type so the user "
-        "can see the underlying bug"
+        "Error message should surface the exception type so the user can see the underlying bug"
     )
     assert "simulated programmer bug" in captured["error_msg"]
     assert not captured["success_called"]
@@ -322,6 +336,7 @@ def test_read_parquet_async_dedupes_concurrent_reads(plugin, tmp_path):
     def first_read(path: str) -> list:
         # Block briefly so the second call lands while we're in-flight.
         import time
+
         time.sleep(0.1)
         return [{"first": True}]
 
@@ -350,11 +365,13 @@ def test_read_parquet_async_dedupes_concurrent_reads(plugin, tmp_path):
     QTimer.singleShot(2000, loop.quit)  # safety timeout
 
     # Kick off first read.
-    ctl._read_parquet_async(str(tmp_path / "a.parquet"), first_read,
-                             first_success, noop_error, "first")
+    ctl._read_parquet_async(
+        str(tmp_path / "a.parquet"), first_read, first_success, noop_error, "first"
+    )
     # Immediately attempt a second — must be dropped AND notify caller.
-    ctl._read_parquet_async(str(tmp_path / "b.parquet"), second_read,
-                             second_success, second_error, "second")
+    ctl._read_parquet_async(
+        str(tmp_path / "b.parquet"), second_read, second_success, second_error, "second"
+    )
 
     # Run the loop until first signal processes (or timeout).
     def _check() -> None:
@@ -368,20 +385,17 @@ def test_read_parquet_async_dedupes_concurrent_reads(plugin, tmp_path):
     timer.stop()
 
     assert results["first_rows"] == [{"first": True}]
-    assert results["second_called"] is False, (
-        "second async read must NOT run — would race on cache"
-    )
+    assert results["second_called"] is False, "second async read must NOT run — would race on cache"
     assert results["second_error_msg"] is not None, (
         "REGRESSION: deduped second call silently dropped without "
         "feedback — user has no indication their click was received. "
         "_read_parquet_async should route through on_error when "
         "_read_in_flight is already True."
     )
-    assert "progress" in results["second_error_msg"].lower() or \
-           "wait" in results["second_error_msg"].lower(), (
-        f"on_error message should explain the busy state, got: "
-        f"{results['second_error_msg']!r}"
-    )
+    assert (
+        "progress" in results["second_error_msg"].lower()
+        or "wait" in results["second_error_msg"].lower()
+    ), f"on_error message should explain the busy state, got: {results['second_error_msg']!r}"
 
 
 def test_unload_removes_everything(qgs_app):

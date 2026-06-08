@@ -227,9 +227,7 @@ def test_read_results_handles_v511_static_mesh_across_output_stacks(tmp_path: Pa
     assert result.n_nodes == 3
     assert result.n_times == 2
     assert len(result.table) == 6
-    assert result.dataset["bathymetric_depth_m"].values.tolist() == pytest.approx(
-        [2.0, 3.0, 4.0]
-    )
+    assert result.dataset["bathymetric_depth_m"].values.tolist() == pytest.approx([2.0, 3.0, 4.0])
     assert result.table.drop_duplicates("node_id")["area_m2"].sum() == pytest.approx(0.5)
     assert result.table["velocity_ms"].notna().all()
 

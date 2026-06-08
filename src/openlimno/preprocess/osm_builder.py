@@ -51,19 +51,19 @@ class OSMCaseSpec:
       3. ``river_name`` + ``region_name`` — fallback, may pick a wrong segment
     """
 
-    river_name: str | None = None            # OSM 'name' tag; optional if bbox given
-    region_name: str = "Idaho"               # admin area; only used when no bbox
+    river_name: str | None = None  # OSM 'name' tag; optional if bbox given
+    region_name: str = "Idaho"  # admin area; only used when no bbox
     bbox: tuple[float, float, float, float] | None = None  # (lon_min, lat_min, lon_max, lat_max)
-    polyline_geojson: str | None = None      # path to a LineString GeoJSON
-    n_sections: int = 11                     # mesh nodes along reach
-    reach_length_m: float = 1000.0           # length of modelled reach (used when no polyline)
-    valley_width_m: float = 10.0             # cross-section width (bank-to-bank)
-    thalweg_depth_m: float = 1.0             # max bed-below-bank depth
-    bank_elevation_m: float = 1500.0         # upstream bank elevation
-    slope: float = 0.002                     # along-reach bed slope
+    polyline_geojson: str | None = None  # path to a LineString GeoJSON
+    n_sections: int = 11  # mesh nodes along reach
+    reach_length_m: float = 1000.0  # length of modelled reach (used when no polyline)
+    valley_width_m: float = 10.0  # cross-section width (bank-to-bank)
+    thalweg_depth_m: float = 1.0  # max bed-below-bank depth
+    bank_elevation_m: float = 1500.0  # upstream bank elevation
+    slope: float = 0.002  # along-reach bed slope
     species_id: str = "oncorhynchus_mykiss"  # default target species
     life_stages: tuple = ("spawning", "fry")
-    case_name: str | None = None             # default = sluggified river name
+    case_name: str | None = None  # default = sluggified river name
 
 
 def build_overpass_query(
@@ -122,7 +122,9 @@ def fetch_river_polyline(
     from shapely.ops import linemerge
 
     query = build_overpass_query(
-        bbox=bbox, river_name=river_name, region_name=region_name,
+        bbox=bbox,
+        river_name=river_name,
+        region_name=region_name,
         timeout=timeout,
     )
 
@@ -131,7 +133,8 @@ def fetch_river_polyline(
     # short connect timeout, an offline user waits the full 60 s.
     try:
         resp = requests.get(
-            OVERPASS_URL, params={"data": query},
+            OVERPASS_URL,
+            params={"data": query},
             headers={"User-Agent": USER_AGENT},
             timeout=(5.0, timeout),  # (connect, read)
         )
@@ -161,8 +164,7 @@ def fetch_river_polyline(
             f"{'bbox=' + repr(bbox) if bbox else f'{river_name!r} in {region_name}'}"
         )
 
-    lines = [LineString([(p["lon"], p["lat"]) for p in w["geometry"]])
-              for w in ways]
+    lines = [LineString([(p["lon"], p["lat"]) for p in w["geometry"]]) for w in ways]
     merged = linemerge(MultiLineString(lines))
     # linemerge can return: LineString (all-connected), MultiLineString
     # (multiple contiguous components), or GeometryCollection (when some
@@ -171,8 +173,7 @@ def fetch_river_polyline(
         chosen = merged
     else:
         line_geoms = [
-            g for g in getattr(merged, "geoms", [])
-            if isinstance(g, LineString) and g.length > 0
+            g for g in getattr(merged, "geoms", []) if isinstance(g, LineString) and g.length > 0
         ]
         if not line_geoms:
             raise ValueError(
@@ -183,8 +184,7 @@ def fetch_river_polyline(
         chosen = max(line_geoms, key=lambda g: g.length)
     merged = chosen
     coords = list(merged.coords)
-    logger.info("OSM polyline: %d points, %.1f km",
-                  len(coords), merged.length * 111000 / 1000)
+    logger.info("OSM polyline: %d points, %.1f km", len(coords), merged.length * 111000 / 1000)
     return coords
 
 
@@ -201,13 +201,13 @@ def fetch_polyline_from_geojson(geojson_path: str) -> list[tuple[float, float]]:
         gj = gj.get("geometry", {})
     if gj.get("type") not in ("LineString", "MultiLineString"):
         raise ValueError(f"Geometry must be LineString, got {gj.get('type')!r}")
-    coords = (gj["coordinates"] if gj["type"] == "LineString"
-                else max(gj["coordinates"], key=len))
+    coords = gj["coordinates"] if gj["type"] == "LineString" else max(gj["coordinates"], key=len)
     return [(float(c[0]), float(c[1])) for c in coords]
 
 
-def sample_mesh_nodes(polyline: list[tuple[float, float]],
-                        spec: OSMCaseSpec) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def sample_mesh_nodes(
+    polyline: list[tuple[float, float]], spec: OSMCaseSpec
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Take an even-distance subsample along the polyline.
 
     Returns (lon[N], lat[N], station_along_reach_m[N]).
@@ -236,6 +236,7 @@ def sample_mesh_nodes(polyline: list[tuple[float, float]],
 def build_v_cross_sections(station_m: np.ndarray, spec: OSMCaseSpec) -> pd.DataFrame:
     """Synthesise V-shaped cross-sections at each station."""
     import uuid
+
     cid = str(uuid.uuid4())
     rows = []
     n_pts = 21
@@ -246,44 +247,51 @@ def build_v_cross_sections(station_m: np.ndarray, spec: OSMCaseSpec) -> pd.DataF
         depth_profile = spec.thalweg_depth_m * (1 - (offsets / half) ** 2)
         depth_profile = np.clip(depth_profile, 0, spec.thalweg_depth_m)
         for j, (off, depth) in enumerate(zip(offsets, depth_profile, strict=True)):
-            rows.append({
-                "campaign_id": cid,
-                "station_m": float(station),
-                "point_index": j,
-                "distance_m": float(off),
-                "elevation_m": float(bank_elev - depth),
-                "depth_m": float(depth),
-                "substrate": "gravel-cobble",
-                "cover": "none",
-            })
+            rows.append(
+                {
+                    "campaign_id": cid,
+                    "station_m": float(station),
+                    "point_index": j,
+                    "distance_m": float(off),
+                    "elevation_m": float(bank_elev - depth),
+                    "depth_m": float(depth),
+                    "substrate": "gravel-cobble",
+                    "cover": "none",
+                }
+            )
     return pd.DataFrame(rows)
 
 
-def write_ugrid_mesh(node_x: np.ndarray, node_y: np.ndarray,
-                      station_m: np.ndarray, bottom_elevation: np.ndarray,
-                      out_path: Path) -> None:
+def write_ugrid_mesh(
+    node_x: np.ndarray,
+    node_y: np.ndarray,
+    station_m: np.ndarray,
+    bottom_elevation: np.ndarray,
+    out_path: Path,
+) -> None:
     """Write a UGRID-1D NetCDF mesh with edges connecting consecutive nodes."""
     n = len(node_x)
     edge_nodes = np.array([(i, i + 1) for i in range(n - 1)], dtype=np.int64)
     ds = xr.Dataset(
         data_vars={
-            "mesh1d": ((), 0, {
-                "cf_role": "mesh_topology",
-                "topology_dimension": 1,
-                "node_coordinates": "node_x node_y",
-                "edge_node_connectivity": "edge_nodes",
-            }),
-            "node_x": (("node",), node_x, {"standard_name": "longitude",
-                                              "units": "degrees_east"}),
-            "node_y": (("node",), node_y, {"standard_name": "latitude",
-                                              "units": "degrees_north"}),
+            "mesh1d": (
+                (),
+                0,
+                {
+                    "cf_role": "mesh_topology",
+                    "topology_dimension": 1,
+                    "node_coordinates": "node_x node_y",
+                    "edge_node_connectivity": "edge_nodes",
+                },
+            ),
+            "node_x": (("node",), node_x, {"standard_name": "longitude", "units": "degrees_east"}),
+            "node_y": (("node",), node_y, {"standard_name": "latitude", "units": "degrees_north"}),
             "bottom_elevation": (("node",), bottom_elevation, {"units": "m"}),
-            "edge_nodes": (("edge", "two"), edge_nodes,
-                            {"start_index": 0}),
+            "edge_nodes": (("edge", "two"), edge_nodes, {"start_index": 0}),
         },
-        coords={"station_m": (("node",), station_m,
-                                {"long_name": "along-reach distance",
-                                 "units": "m"})},
+        coords={
+            "station_m": (("node",), station_m, {"long_name": "along-reach distance", "units": "m"})
+        },
         attrs={
             "Conventions": "CF-1.8 UGRID-1.0",
             "title": "OpenLimno mesh built from OSM (init-from-osm)",
@@ -339,8 +347,9 @@ def build_case(spec: OSMCaseSpec, output_dir: str | Path) -> dict[str, str]:
     node_x, node_y, station_m = sample_mesh_nodes(coords, spec)
 
     # 2. Cross-sections (V-shape) + bottom elevation along reach
-    bottom_elevation = (spec.bank_elevation_m - spec.slope * station_m
-                        - spec.thalweg_depth_m)  # at thalweg
+    bottom_elevation = (
+        spec.bank_elevation_m - spec.slope * station_m - spec.thalweg_depth_m
+    )  # at thalweg
     xs_df = build_v_cross_sections(station_m, spec)
 
     mesh_path = data_dir / "mesh.ugrid.nc"
@@ -363,8 +372,7 @@ def build_case(spec: OSMCaseSpec, output_dir: str | Path) -> dict[str, str]:
                 # isn't a peer-reviewed curve for the new species.
                 if "geographic_origin" in sample_df.columns:
                     sample_df["geographic_origin"] = (
-                        f"transferred from oncorhynchus_mykiss "
-                        f"(Lemhi sample) to {spec.species_id}"
+                        f"transferred from oncorhynchus_mykiss (Lemhi sample) to {spec.species_id}"
                     )
                 if "transferability_score" in sample_df.columns:
                     sample_df["transferability_score"] = 0.3  # low confidence
@@ -376,22 +384,30 @@ def build_case(spec: OSMCaseSpec, output_dir: str | Path) -> dict[str, str]:
         # Synthesize a minimal HSI curve so the case still validates
         hsi_rows = []
         for var, points in [
-            ("depth",    [[0.0, 0.0], [0.3, 1.0], [0.6, 1.0], [1.2, 0.5], [2.0, 0.0]]),
+            ("depth", [[0.0, 0.0], [0.3, 1.0], [0.6, 1.0], [1.2, 0.5], [2.0, 0.0]]),
             ("velocity", [[0.0, 0.0], [0.5, 1.0], [1.0, 1.0], [1.5, 0.3], [2.0, 0.0]]),
         ]:
-            hsi_rows.append({
-                "species": spec.species_id, "life_stage": "spawning", "variable": var,
-                "points": points, "category": "III",
-                "geographic_origin": "synthetic",
-                "transferability_score": 0.5, "quality_grade": "C",
-                "independence_tested": False,
-                "evidence": ["openlimno.preprocess.osm_builder synthetic"],
-            })
+            hsi_rows.append(
+                {
+                    "species": spec.species_id,
+                    "life_stage": "spawning",
+                    "variable": var,
+                    "points": points,
+                    "category": "III",
+                    "geographic_origin": "synthetic",
+                    "transferability_score": 0.5,
+                    "quality_grade": "C",
+                    "independence_tested": False,
+                    "evidence": ["openlimno.preprocess.osm_builder synthetic"],
+                }
+            )
         pd.DataFrame(hsi_rows).to_parquet(hsi_path, index=False)
 
     # 4. case.yaml
     if spec.river_name:
-        descr = f"OpenLimno case built from OSM polyline of '{spec.river_name}' in {spec.region_name}"
+        descr = (
+            f"OpenLimno case built from OSM polyline of '{spec.river_name}' in {spec.region_name}"
+        )
     elif spec.bbox is not None:
         descr = f"OpenLimno case built from OSM polyline within bbox {spec.bbox}"
     elif spec.polyline_geojson:

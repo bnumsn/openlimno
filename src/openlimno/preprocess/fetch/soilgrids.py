@@ -26,6 +26,7 @@ Citation:
     producing soil information for the globe with quantified spatial
     uncertainty. SOIL, 7, 217-240. doi:10.5194/soil-7-217-2021. CC-BY 4.0.
 """
+
 from __future__ import annotations
 
 import json
@@ -45,14 +46,24 @@ SOILGRIDS_REST = "https://rest.isric.org/soilgrids/v2.0/properties/query"
 # resolved automatically from the API response, so a future schema
 # rename surfaces as an error rather than a silent unit shift.
 DEFAULT_PROPERTIES: tuple[str, ...] = (
-    "bdod", "clay", "sand", "silt", "soc", "phh2o",
+    "bdod",
+    "clay",
+    "sand",
+    "silt",
+    "soc",
+    "phh2o",
 )
 # Depth labels SoilGrids accepts in the ``depth=`` query param. Top
 # 0-30 cm is the layer most relevant to surface hydrology + riparian
 # biogeochem; deeper layers are rarely consumed by reach-scale fish
 # models, but the API supports them — exposed for power users.
 ALL_DEPTHS: tuple[str, ...] = (
-    "0-5cm", "5-15cm", "15-30cm", "30-60cm", "60-100cm", "100-200cm",
+    "0-5cm",
+    "5-15cm",
+    "15-30cm",
+    "30-60cm",
+    "60-100cm",
+    "100-200cm",
 )
 DEFAULT_DEPTHS: tuple[str, ...] = ("0-5cm", "5-15cm", "15-30cm")
 ALL_STATISTICS: tuple[str, ...] = ("Q0.05", "Q0.5", "Q0.95", "mean", "uncertainty")
@@ -87,7 +98,9 @@ class SoilGridsFetchResult:
     citation: str = SOILGRIDS_CITATION
 
     def get(
-        self, property_name: str, depth: str = "0-5cm",
+        self,
+        property_name: str,
+        depth: str = "0-5cm",
         statistic: str = DEFAULT_STATISTIC,
     ) -> float:
         """Convenience: pluck a single (property, depth, statistic) value
@@ -109,8 +122,11 @@ class SoilGridsFetchResult:
 
 
 def _validate_args(
-    lat: float, lon: float,
-    properties: Iterable[str], depths: Iterable[str], statistic: str,
+    lat: float,
+    lon: float,
+    properties: Iterable[str],
+    depths: Iterable[str],
+    statistic: str,
 ) -> tuple[list[str], list[str]]:
     if not (-90.0 <= lat <= 90.0):
         raise ValueError(f"lat={lat} outside [-90, 90]")
@@ -124,20 +140,17 @@ def _validate_args(
         raise ValueError("at least one depth must be requested")
     unknown_d = set(deps) - set(ALL_DEPTHS)
     if unknown_d:
-        raise ValueError(
-            f"unknown depth(s): {sorted(unknown_d)}; "
-            f"valid: {ALL_DEPTHS}"
-        )
+        raise ValueError(f"unknown depth(s): {sorted(unknown_d)}; valid: {ALL_DEPTHS}")
     if statistic not in ALL_STATISTICS:
-        raise ValueError(
-            f"statistic={statistic!r} not in {ALL_STATISTICS}"
-        )
+        raise ValueError(f"statistic={statistic!r} not in {ALL_STATISTICS}")
     return props, deps
 
 
 def fetch_soilgrids(
-    lat: float, lon: float,
-    *, properties: Iterable[str] = DEFAULT_PROPERTIES,
+    lat: float,
+    lon: float,
+    *,
+    properties: Iterable[str] = DEFAULT_PROPERTIES,
     depths: Iterable[str] = DEFAULT_DEPTHS,
     statistic: str = DEFAULT_STATISTIC,
 ) -> SoilGridsFetchResult:
@@ -164,7 +177,8 @@ def fetch_soilgrids(
     # SoilGrids accepts repeated property + depth params. requests' params
     # accepts list-valued entries so we pass them as multi-keys.
     params: list[tuple[str, str]] = [
-        ("lon", f"{lon:.6f}"), ("lat", f"{lat:.6f}"),
+        ("lon", f"{lon:.6f}"),
+        ("lat", f"{lat:.6f}"),
         ("value", statistic),
     ]
     params.extend(("property", p) for p in props)
@@ -174,7 +188,8 @@ def fetch_soilgrids(
     # stable hashing. Property + depth order CAN'T matter for the
     # response so flatten to deterministic strings.
     cache_params = {
-        "lat": round(lat, 6), "lon": round(lon, 6),
+        "lat": round(lat, 6),
+        "lon": round(lon, 6),
         "properties": ",".join(sorted(props)),
         "depths": ",".join(sorted(deps)),
         "statistic": statistic,
@@ -186,8 +201,11 @@ def fetch_soilgrids(
         return resp.content
 
     cache = cached_fetch(
-        subdir="soilgrids", url=SOILGRIDS_REST, params=cache_params,
-        suffix=".json", fetch_fn=_do_fetch,
+        subdir="soilgrids",
+        url=SOILGRIDS_REST,
+        params=cache_params,
+        suffix=".json",
+        fetch_fn=_do_fetch,
     )
     payload = json.loads(cache.path.read_text())
 
@@ -221,17 +239,23 @@ def fetch_soilgrids(
             # int storage on the back-end. We undo the scaling to land
             # in target_units.
             converted = float(raw) / float(d_factor)
-            rows.append({
-                "property": prop,
-                "depth": depth_label,
-                "statistic": statistic,
-                "value": converted,
-                "unit": target_unit,
-            })
+            rows.append(
+                {
+                    "property": prop,
+                    "depth": depth_label,
+                    "statistic": statistic,
+                    "value": converted,
+                    "unit": target_unit,
+                }
+            )
 
     df = pd.DataFrame(
-        rows, columns=["property", "depth", "statistic", "value", "unit"],
+        rows,
+        columns=["property", "depth", "statistic", "value", "unit"],
     )
     return SoilGridsFetchResult(
-        df=df, lat=lat, lon=lon, cache=cache,
+        df=df,
+        lat=lat,
+        lon=lon,
+        cache=cache,
     )

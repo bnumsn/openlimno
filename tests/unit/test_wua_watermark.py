@@ -61,8 +61,7 @@ def test_provenance_carries_fetch_summary_key() -> None:
     result = case.run(discharges_m3s=[3.0, 6.0])
     prov = json.loads(result.provenance_path.read_text())
     assert "fetch_summary" in prov, (
-        "v0.6 regression: provenance.json must always carry "
-        "fetch_summary, even on v0.1 cases"
+        "v0.6 regression: provenance.json must always carry fetch_summary, even on v0.1 cases"
     )
     assert isinstance(prov["fetch_summary"], dict)
 
@@ -116,6 +115,7 @@ output:
     # Construct Case bypassing from_yaml's full load chain — only need
     # the case_yaml_path + name for _build_provenance to do its job.
     import yaml as _yaml
+
     cfg = _yaml.safe_load(yaml_text)
     case = Case(config=cfg, case_yaml_path=yp)
 
@@ -153,14 +153,15 @@ def test_v111_thermal_habitat_runs_when_fishbase_and_climate_present(tmp_path):
     # Build a synthetic climate CSV matching the Open-Meteo schema
     case_data_dir = tmp_path / "data"
     case_data_dir.mkdir()
-    clim_df = pd.DataFrame({
-        "time": pd.date_range("2024-01-01", periods=10, freq="D"
-                              ).strftime("%Y-%m-%d"),
-        "tmax_C": [10.0] * 10,
-        "tmin_C": [6.0] * 10,
-        "T_air_C_mean": [8.0] * 10,
-        "T_water_C_stefan": [12.0] * 10,  # in Rainbow trout's optimum
-    })
+    clim_df = pd.DataFrame(
+        {
+            "time": pd.date_range("2024-01-01", periods=10, freq="D").strftime("%Y-%m-%d"),
+            "tmax_C": [10.0] * 10,
+            "tmin_C": [6.0] * 10,
+            "T_air_C_mean": [8.0] * 10,
+            "T_water_C_stefan": [12.0] * 10,  # in Rainbow trout's optimum
+        }
+    )
     clim_csv = case_data_dir / "climate_2024_2024.csv"
     clim_df.to_csv(clim_csv, index=False)
 
@@ -204,7 +205,10 @@ output:
     out_dir = tmp_path / "out"
     out_dir.mkdir()
     thermal_metrics_dict = case._maybe_run_thermal_habitat(
-        case.config, tmp_path, out_dir, warnings=[],
+        case.config,
+        tmp_path,
+        out_dir,
+        warnings=[],
     )
     assert thermal_metrics_dict is not None
     # 12 °C is inside Oncorhynchus mykiss's 9-18 °C preferred range
@@ -249,7 +253,10 @@ output:
     case_yaml.write_text(yaml_text)
     case = Case.from_yaml(case_yaml)
     metrics = case._maybe_run_thermal_habitat(
-        case.config, tmp_path, tmp_path / "out", warnings=[],
+        case.config,
+        tmp_path,
+        tmp_path / "out",
+        warnings=[],
     )
     assert metrics is None
 
@@ -291,12 +298,15 @@ output:
 
 def test_v112_density_class_dense_above_100(tmp_path):
     import yaml as _yaml
+
     yp = _make_v02_case_with_species_count(tmp_path, 5000)
     cfg = _yaml.safe_load(yp.read_text())
     case = Case(config=cfg, case_yaml_path=yp)
     prov = case._build_provenance(
-        discharges=[3.0], sections=[],
-        species=["oncorhynchus_mykiss"], stages=["spawning"],
+        discharges=[3.0],
+        sections=[],
+        species=["oncorhynchus_mykiss"],
+        stages=["spawning"],
         warnings=[],
     )
     assert prov["fetch_summary"]["species_occurrences"]["density_class"] == "dense"
@@ -304,12 +314,15 @@ def test_v112_density_class_dense_above_100(tmp_path):
 
 def test_v112_density_class_thin_between_10_and_99(tmp_path):
     import yaml as _yaml
+
     yp = _make_v02_case_with_species_count(tmp_path, 50)
     cfg = _yaml.safe_load(yp.read_text())
     case = Case(config=cfg, case_yaml_path=yp)
     prov = case._build_provenance(
-        discharges=[3.0], sections=[],
-        species=["oncorhynchus_mykiss"], stages=["spawning"],
+        discharges=[3.0],
+        sections=[],
+        species=["oncorhynchus_mykiss"],
+        stages=["spawning"],
         warnings=[],
     )
     assert prov["fetch_summary"]["species_occurrences"]["density_class"] == "thin"
@@ -321,12 +334,15 @@ def test_v112_density_class_thin_between_10_and_99(tmp_path):
 
 def test_v112_density_class_sparse_below_10_warns(tmp_path):
     import yaml as _yaml
+
     yp = _make_v02_case_with_species_count(tmp_path, 5)
     cfg = _yaml.safe_load(yp.read_text())
     case = Case(config=cfg, case_yaml_path=yp)
     prov = case._build_provenance(
-        discharges=[3.0], sections=[],
-        species=["oncorhynchus_mykiss"], stages=["spawning"],
+        discharges=[3.0],
+        sections=[],
+        species=["oncorhynchus_mykiss"],
+        stages=["spawning"],
         warnings=[],
     )
     assert prov["fetch_summary"]["species_occurrences"]["density_class"] == "sparse"
@@ -337,12 +353,15 @@ def test_v112_density_class_sparse_below_10_warns(tmp_path):
 
 def test_v112_density_class_absent_at_zero_keeps_v06_warning(tmp_path):
     import yaml as _yaml
+
     yp = _make_v02_case_with_species_count(tmp_path, 0)
     cfg = _yaml.safe_load(yp.read_text())
     case = Case(config=cfg, case_yaml_path=yp)
     prov = case._build_provenance(
-        discharges=[3.0], sections=[],
-        species=["oncorhynchus_mykiss"], stages=["spawning"],
+        discharges=[3.0],
+        sections=[],
+        species=["oncorhynchus_mykiss"],
+        stages=["spawning"],
         warnings=[],
     )
     assert prov["fetch_summary"]["species_occurrences"]["density_class"] == "absent"
@@ -355,6 +374,7 @@ def test_v111_provenance_always_contains_thermal_metrics_key():
     """Same regression-pin philosophy as fetch_summary: the key must
     exist even when None, so downstream tooling can rely on it."""
     import json
+
     case = Case.from_yaml(CASE_YAML)
     result = case.run(discharges_m3s=[3.0])
     prov = json.loads(result.provenance_path.read_text())
@@ -373,34 +393,48 @@ def _make_cover_test_inputs(tmp_path: Path):
     import numpy as _np
     import rasterio
     from rasterio.transform import from_origin
+
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     # 100% tree cover (LCCS 10) → SI=1.0 in DEFAULT_RIPARIAN_COVER_SI
     arr = _np.full((20, 20), 10, dtype=_np.uint8)
     tif = data_dir / "lulc.tif"
     with rasterio.open(
-        tif, "w", driver="GTiff", height=20, width=20, count=1,
-        dtype="uint8", crs="EPSG:4326",
+        tif,
+        "w",
+        driver="GTiff",
+        height=20,
+        width=20,
+        count=1,
+        dtype="uint8",
+        crs="EPSG:4326",
         transform=from_origin(100.0, 38.0, 5e-5, 5e-5),
     ) as dst:
         dst.write(arr, 1)
     # Polygon covering the raster extent
     import json as _json
+
     ws = data_dir / "watershed.geojson"
-    ws.write_text(_json.dumps({
-        "type": "Feature",
-        "properties": {"area_km2": 0.01},
-        "geometry": {
-            "type": "Polygon",
-            "coordinates": [[
-                [100.0, 38.0 - 20 * 5e-5],
-                [100.0 + 20 * 5e-5, 38.0 - 20 * 5e-5],
-                [100.0 + 20 * 5e-5, 38.0],
-                [100.0, 38.0],
-                [100.0, 38.0 - 20 * 5e-5],
-            ]],
-        },
-    }))
+    ws.write_text(
+        _json.dumps(
+            {
+                "type": "Feature",
+                "properties": {"area_km2": 0.01},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [
+                        [
+                            [100.0, 38.0 - 20 * 5e-5],
+                            [100.0 + 20 * 5e-5, 38.0 - 20 * 5e-5],
+                            [100.0 + 20 * 5e-5, 38.0],
+                            [100.0, 38.0],
+                            [100.0, 38.0 - 20 * 5e-5],
+                        ]
+                    ],
+                },
+            }
+        )
+    )
     return "data/lulc.tif", "data/watershed.geojson"
 
 
@@ -410,6 +444,7 @@ def test_v150_cover_habitat_runs_when_lulc_and_watershed_present(tmp_path):
     import json
 
     import yaml as _yaml
+
     lulc_uri, ws_uri = _make_cover_test_inputs(tmp_path)
     yaml_text = f"""openlimno: '0.2'
 case:
@@ -444,7 +479,10 @@ output:
     out_dir = tmp_path / "out"
     out_dir.mkdir()
     metrics = case._maybe_run_cover_habitat(
-        case.config, tmp_path, out_dir, warnings=[],
+        case.config,
+        tmp_path,
+        out_dir,
+        warnings=[],
     )
     assert metrics is not None
     assert metrics["mean_si"] == pytest.approx(1.0)
@@ -490,7 +528,10 @@ output:
     yp.write_text(yaml_text)
     case = Case.from_yaml(yp)
     metrics = case._maybe_run_cover_habitat(
-        case.config, tmp_path, tmp_path / "out", warnings=[],
+        case.config,
+        tmp_path,
+        tmp_path / "out",
+        warnings=[],
     )
     assert metrics is None
 
@@ -500,6 +541,7 @@ def test_v150_provenance_always_contains_cover_metrics_key():
     must exist (None when no LULC × watershed), so downstream tooling
     can rely on the dict shape."""
     import json
+
     case = Case.from_yaml(CASE_YAML)
     result = case.run(discharges_m3s=[3.0])
     prov = json.loads(result.provenance_path.read_text())
@@ -568,17 +610,20 @@ def test_v160_apply_overlay_multiplies_only_base_columns():
 
     from openlimno.habitat.composite import CompositeOverlay, apply_overlay
 
-    base = pd.DataFrame({
-        "discharge_m3s": [1.0, 5.0, 10.0],
-        "wua_m2_salmo_trutta_adult": [100.0, 250.0, 300.0],
-    })
+    base = pd.DataFrame(
+        {
+            "discharge_m3s": [1.0, 5.0, 10.0],
+            "wua_m2_salmo_trutta_adult": [100.0, 250.0, 300.0],
+        }
+    )
     overlay = CompositeOverlay(cover_si=0.5, thermal_si=0.6, overlay_si=0.3)
     composite = apply_overlay(base, overlay)
     # Original column preserved
     assert composite["wua_m2_salmo_trutta_adult"].tolist() == [100.0, 250.0, 300.0]
     # Composite column added with multiplicative overlay applied
-    assert composite["wua_m2_composite_salmo_trutta_adult"].tolist() == \
-        pytest.approx([30.0, 75.0, 90.0])
+    assert composite["wua_m2_composite_salmo_trutta_adult"].tolist() == pytest.approx(
+        [30.0, 75.0, 90.0]
+    )
     # Re-application does NOT cascade the composite into a double
     # composite (regression pin for the startswith-check in apply_overlay).
     twice = apply_overlay(composite, overlay)
@@ -592,10 +637,12 @@ def test_v160_composite_summary_reports_ratio():
 
     from openlimno.habitat.composite import CompositeOverlay, composite_summary
 
-    base = pd.DataFrame({
-        "discharge_m3s": [1.0, 5.0, 10.0],
-        "wua_m2_a_b": [100.0, 250.0, 200.0],
-    })
+    base = pd.DataFrame(
+        {
+            "discharge_m3s": [1.0, 5.0, 10.0],
+            "wua_m2_a_b": [100.0, 250.0, 200.0],
+        }
+    )
     overlay = CompositeOverlay(cover_si=0.5, thermal_si=0.6, overlay_si=0.3)
     summary = composite_summary(base, overlay)
     assert summary["overlay_si"] == pytest.approx(0.3)
@@ -619,16 +666,19 @@ def test_v160_maybe_run_composite_hsi_writes_outputs(tmp_path):
     import json
 
     import pandas as pd
+
     case = Case(
         config={"case": {"name": "composite_smoke"}},
         case_yaml_path=tmp_path / "composite_smoke.yaml",
     )
     out_dir = tmp_path / "out"
     out_dir.mkdir()
-    wua_df = pd.DataFrame({
-        "discharge_m3s": [1.0, 5.0, 10.0],
-        "wua_m2_oncorhynchus_mykiss_spawning": [120.0, 240.0, 180.0],
-    })
+    wua_df = pd.DataFrame(
+        {
+            "discharge_m3s": [1.0, 5.0, 10.0],
+            "wua_m2_oncorhynchus_mykiss_spawning": [120.0, 240.0, 180.0],
+        }
+    )
     summary, composite_df = case._maybe_run_composite_hsi(
         wua_df,
         thermal_metrics_dict={"mean_SI": 0.6},
@@ -659,24 +709,28 @@ def test_v160_maybe_run_composite_hsi_writes_outputs(tmp_path):
     # Composite column carries the overlay multiplied through
     df_check = pd.read_parquet(composite_parquet)
     assert "wua_m2_composite_oncorhynchus_mykiss_spawning" in df_check.columns
-    assert df_check["wua_m2_composite_oncorhynchus_mykiss_spawning"].tolist() == \
-        pytest.approx([36.0, 72.0, 54.0])
+    assert df_check["wua_m2_composite_oncorhynchus_mykiss_spawning"].tolist() == pytest.approx(
+        [36.0, 72.0, 54.0]
+    )
 
 
 def test_v160_maybe_run_composite_hsi_skipped_when_no_overlays(tmp_path):
     """Mirrors v1.1.1 / v1.5.0 silent-skip semantics: no thermal AND
     no cover → return None, no artefacts emitted."""
     import pandas as pd
+
     case = Case(
         config={"case": {"name": "composite_skip"}},
         case_yaml_path=tmp_path / "composite_skip.yaml",
     )
     out_dir = tmp_path / "out"
     out_dir.mkdir()
-    wua_df = pd.DataFrame({
-        "discharge_m3s": [1.0, 5.0],
-        "wua_m2_a_b": [10.0, 20.0],
-    })
+    wua_df = pd.DataFrame(
+        {
+            "discharge_m3s": [1.0, 5.0],
+            "wua_m2_a_b": [10.0, 20.0],
+        }
+    )
     summary, composite_df = case._maybe_run_composite_hsi(
         wua_df,
         thermal_metrics_dict=None,
@@ -697,6 +751,7 @@ def test_v160_provenance_always_contains_composite_summary_key():
     provenance file (None when no overlays were present), matching the
     v1.1.1 / v1.5.0 dict-shape contract downstream tooling relies on."""
     import json
+
     case = Case.from_yaml(CASE_YAML)
     result = case.run(discharges_m3s=[3.0])
     prov = json.loads(result.provenance_path.read_text())
@@ -712,18 +767,22 @@ def _make_synthetic_wua_q():
     """Triangular WUA-Q curve peaking at Q=5 m³/s, 100 m² apex."""
     import numpy as _np
     import pandas as _pd
+
     Qs = _np.array([0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0])
     W = _np.maximum(0, 100 * (1 - _np.abs(_np.log(Qs / 5)) / _np.log(4)))
-    return _pd.DataFrame({
-        "discharge_m3s": Qs,
-        "wua_m2_oncorhynchus_mykiss_spawning": W,
-    })
+    return _pd.DataFrame(
+        {
+            "discharge_m3s": Qs,
+            "wua_m2_oncorhynchus_mykiss_spawning": W,
+        }
+    )
 
 
 def _make_synthetic_discharge_series(tmp_path: Path) -> Path:
     """Write a 2-year daily snowmelt discharge CSV. Returns the path."""
     import numpy as _np
     import pandas as _pd
+
     times = _pd.date_range("2024-01-01", periods=2 * 365, freq="D")
     doys = times.dayofyear.values
     Q = 3.0 + 8.0 * _np.exp(-((doys - 150) ** 2) / (2 * 30**2))
@@ -738,11 +797,14 @@ def test_v170_composite_view_renames_columns():
     ``wua_m2_composite_*`` to ``wua_m2_*`` so existing compute_*
     functions look up the composite values transparently."""
     import pandas as pd
-    composite_df = pd.DataFrame({
-        "discharge_m3s": [1.0, 5.0],
-        "wua_m2_oncorhynchus_mykiss_spawning": [100.0, 250.0],
-        "wua_m2_composite_oncorhynchus_mykiss_spawning": [30.0, 75.0],
-    })
+
+    composite_df = pd.DataFrame(
+        {
+            "discharge_m3s": [1.0, 5.0],
+            "wua_m2_oncorhynchus_mykiss_spawning": [100.0, 250.0],
+            "wua_m2_composite_oncorhynchus_mykiss_spawning": [30.0, 75.0],
+        }
+    )
     view = Case._composite_view(composite_df)
     # Base column dropped, composite column renamed
     assert "wua_m2_composite_oncorhynchus_mykiss_spawning" not in view.columns
@@ -799,8 +861,9 @@ def test_v170_run_regulatory_exports_emits_composite_csvs(tmp_path):
     wua_q = _make_synthetic_wua_q()
     # Composite WUA = 0.3 × base (cover 0.5 × thermal 0.6)
     composite_df = wua_q.copy()
-    composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"] = \
+    composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"] = (
         composite_df["wua_m2_oncorhynchus_mykiss_spawning"] * 0.3
+    )
     composite_summary = {
         "cover_si": 0.5,
         "thermal_si": 0.6,
@@ -888,10 +951,12 @@ def test_v170_composite_sl712_preserves_recommended_flow_under_multiplicative_ov
     import pandas as pd
 
     from openlimno.habitat.regulatory_export import cn_sl712
+
     wua_q = _make_synthetic_wua_q()
     composite_df = wua_q.copy()
-    composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"] = \
+    composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"] = (
         composite_df["wua_m2_oncorhynchus_mykiss_spawning"] * 0.3
+    )
     view = Case._composite_view(composite_df)
 
     Q = pd.read_csv(_make_synthetic_discharge_series(tmp_path))
@@ -899,10 +964,12 @@ def test_v170_composite_sl712_preserves_recommended_flow_under_multiplicative_ov
     comp = cn_sl712.compute_sl712(Q, view, "oncorhynchus_mykiss", "spawning")
     # Q at peak preserved (multiplicative-overlay invariant; the peak
     # location is a function of curve SHAPE, not absolute magnitude)
-    assert comp.monthly["suitable_eco_flow_m3s"].iloc[0] == \
-        pytest.approx(base.monthly["suitable_eco_flow_m3s"].iloc[0])
-    assert comp.monthly["min_eco_flow_m3s"].iloc[0] == \
-        pytest.approx(base.monthly["min_eco_flow_m3s"].iloc[0])
+    assert comp.monthly["suitable_eco_flow_m3s"].iloc[0] == pytest.approx(
+        base.monthly["suitable_eco_flow_m3s"].iloc[0]
+    )
+    assert comp.monthly["min_eco_flow_m3s"].iloc[0] == pytest.approx(
+        base.monthly["min_eco_flow_m3s"].iloc[0]
+    )
 
 
 # ---------------------------------------------------------------------
@@ -915,10 +982,12 @@ def test_v171_composite_summary_handles_empty_wua_df():
 
     from openlimno.habitat.composite import CompositeOverlay, composite_summary
 
-    empty = pd.DataFrame({
-        "discharge_m3s": [],
-        "wua_m2_a_b": [],
-    })
+    empty = pd.DataFrame(
+        {
+            "discharge_m3s": [],
+            "wua_m2_a_b": [],
+        }
+    )
     overlay = CompositeOverlay(cover_si=0.5, thermal_si=0.6, overlay_si=0.3)
     summary = composite_summary(empty, overlay)
     assert summary["n_discharges"] == 0
@@ -935,16 +1004,19 @@ def test_v171_maybe_run_composite_hsi_skips_overlay_zero(tmp_path):
     (WFD would raise on reference_wua=0; SL-712 would collapse to the
     lowest Q)."""
     import pandas as pd
+
     case = Case(
         config={"case": {"name": "overlay_zero"}},
         case_yaml_path=tmp_path / "case.yaml",
     )
     out_dir = tmp_path / "out"
     out_dir.mkdir()
-    wua_df = pd.DataFrame({
-        "discharge_m3s": [1.0, 5.0],
-        "wua_m2_a_b": [10.0, 20.0],
-    })
+    wua_df = pd.DataFrame(
+        {
+            "discharge_m3s": [1.0, 5.0],
+            "wua_m2_a_b": [10.0, 20.0],
+        }
+    )
     warnings: list[str] = []
     summary, composite_df = case._maybe_run_composite_hsi(
         wua_df,
@@ -966,6 +1038,7 @@ def test_v171_maybe_run_composite_hsi_skips_when_no_wua_columns(tmp_path):
     must be skipped (instead of writing an empty parquet/csv with no
     composite columns)."""
     import pandas as pd
+
     case = Case(
         config={"case": {"name": "no_wua_cols"}},
         case_yaml_path=tmp_path / "case.yaml",
@@ -1036,10 +1109,14 @@ def test_v171_regulatory_csvs_carry_quality_watermark(tmp_path):
     out_dir.mkdir()
     wua_q = _make_synthetic_wua_q()
     composite_df = wua_q.copy()
-    composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"] = \
+    composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"] = (
         composite_df["wua_m2_oncorhynchus_mykiss_spawning"] * 0.3
+    )
     composite_summary = {
-        "cover_si": 0.5, "thermal_si": 0.6, "overlay_si": 0.3, "n_overlays": 2,
+        "cover_si": 0.5,
+        "thermal_si": 0.6,
+        "overlay_si": 0.3,
+        "n_overlays": 2,
     }
     ds_csv = _make_synthetic_discharge_series(tmp_path)
 
@@ -1058,9 +1135,12 @@ def test_v171_regulatory_csvs_carry_quality_watermark(tmp_path):
 
     # All 6 files: base + composite × {SL-712, FERC, WFD}
     for fname in [
-        "sl712.csv", "sl712_composite.csv",
-        "ferc_4e.csv", "ferc_4e_composite.csv",
-        "eu_wfd.csv", "eu_wfd_composite.csv",
+        "sl712.csv",
+        "sl712_composite.csv",
+        "ferc_4e.csv",
+        "ferc_4e_composite.csv",
+        "eu_wfd.csv",
+        "eu_wfd_composite.csv",
     ]:
         text = (out_dir / fname).read_text(encoding="utf-8")
         first = text.splitlines()[0]
@@ -1128,8 +1208,9 @@ def test_v180_wfd_composite_csv_includes_scaling_in_header(tmp_path):
     out_dir.mkdir()
     wua_q = _make_synthetic_wua_q()
     composite_df = wua_q.copy()
-    composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"] = \
+    composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"] = (
         composite_df["wua_m2_oncorhynchus_mykiss_spawning"] * 0.26381
+    )
     composite_summary = {
         "cover_si": 0.4255,
         "thermal_si": 0.62,
@@ -1192,9 +1273,7 @@ def test_v171_regulatory_csvs_grade_a_has_no_watermark(tmp_path):
         composite_summary=None,
         wua_quality_grade="A",
     )
-    first = (out_dir / "sl712.csv").read_text(
-        encoding="utf-8"
-    ).splitlines()[0]
+    first = (out_dir / "sl712.csv").read_text(encoding="utf-8").splitlines()[0]
     # Original SL-712 header survives untouched
     assert first.startswith("# OpenLimno SL/Z 712-2014")
 
@@ -1233,9 +1312,7 @@ def test_v181_n1_emit_regulatory_csv_leaves_no_inprogress_files(tmp_path):
     files = sorted(p.name for p in out_dir.iterdir() if p.is_file())
     assert files == ["sl712.csv"], files
     # And the target file carries TENTATIVE on line 1 (race-free guarantee)
-    first = (out_dir / "sl712.csv").read_text(
-        encoding="utf-8"
-    ).splitlines()[0]
+    first = (out_dir / "sl712.csv").read_text(encoding="utf-8").splitlines()[0]
     assert "TENTATIVE" in first
 
 
@@ -1247,6 +1324,7 @@ def test_v181_n3_full_csv_integrity_under_layered_prepend(tmp_path):
     survives intact — i.e. the read-modify-write didn't corrupt the
     DataFrame payload."""
     import pandas as pd
+
     case = Case(
         config={"case": {"name": "n3_integrity"}, "data": {}},
         case_yaml_path=tmp_path / "case.yaml",
@@ -1255,10 +1333,14 @@ def test_v181_n3_full_csv_integrity_under_layered_prepend(tmp_path):
     out_dir.mkdir()
     wua_q = _make_synthetic_wua_q()
     composite_df = wua_q.copy()
-    composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"] = \
+    composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"] = (
         composite_df["wua_m2_oncorhynchus_mykiss_spawning"] * 0.3
+    )
     composite_summary = {
-        "cover_si": 0.5, "thermal_si": 0.6, "overlay_si": 0.3, "n_overlays": 2,
+        "cover_si": 0.5,
+        "thermal_si": 0.6,
+        "overlay_si": 0.3,
+        "n_overlays": 2,
     }
     ds_csv = _make_synthetic_discharge_series(tmp_path)
     case._run_regulatory_exports(
@@ -1291,7 +1373,8 @@ def test_v181_n3_full_csv_integrity_under_layered_prepend(tmp_path):
     # under the comment-prefix mode.
     n_comment_rows = sum(1 for line in lines if line.startswith("#"))
     df = pd.read_csv(
-        out_dir / "sl712_composite.csv", skiprows=n_comment_rows,
+        out_dir / "sl712_composite.csv",
+        skiprows=n_comment_rows,
     )
     assert len(df) == 12
     assert (df["month"] == list(range(1, 13))).all()
@@ -1352,7 +1435,10 @@ def test_v181_n4_nan_ratio_renders_without_nan_marker():
     composite_to_base_ratio is NaN the line should either omit the
     ratio entirely or be skipped, but NEVER render as ``(×nan)``."""
     summary = {
-        "cover_si": 0.5, "thermal_si": 0.6, "overlay_si": 0.3, "n_overlays": 2,
+        "cover_si": 0.5,
+        "thermal_si": 0.6,
+        "overlay_si": 0.3,
+        "n_overlays": 2,
         "by_species_stage": [
             {
                 "species_stage": "nan_ratio",
@@ -1383,16 +1469,19 @@ def test_v181_n3_caserunresult_composite_fields_set_when_overlays_present(
     Uses a synthetic minimal case via the helper directly so we don't
     need a full hydraulic-section fixture."""
     import pandas as pd
+
     case = Case(
         config={"case": {"name": "f7_overlay"}, "data": {}},
         case_yaml_path=tmp_path / "case.yaml",
     )
     out_dir = tmp_path / "out"
     out_dir.mkdir()
-    wua_df = pd.DataFrame({
-        "discharge_m3s": [1.0, 5.0, 10.0],
-        "wua_m2_oncorhynchus_mykiss_spawning": [100.0, 250.0, 200.0],
-    })
+    wua_df = pd.DataFrame(
+        {
+            "discharge_m3s": [1.0, 5.0, 10.0],
+            "wua_m2_oncorhynchus_mykiss_spawning": [100.0, 250.0, 200.0],
+        }
+    )
     summary, composite_df = case._maybe_run_composite_hsi(
         wua_df,
         thermal_metrics_dict={"mean_SI": 0.6},
@@ -1406,8 +1495,9 @@ def test_v181_n3_caserunresult_composite_fields_set_when_overlays_present(
     assert composite_df is not None
     # And the composite_df actually carries the overlay-multiplied column
     assert "wua_m2_composite_oncorhynchus_mykiss_spawning" in composite_df.columns
-    assert composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"].tolist() == \
-        pytest.approx([30.0, 75.0, 60.0])
+    assert composite_df["wua_m2_composite_oncorhynchus_mykiss_spawning"].tolist() == pytest.approx(
+        [30.0, 75.0, 60.0]
+    )
 
 
 def test_v182_caserunresult_population_through_case_run(monkeypatch, tmp_path):
@@ -1434,20 +1524,31 @@ def test_v182_caserunresult_population_through_case_run(monkeypatch, tmp_path):
         "n_overlays": 2,
         "by_species_stage": [],
     }
-    sentinel_df = pd.DataFrame({
-        "discharge_m3s": [1.0, 2.0],
-        "wua_m2_composite_sentinel_marker": [99.0, 99.0],
-    })
+    sentinel_df = pd.DataFrame(
+        {
+            "discharge_m3s": [1.0, 2.0],
+            "wua_m2_composite_sentinel_marker": [99.0, 99.0],
+        }
+    )
 
     def _stub_maybe_run_composite_hsi(
-        self, wua_df, thermal_metrics_dict, cover_metrics_dict,
-        out_dir, formats, warnings, method="product", per_cell_csi=None,
-        per_section_thermal_si=None, per_section_cover_si=None,
+        self,
+        wua_df,
+        thermal_metrics_dict,
+        cover_metrics_dict,
+        out_dir,
+        formats,
+        warnings,
+        method="product",
+        per_cell_csi=None,
+        per_section_thermal_si=None,
+        per_section_cover_si=None,
     ):
         return sentinel_summary, sentinel_df
 
     monkeypatch.setattr(
-        Case, "_maybe_run_composite_hsi",
+        Case,
+        "_maybe_run_composite_hsi",
         _stub_maybe_run_composite_hsi,
     )
     result = Case.from_yaml(CASE_YAML).run(discharges_m3s=[3.0])
@@ -1473,6 +1574,7 @@ def test_v182_emit_regulatory_csv_concurrent_safe_tempfile_naming(tmp_path):
     by patching ``tempfile.mkstemp`` and recording the kwargs used.
     """
     import tempfile
+
     captured_calls: list[dict] = []
     real_mkstemp = tempfile.mkstemp
 
@@ -1490,6 +1592,7 @@ def test_v182_emit_regulatory_csv_concurrent_safe_tempfile_naming(tmp_path):
     ds_csv = _make_synthetic_discharge_series(tmp_path)
 
     import unittest.mock as _mock
+
     with _mock.patch("tempfile.mkstemp", side_effect=_spy_mkstemp):
         case._run_regulatory_exports(
             export_list=["CN-SL712"],
@@ -1530,7 +1633,10 @@ def test_v182_composite_header_lines_handles_non_mapping_entries():
     too, so a malformed upstream summary can't abort regulatory_export
     before any base CSV is emitted."""
     summary = {
-        "cover_si": 0.5, "thermal_si": 0.6, "overlay_si": 0.3, "n_overlays": 2,
+        "cover_si": 0.5,
+        "thermal_si": 0.6,
+        "overlay_si": 0.3,
+        "n_overlays": 2,
         "by_species_stage": [
             # OK entry, should emit
             {
@@ -1539,10 +1645,10 @@ def test_v182_composite_header_lines_handles_non_mapping_entries():
                 "wua_m2_composite_max": 30.0,
                 "composite_to_base_ratio": 0.3,
             },
-            None,                      # ← raises AttributeError on .get
-            float("nan"),              # ← also AttributeError-ish
-            "bad string entry",        # ← also AttributeError-ish
-            42,                        # ← also AttributeError-ish
+            None,  # ← raises AttributeError on .get
+            float("nan"),  # ← also AttributeError-ish
+            "bad string entry",  # ← also AttributeError-ish
+            42,  # ← also AttributeError-ish
             ["list", "not", "mapping"],  # ← also AttributeError-ish
         ],
     }
@@ -1593,6 +1699,7 @@ def test_v183_regulatory_csvs_respect_umask_not_mkstemp_0600(tmp_path):
     refactor that strips the chmod call gets caught.
     """
     import os
+
     case = Case(
         config={"case": {"name": "v183"}, "data": {}},
         case_yaml_path=tmp_path / "case.yaml",
@@ -1628,8 +1735,7 @@ def test_v183_regulatory_csvs_respect_umask_not_mkstemp_0600(tmp_path):
     os.umask(current_umask)
     expected = 0o666 & ~current_umask
     assert perms == expected, (
-        f"v1.8.3 perms={oct(perms)} != 0o666 & ~umask({oct(current_umask)}) "
-        f"= {oct(expected)}"
+        f"v1.8.3 perms={oct(perms)} != 0o666 & ~umask({oct(current_umask)}) = {oct(expected)}"
     )
 
 
@@ -1660,7 +1766,8 @@ def test_v190_atomic_write_helper_publishes_via_temp_rename(tmp_path):
     assert target.read_text(encoding="utf-8") == "hello v1.9.0 atomic\n"
     # No tempfile leftovers
     leftover = [
-        p.name for p in tmp_path.iterdir()
+        p.name
+        for p in tmp_path.iterdir()
         if p.name != "data.txt" and (".publish." in p.name or ".body." in p.name)
     ]
     assert leftover == [], f"v1.9.0 leftover tempfiles: {leftover}"
@@ -1675,6 +1782,7 @@ def test_v190_atomic_write_helper_respects_umask(tmp_path):
     process umask. Regression pin against future refactors of
     ``_atomic_write`` that might lose the chmod step."""
     import os
+
     target = tmp_path / "out.json"
     Case._atomic_write(
         target,
@@ -1685,8 +1793,7 @@ def test_v190_atomic_write_helper_respects_umask(tmp_path):
     os.umask(current_umask)
     expected = 0o666 & ~current_umask
     assert perms == expected, (
-        f"v1.9.0: _atomic_write target perms={oct(perms)} != "
-        f"expected {oct(expected)}"
+        f"v1.9.0: _atomic_write target perms={oct(perms)} != expected {oct(expected)}"
     )
 
 
@@ -1744,22 +1851,18 @@ def test_v190_provenance_json_routes_through_atomic_write(monkeypatch):
         "provenance integration is not actually routed through the helper"
     )
     target_names = [p.name for p in seen_targets]
-    assert "provenance.json" in target_names, (
-        f"R5-2: provenance.json not in {target_names}"
-    )
+    assert "provenance.json" in target_names, f"R5-2: provenance.json not in {target_names}"
 
     # Basic correctness preserved: file is valid JSON
     import json as _json
+
     _json.loads(result.provenance_path.read_text())
 
     # And no .publish.*.tmp / .body.*.inprogress leftover next to it
     leftover = [
-        p.name for p in result.output_dir.iterdir()
-        if ".publish." in p.name or ".body." in p.name
+        p.name for p in result.output_dir.iterdir() if ".publish." in p.name or ".body." in p.name
     ]
-    assert leftover == [], (
-        f"v1.9.0 provenance integration left tempfiles: {leftover}"
-    )
+    assert leftover == [], f"v1.9.0 provenance integration left tempfiles: {leftover}"
 
 
 def test_v191_atomic_write_publishes_perms_atomically_with_content(tmp_path):
@@ -1775,6 +1878,7 @@ def test_v191_atomic_write_publishes_perms_atomically_with_content(tmp_path):
     tempfile) BEFORE os.replace renames it onto the target.
     """
     import os as _os
+
     call_log: list[tuple[str, str]] = []
     target = tmp_path / "ordered.txt"
 
@@ -1790,8 +1894,11 @@ def test_v191_atomic_write_publishes_perms_atomically_with_content(tmp_path):
         return real_replace(src, dst)
 
     import unittest.mock as _mock
-    with _mock.patch("os.chmod", side_effect=_logging_chmod), \
-         _mock.patch("os.replace", side_effect=_logging_replace):
+
+    with (
+        _mock.patch("os.chmod", side_effect=_logging_chmod),
+        _mock.patch("os.replace", side_effect=_logging_replace),
+    ):
         Case._atomic_write(
             target,
             lambda p: p.write_text("ordered v1.9.1\n", encoding="utf-8"),
@@ -1807,8 +1914,7 @@ def test_v191_atomic_write_publishes_perms_atomically_with_content(tmp_path):
     chmod_idx = call_log.index(chmod_calls[0])
     replace_idx = call_log.index(replace_calls[0])
     assert chmod_idx < replace_idx, (
-        f"R5-1: chmod must happen BEFORE replace; got call order "
-        f"{call_log}"
+        f"R5-1: chmod must happen BEFORE replace; got call order {call_log}"
     )
 
     # And the chmod was applied to the publish tempfile, not the final
@@ -1830,6 +1936,7 @@ def test_v192_hydraulics_nc_routes_through_atomic_write(monkeypatch):
     other Case.run outputs got in v1.9.0. Spy on the helper to confirm
     integration."""
     import os
+
     seen_targets: list[Path] = []
     real_atomic_write = Case._atomic_write
 
@@ -1857,8 +1964,7 @@ def test_v192_hydraulics_nc_routes_through_atomic_write(monkeypatch):
         os.umask(current_umask)
         expected = 0o666 & ~current_umask
         assert perms == expected, (
-            f"R5-3: hydraulics.nc perms={oct(perms)} != "
-            f"expected {oct(expected)}"
+            f"R5-3: hydraulics.nc perms={oct(perms)} != expected {oct(expected)}"
         )
 
 
@@ -1881,9 +1987,7 @@ def test_v192_atomic_write_supports_binary_writers(tmp_path):
     assert len(content) == 108
 
     # No tempfile leftovers
-    leftover = [
-        p.name for p in tmp_path.iterdir() if p != target
-    ]
+    leftover = [p.name for p in tmp_path.iterdir() if p != target]
     assert leftover == [], f"R5-3 binary cleanup leftover: {leftover}"
 
 
@@ -1962,12 +2066,15 @@ def test_v1100_apply_overlay_rejects_unknown_method():
     )
 
     overlay = CompositeOverlay.from_metrics(
-        {"mean_SI": 0.5}, {"mean_si": 0.6},
+        {"mean_SI": 0.5},
+        {"mean_si": 0.6},
     )
-    wua = pd.DataFrame({
-        "discharge_m3s": [1.0, 2.0, 3.0],
-        "wua_m2_sp_juv": [10.0, 20.0, 30.0],
-    })
+    wua = pd.DataFrame(
+        {
+            "discharge_m3s": [1.0, 2.0, 3.0],
+            "wua_m2_sp_juv": [10.0, 20.0, 30.0],
+        }
+    )
     with pytest.raises(ValueError, match="unknown method"):
         apply_overlay(wua, overlay, method="armean")  # type: ignore[arg-type]
 
@@ -1984,21 +2091,22 @@ def test_v1100_apply_overlay_product_method_is_bit_for_bit_v160():
     )
 
     overlay = CompositeOverlay.from_metrics(
-        {"mean_SI": 0.5}, {"mean_si": 0.4255},
+        {"mean_SI": 0.5},
+        {"mean_si": 0.4255},
     )
-    wua = pd.DataFrame({
-        "discharge_m3s": [1.0, 2.0, 3.0],
-        "wua_m2_sp_juv": [10.0, 20.0, 30.0],
-    })
+    wua = pd.DataFrame(
+        {
+            "discharge_m3s": [1.0, 2.0, 3.0],
+            "wua_m2_sp_juv": [10.0, 20.0, 30.0],
+        }
+    )
     out = apply_overlay(wua, overlay, method="product")
     expected = [v * overlay.overlay_si for v in wua["wua_m2_sp_juv"]]
     assert list(out["wua_m2_composite_sp_juv"]) == pytest.approx(expected)
 
     # Default arg is product — same answer.
     out_default = apply_overlay(wua, overlay)
-    assert list(out_default["wua_m2_composite_sp_juv"]) == pytest.approx(
-        expected
-    )
+    assert list(out_default["wua_m2_composite_sp_juv"]) == pytest.approx(expected)
 
 
 def test_v1100_apply_overlay_geom_mean_is_softer_than_product():
@@ -2014,20 +2122,22 @@ def test_v1100_apply_overlay_geom_mean_is_softer_than_product():
     )
 
     overlay = CompositeOverlay.from_metrics(
-        {"mean_SI": 0.62}, {"mean_si": 0.4255},
+        {"mean_SI": 0.62},
+        {"mean_si": 0.4255},
     )
-    wua = pd.DataFrame({
-        "discharge_m3s": [1.0, 2.0, 3.0, 4.0, 5.0],
-        "wua_m2_sp_juv": [10.0, 50.0, 100.0, 80.0, 30.0],
-    })
+    wua = pd.DataFrame(
+        {
+            "discharge_m3s": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "wua_m2_sp_juv": [10.0, 50.0, 100.0, 80.0, 30.0],
+        }
+    )
     product = apply_overlay(wua, overlay, method="product")
     geom = apply_overlay(wua, overlay, method="geom_mean")
     product_peak = float(product["wua_m2_composite_sp_juv"].max())
     geom_peak = float(geom["wua_m2_composite_sp_juv"].max())
     # The geom-mean reach-scale linearisation softens the dampening.
     assert geom_peak > product_peak, (
-        f"geom_mean ({geom_peak:.2f}) was not softer than product "
-        f"({product_peak:.2f})"
+        f"geom_mean ({geom_peak:.2f}) was not softer than product ({product_peak:.2f})"
     )
 
 
@@ -2043,12 +2153,16 @@ def test_v1100_apply_overlay_geom_mean_falls_back_to_product_when_no_overlay():
     )
 
     overlay = CompositeOverlay(
-        cover_si=None, thermal_si=None, overlay_si=None,
+        cover_si=None,
+        thermal_si=None,
+        overlay_si=None,
     )
-    wua = pd.DataFrame({
-        "discharge_m3s": [1.0, 2.0],
-        "wua_m2_sp_juv": [10.0, 20.0],
-    })
+    wua = pd.DataFrame(
+        {
+            "discharge_m3s": [1.0, 2.0],
+            "wua_m2_sp_juv": [10.0, 20.0],
+        }
+    )
     geom = apply_overlay(wua, overlay, method="geom_mean")
     # No overlay → composite column equals base column.
     assert list(geom["wua_m2_composite_sp_juv"]) == [10.0, 20.0]
@@ -2066,12 +2180,15 @@ def test_v1100_composite_summary_records_method_key():
     )
 
     overlay = CompositeOverlay.from_metrics(
-        {"mean_SI": 0.62}, {"mean_si": 0.4255},
+        {"mean_SI": 0.62},
+        {"mean_si": 0.4255},
     )
-    wua = pd.DataFrame({
-        "discharge_m3s": [1.0, 2.0, 3.0],
-        "wua_m2_sp_juv": [10.0, 20.0, 30.0],
-    })
+    wua = pd.DataFrame(
+        {
+            "discharge_m3s": [1.0, 2.0, 3.0],
+            "wua_m2_sp_juv": [10.0, 20.0, 30.0],
+        }
+    )
     for method in ("product", "geom_mean"):
         summary = composite_summary(wua, overlay, method=method)
         assert summary["method"] == method
@@ -2138,12 +2255,15 @@ def test_v1101_geom_mean_all_zero_base_does_not_propagate_nan():
     )
 
     overlay = CompositeOverlay.from_metrics(
-        {"mean_SI": 0.62}, {"mean_si": 0.4255},
+        {"mean_SI": 0.62},
+        {"mean_si": 0.4255},
     )
-    wua = pd.DataFrame({
-        "discharge_m3s": [1.0, 2.0, 3.0],
-        "wua_m2_sp_juv": [0.0, 0.0, 0.0],
-    })
+    wua = pd.DataFrame(
+        {
+            "discharge_m3s": [1.0, 2.0, 3.0],
+            "wua_m2_sp_juv": [0.0, 0.0, 0.0],
+        }
+    )
     out = apply_overlay(wua, overlay, method="geom_mean")
     composite = out["wua_m2_composite_sp_juv"].tolist()
     assert all(not _math.isnan(v) for v in composite), (
@@ -2177,25 +2297,36 @@ def test_v1101_geom_mean_never_inflates_above_base():
     )
 
     overlay = CompositeOverlay.from_metrics(
-        {"mean_SI": 0.62}, {"mean_si": 0.4255},
+        {"mean_SI": 0.62},
+        {"mean_si": 0.4255},
     )
     # Heavily skewed sweep — high WUA in the middle, near-zero at
     # the tails — the exact shape that triggered v1.10.0 inflation.
-    wua = pd.DataFrame({
-        "discharge_m3s": [0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0],
-        "wua_m2_sp_juv": [
-            0.5, 5.0, 80.0, 300.0, 250.0, 30.0, 0.1,
-        ],
-    })
+    wua = pd.DataFrame(
+        {
+            "discharge_m3s": [0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0],
+            "wua_m2_sp_juv": [
+                0.5,
+                5.0,
+                80.0,
+                300.0,
+                250.0,
+                30.0,
+                0.1,
+            ],
+        }
+    )
     geom = apply_overlay(wua, overlay, method="geom_mean")
     base_vals = wua["wua_m2_sp_juv"].tolist()
     composite_vals = geom["wua_m2_composite_sp_juv"].tolist()
     for q, base_v, comp_v in zip(
-        wua["discharge_m3s"], base_vals, composite_vals, strict=True,
+        wua["discharge_m3s"],
+        base_vals,
+        composite_vals,
+        strict=True,
     ):
         assert comp_v <= base_v + 1e-9, (
-            f"R6-2 regression: geom_mean inflated WUA at Q={q}: "
-            f"base={base_v}, composite={comp_v}"
+            f"R6-2 regression: geom_mean inflated WUA at Q={q}: base={base_v}, composite={comp_v}"
         )
 
 
@@ -2216,20 +2347,19 @@ def test_v1101_geom_mean_softens_overlay_by_nth_root():
     )
 
     overlay = CompositeOverlay.from_metrics(
-        {"mean_SI": 0.62}, {"mean_si": 0.4255},
+        {"mean_SI": 0.62},
+        {"mean_si": 0.4255},
     )
-    wua = pd.DataFrame({
-        "discharge_m3s": [1.0, 2.0],
-        "wua_m2_sp_juv": [100.0, 200.0],
-    })
+    wua = pd.DataFrame(
+        {
+            "discharge_m3s": [1.0, 2.0],
+            "wua_m2_sp_juv": [100.0, 200.0],
+        }
+    )
     geom = apply_overlay(wua, overlay, method="geom_mean")
     expected_factor = (0.62 * 0.4255) ** (1.0 / 3.0)
-    assert geom["wua_m2_composite_sp_juv"].iloc[0] == pytest.approx(
-        100.0 * expected_factor
-    )
-    assert geom["wua_m2_composite_sp_juv"].iloc[1] == pytest.approx(
-        200.0 * expected_factor
-    )
+    assert geom["wua_m2_composite_sp_juv"].iloc[0] == pytest.approx(100.0 * expected_factor)
+    assert geom["wua_m2_composite_sp_juv"].iloc[1] == pytest.approx(200.0 * expected_factor)
 
 
 def test_v1101_geom_mean_single_overlay_softens_less_than_double():
@@ -2246,22 +2376,24 @@ def test_v1101_geom_mean_single_overlay_softens_less_than_double():
     )
 
     overlay_one = CompositeOverlay.from_metrics(
-        {"mean_SI": 0.5}, None,
+        {"mean_SI": 0.5},
+        None,
     )
     overlay_two = CompositeOverlay.from_metrics(
-        {"mean_SI": 0.5}, {"mean_si": 0.5},
+        {"mean_SI": 0.5},
+        {"mean_si": 0.5},
     )
-    wua = pd.DataFrame({
-        "discharge_m3s": [1.0],
-        "wua_m2_sp_juv": [100.0],
-    })
+    wua = pd.DataFrame(
+        {
+            "discharge_m3s": [1.0],
+            "wua_m2_sp_juv": [100.0],
+        }
+    )
     geom_one = apply_overlay(wua, overlay_one, method="geom_mean")
     geom_two = apply_overlay(wua, overlay_two, method="geom_mean")
     # 1-overlay: 100 * 0.5^(1/2)  = 70.71
     # 2-overlay: 100 * 0.25^(1/3) = 62.99
-    assert geom_one["wua_m2_composite_sp_juv"].iloc[0] == pytest.approx(
-        100.0 * (0.5 ** 0.5)
-    )
+    assert geom_one["wua_m2_composite_sp_juv"].iloc[0] == pytest.approx(100.0 * (0.5**0.5))
     assert geom_two["wua_m2_composite_sp_juv"].iloc[0] == pytest.approx(
         100.0 * (0.25 ** (1.0 / 3.0))
     )
@@ -2287,6 +2419,7 @@ def test_v1100_composite_method_threaded_through_case_run(monkeypatch, tmp_path)
     # ``../../data/lemhi/…`` still resolve, but with the new opt-in
     # key inserted.
     import yaml
+
     cfg = yaml.safe_load(CASE_YAML.read_text())
     cfg["habitat"]["composite_overlay_method"] = "geom_mean"
     yaml_with_opt_in = CASE_YAML.parent / "case.geom_mean_opt_in.yaml"
@@ -2297,8 +2430,7 @@ def test_v1100_composite_method_threaded_through_case_run(monkeypatch, tmp_path)
         yaml_with_opt_in.unlink(missing_ok=True)
 
     assert captured.get("method") == "geom_mean", (
-        f"composite_overlay_method did not thread through case.run: "
-        f"captured={captured}"
+        f"composite_overlay_method did not thread through case.run: captured={captured}"
     )
 
 
@@ -2338,7 +2470,8 @@ def test_v210_apply_overlay_per_cell_product_method_matches_basin_scalar_product
     area = np.array([10.0, 20.0, 15.0, 5.0])
     cover, thermal = 0.4255, 0.62
     out = apply_overlay_per_cell(
-        csi_dv, area,
+        csi_dv,
+        area,
         cover_si_per_cell=cover,
         thermal_si_per_cell=thermal,
         method="product",
@@ -2362,7 +2495,8 @@ def test_v210_apply_overlay_per_cell_geom_mean_matches_uniform_column_level():
     area = np.array([10.0, 20.0, 15.0, 5.0])
     cover, thermal = 0.4255, 0.62
     out = apply_overlay_per_cell(
-        csi_dv, area,
+        csi_dv,
+        area,
         cover_si_per_cell=cover,
         thermal_si_per_cell=thermal,
         method="geom_mean",
@@ -2388,14 +2522,18 @@ def test_v210_apply_overlay_per_cell_supports_per_cell_arrays():
     cover_uniform = 0.5
     cover_varying = np.array([0.0, 0.0, 1.0, 1.0])
     out_uniform = apply_overlay_per_cell(
-        csi_dv, area, cover_si_per_cell=cover_uniform, method="geom_mean",
+        csi_dv,
+        area,
+        cover_si_per_cell=cover_uniform,
+        method="geom_mean",
     )
     out_varying = apply_overlay_per_cell(
-        csi_dv, area, cover_si_per_cell=cover_varying, method="geom_mean",
+        csi_dv,
+        area,
+        cover_si_per_cell=cover_varying,
+        method="geom_mean",
     )
-    assert out_uniform["wua_composite_m2"] != pytest.approx(
-        out_varying["wua_composite_m2"]
-    )
+    assert out_uniform["wua_composite_m2"] != pytest.approx(out_varying["wua_composite_m2"])
 
 
 def test_v210_apply_overlay_per_cell_product_never_inflates_wua():
@@ -2417,7 +2555,8 @@ def test_v210_apply_overlay_per_cell_product_never_inflates_wua():
         cover = rng.uniform(0.0, 1.0, size=n_cells)
         thermal = rng.uniform(0.0, 1.0, size=n_cells)
         out = apply_overlay_per_cell(
-            csi_dv, area,
+            csi_dv,
+            area,
             cover_si_per_cell=cover,
             thermal_si_per_cell=thermal,
             method="product",
@@ -2445,7 +2584,8 @@ def test_v210_apply_overlay_per_cell_geom_mean_bounded_by_wetted_area():
         cover = rng.uniform(0.0, 1.0, size=n_cells)
         thermal = rng.uniform(0.0, 1.0, size=n_cells)
         out = apply_overlay_per_cell(
-            csi_dv, area,
+            csi_dv,
+            area,
             cover_si_per_cell=cover,
             thermal_si_per_cell=thermal,
             method="geom_mean",
@@ -2473,13 +2613,15 @@ def test_v210_apply_overlay_per_cell_rejects_out_of_range_csi():
     area = np.array([10.0, 10.0])
     with pytest.raises(ValueError, match="cover_si_per_cell"):
         apply_overlay_per_cell(
-            csi_dv, area,
+            csi_dv,
+            area,
             cover_si_per_cell=np.array([0.5, 1.2]),
             method="geom_mean",
         )
     with pytest.raises(ValueError, match="thermal_si_per_cell"):
         apply_overlay_per_cell(
-            csi_dv, area,
+            csi_dv,
+            area,
             thermal_si_per_cell=np.array([-0.1, 0.5]),
             method="geom_mean",
         )
@@ -2512,7 +2654,10 @@ def test_v210_apply_overlay_per_cell_records_n_factors():
     out_one = apply_overlay_per_cell(csi_dv, area, cover_si_per_cell=0.5)
     assert np.array_equal(out_one["n_factors_per_cell"], [2, 2])
     out_two = apply_overlay_per_cell(
-        csi_dv, area, cover_si_per_cell=0.5, thermal_si_per_cell=0.6,
+        csi_dv,
+        area,
+        cover_si_per_cell=0.5,
+        thermal_si_per_cell=0.6,
     )
     assert np.array_equal(out_two["n_factors_per_cell"], [3, 3])
 
@@ -2523,7 +2668,8 @@ def test_v210_cover_si_per_section_returns_array_matching_geometries():
     from openlimno.habitat import cover_si_per_section
 
     arr = cover_si_per_section(
-        lulc_tif="dummy_unused_for_empty_list", section_geometries=[],
+        lulc_tif="dummy_unused_for_empty_list",
+        section_geometries=[],
     )
     assert len(arr) == 0
 
@@ -2557,22 +2703,30 @@ def test_v240_maybe_run_per_cell_composite_emits_summary_and_df():
 
     case = object.__new__(Case)
     overlay = CompositeOverlay.from_metrics(
-        {"mean_SI": 0.62}, {"mean_si": 0.4255},
+        {"mean_SI": 0.62},
+        {"mean_si": 0.4255},
     )
     q_list = [1.0, 5.0, 10.0]
-    wua_df = pd.DataFrame({
-        "discharge_m3s": q_list,
-        "wua_m2_oncorhynchus_mykiss_juvenile": [100.0, 200.0, 150.0],
-    })
+    wua_df = pd.DataFrame(
+        {
+            "discharge_m3s": q_list,
+            "wua_m2_oncorhynchus_mykiss_juvenile": [100.0, 200.0, 150.0],
+        }
+    )
     per_cell_csi = _make_per_cell_csi(
-        q_list, "oncorhynchus_mykiss", "juvenile",
+        q_list,
+        "oncorhynchus_mykiss",
+        "juvenile",
         n_cells=4,
         csi_values=[0.5, 0.7, 0.3, 0.6],
         areas=[10.0, 20.0, 15.0, 5.0],
     )
     warnings: list[str] = []
     composite_df, summary = case._maybe_run_per_cell_composite(
-        wua_df, overlay, per_cell_csi, warnings,
+        wua_df,
+        overlay,
+        per_cell_csi,
+        warnings,
     )
     assert summary is not None
     assert summary["method"] == "geom_mean_per_cell"
@@ -2593,15 +2747,21 @@ def test_v240_maybe_run_per_cell_composite_no_per_cell_data_warns():
 
     case = object.__new__(Case)
     overlay = CompositeOverlay.from_metrics(
-        {"mean_SI": 0.62}, {"mean_si": 0.4255},
+        {"mean_SI": 0.62},
+        {"mean_si": 0.4255},
     )
-    wua_df = pd.DataFrame({
-        "discharge_m3s": [1.0, 2.0],
-        "wua_m2_sp_juv": [10.0, 20.0],
-    })
+    wua_df = pd.DataFrame(
+        {
+            "discharge_m3s": [1.0, 2.0],
+            "wua_m2_sp_juv": [10.0, 20.0],
+        }
+    )
     warnings: list[str] = []
     df, summary = case._maybe_run_per_cell_composite(
-        wua_df, overlay, per_cell_csi=None, warnings=warnings,
+        wua_df,
+        overlay,
+        per_cell_csi=None,
+        warnings=warnings,
     )
     assert df is None and summary is None
     assert any("geom_mean_per_cell" in w for w in warnings)
@@ -2633,14 +2793,17 @@ def test_v240_per_cell_composite_matches_column_level_when_csi_uniform():
 
     case = object.__new__(Case)
     overlay = CompositeOverlay.from_metrics(
-        {"mean_SI": 0.62}, {"mean_si": 0.4255},
+        {"mean_SI": 0.62},
+        {"mean_si": 0.4255},
     )
     q_list = [1.0, 5.0]
     # Uniform CSI = 0.5 across 4 cells of area 10.
-    wua_df = pd.DataFrame({
-        "discharge_m3s": q_list,
-        "wua_m2_sp_juv": [20.0, 20.0],  # = 0.5 * 4 * 10
-    })
+    wua_df = pd.DataFrame(
+        {
+            "discharge_m3s": q_list,
+            "wua_m2_sp_juv": [20.0, 20.0],  # = 0.5 * 4 * 10
+        }
+    )
     per_cell_csi = {
         (q, "sp", "juv"): (
             np.array([0.5, 0.5, 0.5, 0.5]),
@@ -2650,7 +2813,10 @@ def test_v240_per_cell_composite_matches_column_level_when_csi_uniform():
     }
     warnings: list[str] = []
     per_cell_df, _ = case._maybe_run_per_cell_composite(
-        wua_df, overlay, per_cell_csi, warnings,
+        wua_df,
+        overlay,
+        per_cell_csi,
+        warnings,
     )
     col_df = apply_overlay(wua_df, overlay, method="geom_mean")
 
@@ -2693,6 +2859,7 @@ def test_v240_geom_mean_per_cell_threads_through_case_run(monkeypatch):
     monkeypatch.setattr(Case, "_maybe_run_composite_hsi", _spy_maybe)
 
     import yaml
+
     cfg = yaml.safe_load(CASE_YAML.read_text())
     cfg["habitat"]["composite_overlay_method"] = "geom_mean_per_cell"
     y2 = CASE_YAML.parent / "case.geom_per_cell.yaml"
@@ -2733,15 +2900,18 @@ def test_v251_per_cell_composite_recovers_underscored_stage():
 
     case = object.__new__(Case)
     overlay = CompositeOverlay.from_metrics(
-        {"mean_SI": 0.62}, {"mean_si": 0.4255},
+        {"mean_SI": 0.62},
+        {"mean_si": 0.4255},
     )
     q_list = [1.0, 5.0]
     species, stage = "salmo_trutta", "juvenile_winter"
     suffix = f"{species}_{stage}"
-    wua_df = pd.DataFrame({
-        "discharge_m3s": q_list,
-        f"wua_m2_{suffix}": [100.0, 200.0],
-    })
+    wua_df = pd.DataFrame(
+        {
+            "discharge_m3s": q_list,
+            f"wua_m2_{suffix}": [100.0, 200.0],
+        }
+    )
     per_cell_csi = {
         (q, species, stage): (
             np.array([0.5, 0.7, 0.3]),
@@ -2750,7 +2920,10 @@ def test_v251_per_cell_composite_recovers_underscored_stage():
         for q in q_list
     }
     composite_df, summary = case._maybe_run_per_cell_composite(
-        wua_df, overlay, per_cell_csi, warnings=[],
+        wua_df,
+        overlay,
+        per_cell_csi,
+        warnings=[],
     )
     assert summary is not None
     comp_col = f"wua_m2_composite_{suffix}"
@@ -2786,10 +2959,12 @@ def test_v251_per_section_thermal_si_loaded_from_csv(tmp_path, monkeypatch):
     sections = load_sections_from_parquet(xs_path, manning_n=0.035)
     n = len(sections)
     si_csv = CASE_YAML.parent / "thermal_si_per_section.test.csv"
-    df = pd.DataFrame({
-        "station_m": [s.station_m for s in sections],
-        "thermal_si": [0.5] * n,
-    })
+    df = pd.DataFrame(
+        {
+            "station_m": [s.station_m for s in sections],
+            "thermal_si": [0.5] * n,
+        }
+    )
     df.to_csv(si_csv, index=False)
     try:
         arr = case._maybe_load_per_section_thermal_si(
@@ -2855,16 +3030,24 @@ def test_v251_thermal_si_raster_handles_nodata_none(tmp_path):
     arr = np.full((4, 4), 20.0, dtype=np.float32)
     transform = from_bounds(0.0, 0.0, 4.0, 4.0, 4, 4)
     with rasterio.open(
-        raster_path, "w", driver="GTiff", height=4, width=4,
-        count=1, dtype="float32", crs="EPSG:4326",
+        raster_path,
+        "w",
+        driver="GTiff",
+        height=4,
+        width=4,
+        count=1,
+        dtype="float32",
+        crs="EPSG:4326",
         transform=transform,
     ) as dst:
         dst.write(arr, 1)
 
     # ThermalRange where 20 °C sits inside the preferred range.
     tr = ThermalRange(
-        T_opt_min=18.0, T_opt_max=22.0,
-        T_lethal_min=5.0, T_lethal_max=30.0,
+        T_opt_min=18.0,
+        T_opt_max=22.0,
+        T_lethal_min=5.0,
+        T_lethal_max=30.0,
     )
 
     # Geometry covers only the upper-left 2x2 region (4 pixels out
@@ -2897,8 +3080,13 @@ def _build_uniform_temp_raster(tmp_path, value_C: float = 15.0):
     path = tmp_path / "T.tif"
     arr = np.full((4, 4), value_C, dtype=np.float32)
     with rasterio.open(
-        path, "w", driver="GTiff",
-        height=4, width=4, count=1, dtype="float32",
+        path,
+        "w",
+        driver="GTiff",
+        height=4,
+        width=4,
+        count=1,
+        dtype="float32",
         crs="EPSG:4326",
         transform=from_bounds(0.0, 0.0, 4.0, 4.0, 4, 4),
     ) as dst:
@@ -2916,11 +3104,13 @@ def test_v260_inline_raster_loader_returns_per_section_array(tmp_path):
 
     raster_path = _build_uniform_temp_raster(tmp_path, value_C=15.0)
     locs_path = tmp_path / "section_locations.csv"
-    pd.DataFrame({
-        "station_m": [0.0, 100.0, 200.0],
-        "lon": [1.0, 2.0, 3.0],
-        "lat": [1.0, 2.0, 3.0],
-    }).to_csv(locs_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0, 100.0, 200.0],
+            "lon": [1.0, 2.0, 3.0],
+            "lat": [1.0, 2.0, 3.0],
+        }
+    ).to_csv(locs_path, index=False)
 
     case = object.__new__(Case)
     case.case_yaml_path = tmp_path / "case.yaml"
@@ -2938,7 +3128,9 @@ def test_v260_inline_raster_loader_returns_per_section_array(tmp_path):
     # Use 3 dummy section objects (the loader only checks length).
     sections = [object(), object(), object()]
     arr = case._maybe_compute_per_section_thermal_si_from_raster(
-        cfg, sections, warnings=[],
+        cfg,
+        sections,
+        warnings=[],
     )
     assert arr is not None
     assert arr.shape == (3,)
@@ -2957,16 +3149,20 @@ def test_v260_inline_raster_loader_priority_over_v251_csv(tmp_path):
 
     raster_path = _build_uniform_temp_raster(tmp_path, value_C=15.0)
     locs_path = tmp_path / "section_locations.csv"
-    pd.DataFrame({
-        "station_m": [0.0, 100.0],
-        "lon": [1.0, 2.0],
-        "lat": [1.0, 2.0],
-    }).to_csv(locs_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0, 100.0],
+            "lon": [1.0, 2.0],
+            "lat": [1.0, 2.0],
+        }
+    ).to_csv(locs_path, index=False)
     csv_path = tmp_path / "thermal_si_csv.csv"
-    pd.DataFrame({
-        "station_m": [0.0, 100.0],
-        "thermal_si": [0.123, 0.456],
-    }).to_csv(csv_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0, 100.0],
+            "thermal_si": [0.123, 0.456],
+        }
+    ).to_csv(csv_path, index=False)
 
     case = object.__new__(Case)
     case.case_yaml_path = tmp_path / "case.yaml"
@@ -2984,10 +3180,14 @@ def test_v260_inline_raster_loader_priority_over_v251_csv(tmp_path):
     }
     sections = [object(), object()]
     arr_raster = case._maybe_compute_per_section_thermal_si_from_raster(
-        cfg, sections, warnings=[],
+        cfg,
+        sections,
+        warnings=[],
     )
     arr_csv = case._maybe_load_per_section_thermal_si(
-        cfg, sections, warnings=[],
+        cfg,
+        sections,
+        warnings=[],
     )
     # The two helpers return DIFFERENT arrays — Case.run picks the
     # raster path because that's the priority order. We test the
@@ -3006,20 +3206,28 @@ def test_v260_inline_raster_missing_fishbase_warns_and_falls_back(tmp_path):
 
     raster_path = _build_uniform_temp_raster(tmp_path, value_C=15.0)
     locs_path = tmp_path / "loc.csv"
-    pd.DataFrame({
-        "station_m": [0.0], "lon": [1.0], "lat": [1.0],
-    }).to_csv(locs_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0],
+            "lon": [1.0],
+            "lat": [1.0],
+        }
+    ).to_csv(locs_path, index=False)
 
     case = object.__new__(Case)
     case.case_yaml_path = tmp_path / "case.yaml"
-    cfg = {"data": {
-        "thermal_raster": {"uri": raster_path.name},
-        "section_locations": {"uri": locs_path.name},
-        # No fishbase_traits.
-    }}
+    cfg = {
+        "data": {
+            "thermal_raster": {"uri": raster_path.name},
+            "section_locations": {"uri": locs_path.name},
+            # No fishbase_traits.
+        }
+    }
     warnings: list[str] = []
     arr = case._maybe_compute_per_section_thermal_si_from_raster(
-        cfg, [object()], warnings,
+        cfg,
+        [object()],
+        warnings,
     )
     assert arr is None
     assert any("fishbase" in w.lower() for w in warnings)
@@ -3034,27 +3242,33 @@ def test_v260_inline_raster_section_locations_length_mismatch_warns(tmp_path):
 
     raster_path = _build_uniform_temp_raster(tmp_path, value_C=15.0)
     locs_path = tmp_path / "loc.csv"
-    pd.DataFrame({
-        "station_m": [0.0, 100.0],
-        "lon": [1.0, 2.0],
-        "lat": [1.0, 2.0],
-    }).to_csv(locs_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0, 100.0],
+            "lon": [1.0, 2.0],
+            "lat": [1.0, 2.0],
+        }
+    ).to_csv(locs_path, index=False)
 
     case = object.__new__(Case)
     case.case_yaml_path = tmp_path / "case.yaml"
-    cfg = {"data": {
-        "thermal_raster": {"uri": raster_path.name},
-        "section_locations": {"uri": locs_path.name},
-        "fishbase_traits": {
-            "scientific_name": "T",
-            "temperature_min_C": 10.0,
-            "temperature_max_C": 20.0,
-        },
-    }}
+    cfg = {
+        "data": {
+            "thermal_raster": {"uri": raster_path.name},
+            "section_locations": {"uri": locs_path.name},
+            "fishbase_traits": {
+                "scientific_name": "T",
+                "temperature_min_C": 10.0,
+                "temperature_max_C": 20.0,
+            },
+        }
+    }
     warnings: list[str] = []
     # 3 sections, but CSV only has 2 rows
     arr = case._maybe_compute_per_section_thermal_si_from_raster(
-        cfg, [object(), object(), object()], warnings,
+        cfg,
+        [object(), object(), object()],
+        warnings,
     )
     assert arr is None
     assert any("length" in w.lower() for w in warnings)
@@ -3070,25 +3284,31 @@ def test_v260_inline_raster_buffer_m_handled(tmp_path):
 
     raster_path = _build_uniform_temp_raster(tmp_path, value_C=15.0)
     locs_path = tmp_path / "loc.csv"
-    pd.DataFrame({
-        "station_m": [0.0, 100.0],
-        "lon": [1.0, 2.0],
-        "lat": [1.0, 2.0],
-    }).to_csv(locs_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0, 100.0],
+            "lon": [1.0, 2.0],
+            "lat": [1.0, 2.0],
+        }
+    ).to_csv(locs_path, index=False)
 
     case = object.__new__(Case)
     case.case_yaml_path = tmp_path / "case.yaml"
-    cfg = {"data": {
-        "thermal_raster": {"uri": raster_path.name},
-        "section_locations": {"uri": locs_path.name, "buffer_m": 50.0},
-        "fishbase_traits": {
-            "scientific_name": "T",
-            "temperature_min_C": 10.0,
-            "temperature_max_C": 20.0,
-        },
-    }}
+    cfg = {
+        "data": {
+            "thermal_raster": {"uri": raster_path.name},
+            "section_locations": {"uri": locs_path.name, "buffer_m": 50.0},
+            "fishbase_traits": {
+                "scientific_name": "T",
+                "temperature_min_C": 10.0,
+                "temperature_max_C": 20.0,
+            },
+        }
+    }
     arr = case._maybe_compute_per_section_thermal_si_from_raster(
-        cfg, [object(), object()], warnings=[],
+        cfg,
+        [object(), object()],
+        warnings=[],
     )
     assert arr is not None
     assert arr.shape == (2,)
@@ -3122,14 +3342,24 @@ def test_v261_r97_per_section_thermal_si_alone_drives_composite(tmp_path, monkey
     real_run_per_cell = Case._maybe_run_per_cell_composite
 
     def _spy_per_cell(
-        self, wua_df, overlay, per_cell_csi, warnings, *,
-        per_section_thermal_si=None, per_section_cover_si=None,
+        self,
+        wua_df,
+        overlay,
+        per_cell_csi,
+        warnings,
+        *,
+        per_section_thermal_si=None,
+        per_section_cover_si=None,
     ):
         captured["per_cell_called"] = True
         captured["overlay_thermal_si"] = overlay.thermal_si
         captured["per_section_array_present"] = per_section_thermal_si is not None
         return real_run_per_cell(
-            self, wua_df, overlay, per_cell_csi, warnings,
+            self,
+            wua_df,
+            overlay,
+            per_cell_csi,
+            warnings,
             per_section_thermal_si=per_section_thermal_si,
             per_section_cover_si=per_section_cover_si,
         )
@@ -3137,6 +3367,7 @@ def test_v261_r97_per_section_thermal_si_alone_drives_composite(tmp_path, monkey
     monkeypatch.setattr(Case, "_maybe_run_per_cell_composite", _spy_per_cell)
 
     import yaml
+
     cfg = yaml.safe_load(CASE_YAML.read_text())
     cfg["habitat"]["composite_overlay_method"] = "geom_mean_per_cell"
     # Use the v2.5.1 CSV path (simpler than building a fake raster).
@@ -3148,13 +3379,16 @@ def test_v261_r97_per_section_thermal_si_alone_drives_composite(tmp_path, monkey
     import pandas as pd
 
     from openlimno.hydro.builtin_1d import load_sections_from_parquet
+
     case_dir = CASE_YAML.parent
     xs_path = (case_dir / cfg["data"]["cross_section"]).resolve()
     sections = load_sections_from_parquet(xs_path, manning_n=0.035)
-    pd.DataFrame({
-        "station_m": [s.station_m for s in sections],
-        "thermal_si": [0.55] * len(sections),
-    }).to_csv(si_csv, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [s.station_m for s in sections],
+            "thermal_si": [0.55] * len(sections),
+        }
+    ).to_csv(si_csv, index=False)
     cfg.setdefault("data", {})["thermal_si_per_section"] = {"uri": si_csv.name}
     y2 = CASE_YAML.parent / "case.r97.yaml"
     y2.write_text(yaml.safe_dump(cfg))
@@ -3170,12 +3404,10 @@ def test_v261_r97_per_section_thermal_si_alone_drives_composite(tmp_path, monkey
         "thermal SI is the only overlay."
     )
     assert captured.get("per_section_array_present"), (
-        "R9-7 regression: per_section_thermal_si did not reach the "
-        "per-cell composite helper."
+        "R9-7 regression: per_section_thermal_si did not reach the per-cell composite helper."
     )
     assert result.composite_summary is not None, (
-        "R9-7 regression: composite_summary still None despite "
-        "per-section thermal SI being loaded."
+        "R9-7 regression: composite_summary still None despite per-section thermal SI being loaded."
     )
 
 
@@ -3198,9 +3430,15 @@ def test_v261_r91_inline_raster_crs_mismatch_reprojects(tmp_path):
     arr = np.full((4, 4), 15.0, dtype=np.float32)
     transform = from_bounds(0.0, 4_000_000.0, 400_000.0, 4_400_000.0, 4, 4)
     with rasterio.open(
-        raster_path, "w", driver="GTiff",
-        height=4, width=4, count=1, dtype="float32",
-        crs="EPSG:32612", transform=transform,
+        raster_path,
+        "w",
+        driver="GTiff",
+        height=4,
+        width=4,
+        count=1,
+        dtype="float32",
+        crs="EPSG:32612",
+        transform=transform,
     ) as dst:
         dst.write(arr, 1)
 
@@ -3209,23 +3447,27 @@ def test_v261_r91_inline_raster_crs_mismatch_reprojects(tmp_path):
     # (x≈322000, y≈4097000), which falls inside the test raster
     # bounds 0..400000 east, 4000000..4400000 north.
     locs_path = tmp_path / "loc.csv"
-    pd.DataFrame({
-        "station_m": [0.0],
-        "lon": [-113.0],
-        "lat": [37.0],
-    }).to_csv(locs_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0],
+            "lon": [-113.0],
+            "lat": [37.0],
+        }
+    ).to_csv(locs_path, index=False)
 
     case = object.__new__(Case)
     case.case_yaml_path = tmp_path / "case.yaml"
-    cfg = {"data": {
-        "thermal_raster": {"uri": raster_path.name},
-        "section_locations": {"uri": locs_path.name, "crs": "EPSG:4326"},
-        "fishbase_traits": {
-            "scientific_name": "T",
-            "temperature_min_C": 10.0,
-            "temperature_max_C": 20.0,
-        },
-    }}
+    cfg = {
+        "data": {
+            "thermal_raster": {"uri": raster_path.name},
+            "section_locations": {"uri": locs_path.name, "crs": "EPSG:4326"},
+            "fishbase_traits": {
+                "scientific_name": "T",
+                "temperature_min_C": 10.0,
+                "temperature_max_C": 20.0,
+            },
+        }
+    }
     # Without CRS reprojection, (-111, 37) would be interpreted as
     # raster coords (which are in metres in UTM 12N, range
     # 0..400000) — way outside bounds → SI = nodata or wrong.
@@ -3233,13 +3475,13 @@ def test_v261_r91_inline_raster_crs_mismatch_reprojects(tmp_path):
     # coordinates and falls inside the raster (which sees 15 °C
     # everywhere) → SI ≈ 1.0 since 15 °C is in [10, 20].
     arr_si = case._maybe_compute_per_section_thermal_si_from_raster(
-        cfg, [object()], warnings=[],
+        cfg,
+        [object()],
+        warnings=[],
     )
     assert arr_si is not None, "R9-1 regression: CRS reproject path failed"
     assert arr_si.shape == (1,)
-    assert arr_si[0] > 0.99, (
-        f"R9-1 regression: reprojection missed the raster; got SI={arr_si[0]}"
-    )
+    assert arr_si[0] > 0.99, f"R9-1 regression: reprojection missed the raster; got SI={arr_si[0]}"
 
 
 def test_v261_r92_outside_bounds_nodata_detected(tmp_path):
@@ -3258,8 +3500,13 @@ def test_v261_r92_outside_bounds_nodata_detected(tmp_path):
     raster_path = tmp_path / "T_with_nodata.tif"
     arr = np.full((4, 4), 15.0, dtype=np.float32)
     with rasterio.open(
-        raster_path, "w", driver="GTiff",
-        height=4, width=4, count=1, dtype="float32",
+        raster_path,
+        "w",
+        driver="GTiff",
+        height=4,
+        width=4,
+        count=1,
+        dtype="float32",
         crs="EPSG:4326",
         transform=from_bounds(0.0, 0.0, 4.0, 4.0, 4, 4),
         nodata=-9999.0,
@@ -3268,34 +3515,39 @@ def test_v261_r92_outside_bounds_nodata_detected(tmp_path):
 
     locs_path = tmp_path / "loc.csv"
     # Lat=1 inside, Lat=100 outside (out of raster bounds 0..4).
-    pd.DataFrame({
-        "station_m": [0.0, 100.0],
-        "lon": [1.0, 100.0],
-        "lat": [1.0, 100.0],
-    }).to_csv(locs_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0, 100.0],
+            "lon": [1.0, 100.0],
+            "lat": [1.0, 100.0],
+        }
+    ).to_csv(locs_path, index=False)
 
     case = object.__new__(Case)
     case.case_yaml_path = tmp_path / "case.yaml"
-    cfg = {"data": {
-        "thermal_raster": {"uri": raster_path.name},
-        "section_locations": {"uri": locs_path.name},
-        "fishbase_traits": {
-            "scientific_name": "T",
-            "temperature_min_C": 10.0,
-            "temperature_max_C": 20.0,
-        },
-    }}
+    cfg = {
+        "data": {
+            "thermal_raster": {"uri": raster_path.name},
+            "section_locations": {"uri": locs_path.name},
+            "fishbase_traits": {
+                "scientific_name": "T",
+                "temperature_min_C": 10.0,
+                "temperature_max_C": 20.0,
+            },
+        }
+    }
     warnings: list[str] = []
     arr_si = case._maybe_compute_per_section_thermal_si_from_raster(
-        cfg, [object(), object()], warnings,
+        cfg,
+        [object(), object()],
+        warnings,
     )
     # The 2nd section is outside the raster → fall back to None
     # with a warning, not silently produce SI=0 from nodata.
     assert arr_si is None
-    assert any(
-        "outside" in w.lower() or "nodata" in w.lower()
-        for w in warnings
-    ), f"R9-2 regression: no warning about outside-bounds/nodata: {warnings}"
+    assert any("outside" in w.lower() or "nodata" in w.lower() for w in warnings), (
+        f"R9-2 regression: no warning about outside-bounds/nodata: {warnings}"
+    )
 
 
 def test_v261_r95_negative_buffer_fails_loud(tmp_path):
@@ -3306,17 +3558,27 @@ def test_v261_r95_negative_buffer_fails_loud(tmp_path):
     from openlimno.case import Case
 
     locs_path = tmp_path / "loc.csv"
-    pd.DataFrame({
-        "station_m": [0.0], "lon": [1.0], "lat": [1.0],
-    }).to_csv(locs_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0],
+            "lon": [1.0],
+            "lat": [1.0],
+        }
+    ).to_csv(locs_path, index=False)
     raster_path = tmp_path / "T.tif"
     # Build any 4x4 raster so the early-return doesn't fire on missing file
     import numpy as np
     import rasterio
     from rasterio.transform import from_bounds
+
     with rasterio.open(
-        raster_path, "w", driver="GTiff",
-        height=4, width=4, count=1, dtype="float32",
+        raster_path,
+        "w",
+        driver="GTiff",
+        height=4,
+        width=4,
+        count=1,
+        dtype="float32",
         crs="EPSG:4326",
         transform=from_bounds(0.0, 0.0, 4.0, 4.0, 4, 4),
     ) as dst:
@@ -3324,18 +3586,22 @@ def test_v261_r95_negative_buffer_fails_loud(tmp_path):
 
     case = object.__new__(Case)
     case.case_yaml_path = tmp_path / "case.yaml"
-    cfg = {"data": {
-        "thermal_raster": {"uri": raster_path.name},
-        "section_locations": {"uri": locs_path.name, "buffer_m": -10},
-        "fishbase_traits": {
-            "scientific_name": "T",
-            "temperature_min_C": 10.0,
-            "temperature_max_C": 20.0,
-        },
-    }}
+    cfg = {
+        "data": {
+            "thermal_raster": {"uri": raster_path.name},
+            "section_locations": {"uri": locs_path.name, "buffer_m": -10},
+            "fishbase_traits": {
+                "scientific_name": "T",
+                "temperature_min_C": 10.0,
+                "temperature_max_C": 20.0,
+            },
+        }
+    }
     warnings: list[str] = []
     arr_si = case._maybe_compute_per_section_thermal_si_from_raster(
-        cfg, [object()], warnings,
+        cfg,
+        [object()],
+        warnings,
     )
     assert arr_si is None
     assert any("≥ 0" in w or ">= 0" in w for w in warnings), (
@@ -3374,9 +3640,7 @@ def test_v261_r94_empty_array_falls_back_to_csv():
     chosen = raster_arr
     if chosen is None or len(chosen) == 0:
         chosen = csv_arr
-    assert chosen is csv_arr, (
-        "R9-4 regression: empty array not falling back to CSV."
-    )
+    assert chosen is csv_arr, "R9-4 regression: empty array not falling back to CSV."
 
 
 # ---------------------------------------------------------------------------
@@ -3396,8 +3660,13 @@ def _build_lulc_raster(tmp_path, code_value: int = 60):
     path = tmp_path / "lulc.tif"
     arr = np.full((4, 4), code_value, dtype=np.uint8)
     with rasterio.open(
-        path, "w", driver="GTiff",
-        height=4, width=4, count=1, dtype="uint8",
+        path,
+        "w",
+        driver="GTiff",
+        height=4,
+        width=4,
+        count=1,
+        dtype="uint8",
         crs="EPSG:4326",
         transform=from_bounds(0.0, 0.0, 4.0, 4.0, 4, 4),
     ) as dst:
@@ -3416,20 +3685,26 @@ def test_v270_inline_lulc_raster_point_sample(tmp_path):
 
     raster_path = _build_lulc_raster(tmp_path, code_value=60)
     locs_path = tmp_path / "loc.csv"
-    pd.DataFrame({
-        "station_m": [0.0, 100.0, 200.0],
-        "lon": [1.0, 2.0, 3.0],
-        "lat": [1.0, 2.0, 3.0],
-    }).to_csv(locs_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0, 100.0, 200.0],
+            "lon": [1.0, 2.0, 3.0],
+            "lat": [1.0, 2.0, 3.0],
+        }
+    ).to_csv(locs_path, index=False)
 
     case = object.__new__(Case)
     case.case_yaml_path = tmp_path / "case.yaml"
-    cfg = {"data": {
-        "cover_raster": {"uri": raster_path.name},
-        "section_locations": {"uri": locs_path.name, "buffer_m": 0},
-    }}
+    cfg = {
+        "data": {
+            "cover_raster": {"uri": raster_path.name},
+            "section_locations": {"uri": locs_path.name, "buffer_m": 0},
+        }
+    }
     arr = case._maybe_compute_per_section_cover_si_from_raster(
-        cfg, [object()] * 3, warnings=[],
+        cfg,
+        [object()] * 3,
+        warnings=[],
     )
     assert arr is not None
     assert arr.shape == (3,)
@@ -3448,21 +3723,27 @@ def test_v270_inline_lulc_raster_outside_bounds_warns(tmp_path):
 
     raster_path = _build_lulc_raster(tmp_path, code_value=60)
     locs_path = tmp_path / "loc.csv"
-    pd.DataFrame({
-        "station_m": [0.0, 100.0],
-        "lon": [1.0, 100.0],  # 100 is outside 0..4
-        "lat": [1.0, 100.0],
-    }).to_csv(locs_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0, 100.0],
+            "lon": [1.0, 100.0],  # 100 is outside 0..4
+            "lat": [1.0, 100.0],
+        }
+    ).to_csv(locs_path, index=False)
 
     case = object.__new__(Case)
     case.case_yaml_path = tmp_path / "case.yaml"
-    cfg = {"data": {
-        "cover_raster": {"uri": raster_path.name},
-        "section_locations": {"uri": locs_path.name, "buffer_m": 0},
-    }}
+    cfg = {
+        "data": {
+            "cover_raster": {"uri": raster_path.name},
+            "section_locations": {"uri": locs_path.name, "buffer_m": 0},
+        }
+    }
     warnings: list[str] = []
     arr = case._maybe_compute_per_section_cover_si_from_raster(
-        cfg, [object(), object()], warnings,
+        cfg,
+        [object(), object()],
+        warnings,
     )
     assert arr is None
     assert any("outside" in w.lower() or "nodata" in w.lower() for w in warnings)
@@ -3477,20 +3758,26 @@ def test_v270_inline_lulc_raster_buffered_path(tmp_path):
 
     raster_path = _build_lulc_raster(tmp_path, code_value=60)
     locs_path = tmp_path / "loc.csv"
-    pd.DataFrame({
-        "station_m": [0.0, 100.0],
-        "lon": [1.0, 2.0],
-        "lat": [1.0, 2.0],
-    }).to_csv(locs_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0, 100.0],
+            "lon": [1.0, 2.0],
+            "lat": [1.0, 2.0],
+        }
+    ).to_csv(locs_path, index=False)
 
     case = object.__new__(Case)
     case.case_yaml_path = tmp_path / "case.yaml"
-    cfg = {"data": {
-        "cover_raster": {"uri": raster_path.name},
-        "section_locations": {"uri": locs_path.name, "buffer_m": 50_000},
-    }}
+    cfg = {
+        "data": {
+            "cover_raster": {"uri": raster_path.name},
+            "section_locations": {"uri": locs_path.name, "buffer_m": 50_000},
+        }
+    }
     arr = case._maybe_compute_per_section_cover_si_from_raster(
-        cfg, [object(), object()], warnings=[],
+        cfg,
+        [object(), object()],
+        warnings=[],
     )
     assert arr is not None
     assert arr.shape == (2,)
@@ -3507,13 +3794,17 @@ def test_v270_load_per_section_cover_si_csv(tmp_path):
     case = object.__new__(Case)
     case.case_yaml_path = tmp_path / "case.yaml"
     csv_path = tmp_path / "cover_csv.csv"
-    pd.DataFrame({
-        "station_m": [0.0, 100.0],
-        "cover_si": [0.3, 0.7],
-    }).to_csv(csv_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0, 100.0],
+            "cover_si": [0.3, 0.7],
+        }
+    ).to_csv(csv_path, index=False)
     cfg = {"data": {"cover_si_per_section": {"uri": csv_path.name}}}
     arr = case._maybe_load_per_section_cover_si(
-        cfg, [object(), object()], warnings=[],
+        cfg,
+        [object(), object()],
+        warnings=[],
     )
     assert arr is not None
     assert arr.tolist() == [0.3, 0.7]
@@ -3528,14 +3819,18 @@ def test_v270_cover_csv_length_mismatch_warns(tmp_path):
     case = object.__new__(Case)
     case.case_yaml_path = tmp_path / "case.yaml"
     csv_path = tmp_path / "short_cover.csv"
-    pd.DataFrame({
-        "station_m": [0.0],
-        "cover_si": [0.5],
-    }).to_csv(csv_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0],
+            "cover_si": [0.5],
+        }
+    ).to_csv(csv_path, index=False)
     cfg = {"data": {"cover_si_per_section": {"uri": csv_path.name}}}
     warnings: list[str] = []
     arr = case._maybe_load_per_section_cover_si(
-        cfg, [object(), object(), object()], warnings,
+        cfg,
+        [object(), object(), object()],
+        warnings,
     )
     assert arr is None
     assert any("length" in w.lower() for w in warnings)
@@ -3557,14 +3852,24 @@ def test_v270_cover_si_drives_composite_alone(monkeypatch):
     real_run_per_cell = Case._maybe_run_per_cell_composite
 
     def _spy(
-        self, wua_df, overlay, per_cell_csi, warnings, *,
-        per_section_thermal_si=None, per_section_cover_si=None,
+        self,
+        wua_df,
+        overlay,
+        per_cell_csi,
+        warnings,
+        *,
+        per_section_thermal_si=None,
+        per_section_cover_si=None,
     ):
         captured["per_cell_called"] = True
         captured["overlay_cover_si"] = overlay.cover_si
         captured["per_section_cover_present"] = per_section_cover_si is not None
         return real_run_per_cell(
-            self, wua_df, overlay, per_cell_csi, warnings,
+            self,
+            wua_df,
+            overlay,
+            per_cell_csi,
+            warnings,
             per_section_thermal_si=per_section_thermal_si,
             per_section_cover_si=per_section_cover_si,
         )
@@ -3582,10 +3887,12 @@ def test_v270_cover_si_drives_composite_alone(monkeypatch):
     xs_path = (case_dir / cfg["data"]["cross_section"]).resolve()
     sections = load_sections_from_parquet(xs_path, manning_n=0.035)
     cover_csv = CASE_YAML.parent / "cover_si_alone.csv"
-    pd.DataFrame({
-        "station_m": [s.station_m for s in sections],
-        "cover_si": [0.45] * len(sections),
-    }).to_csv(cover_csv, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [s.station_m for s in sections],
+            "cover_si": [0.45] * len(sections),
+        }
+    ).to_csv(cover_csv, index=False)
     cfg.setdefault("data", {})["cover_si_per_section"] = {"uri": cover_csv.name}
     y2 = CASE_YAML.parent / "case.cover_alone.yaml"
     y2.write_text(yaml.safe_dump(cfg))
@@ -3626,36 +3933,46 @@ def test_v271_r101_unmapped_lulc_point_sample_fails_loud(tmp_path):
     raster_path = tmp_path / "wrong_raster.tif"
     arr = np.full((4, 4), 1, dtype=np.uint8)
     with rasterio.open(
-        raster_path, "w", driver="GTiff",
-        height=4, width=4, count=1, dtype="uint8",
+        raster_path,
+        "w",
+        driver="GTiff",
+        height=4,
+        width=4,
+        count=1,
+        dtype="uint8",
         crs="EPSG:4326",
         transform=from_bounds(0.0, 0.0, 4.0, 4.0, 4, 4),
     ) as dst:
         dst.write(arr, 1)
     locs_path = tmp_path / "loc.csv"
-    pd.DataFrame({
-        "station_m": [0.0, 100.0],
-        "lon": [1.0, 2.0],
-        "lat": [1.0, 2.0],
-    }).to_csv(locs_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0, 100.0],
+            "lon": [1.0, 2.0],
+            "lat": [1.0, 2.0],
+        }
+    ).to_csv(locs_path, index=False)
     case = object.__new__(Case)
     case.case_yaml_path = tmp_path / "case.yaml"
-    cfg = {"data": {
-        "cover_raster": {"uri": raster_path.name},
-        "section_locations": {"uri": locs_path.name, "buffer_m": 0},
-    }}
+    cfg = {
+        "data": {
+            "cover_raster": {"uri": raster_path.name},
+            "section_locations": {"uri": locs_path.name, "buffer_m": 0},
+        }
+    }
     warnings: list[str] = []
     arr_si = case._maybe_compute_per_section_cover_si_from_raster(
-        cfg, [object(), object()], warnings,
+        cfg,
+        [object(), object()],
+        warnings,
     )
     assert arr_si is None, (
         f"R10-1 regression: unmapped LULC silently returned "
         f"{arr_si!r}; should fall back with a warning."
     )
-    assert any(
-        "DEFAULT_RIPARIAN_COVER_SI" in w or "unmapped" in w.lower()
-        for w in warnings
-    ), f"R10-1 regression: no diagnostic warning: {warnings}"
+    assert any("DEFAULT_RIPARIAN_COVER_SI" in w or "unmapped" in w.lower() for w in warnings), (
+        f"R10-1 regression: no diagnostic warning: {warnings}"
+    )
 
 
 def test_v271_r102_ndvi_continuous_raster_hint(tmp_path):
@@ -3674,25 +3991,38 @@ def test_v271_r102_ndvi_continuous_raster_hint(tmp_path):
     # in DEFAULT_RIPARIAN_COVER_SI.
     arr = np.full((4, 4), 0.55, dtype=np.float32)
     with rasterio.open(
-        raster_path, "w", driver="GTiff",
-        height=4, width=4, count=1, dtype="float32",
+        raster_path,
+        "w",
+        driver="GTiff",
+        height=4,
+        width=4,
+        count=1,
+        dtype="float32",
         crs="EPSG:4326",
         transform=from_bounds(0.0, 0.0, 4.0, 4.0, 4, 4),
     ) as dst:
         dst.write(arr, 1)
     locs_path = tmp_path / "loc.csv"
-    pd.DataFrame({
-        "station_m": [0.0], "lon": [1.0], "lat": [1.0],
-    }).to_csv(locs_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [0.0],
+            "lon": [1.0],
+            "lat": [1.0],
+        }
+    ).to_csv(locs_path, index=False)
     case = object.__new__(Case)
     case.case_yaml_path = tmp_path / "case.yaml"
-    cfg = {"data": {
-        "cover_raster": {"uri": raster_path.name},
-        "section_locations": {"uri": locs_path.name, "buffer_m": 0},
-    }}
+    cfg = {
+        "data": {
+            "cover_raster": {"uri": raster_path.name},
+            "section_locations": {"uri": locs_path.name, "buffer_m": 0},
+        }
+    }
     warnings: list[str] = []
     arr_si = case._maybe_compute_per_section_cover_si_from_raster(
-        cfg, [object()], warnings,
+        cfg,
+        [object()],
+        warnings,
     )
     assert arr_si is None
     assert any("continuous-value" in w for w in warnings), (
@@ -3713,8 +4043,7 @@ def test_v271_r103_cover_si_from_lulc_raster_docstring_accurate():
 
     doc = inspect.getdoc(cover_si_from_lulc_raster) or ""
     assert "EXCLUDED" in doc or "skipped" in doc.lower(), (
-        f"R10-3 regression: docstring still says unmapped → SI=0. "
-        f"Got:\n{doc[:500]}"
+        f"R10-3 regression: docstring still says unmapped → SI=0. Got:\n{doc[:500]}"
     )
 
 
@@ -3743,13 +4072,13 @@ def test_v271_r104_cover_raster_drives_composite_end_to_end(monkeypatch, tmp_pat
     def _spy(self, cfg, sections, warnings):
         captured["called"] = True
         result = real(self, cfg, sections, warnings)
-        captured["array_len"] = (
-            int(len(result)) if result is not None else None
-        )
+        captured["array_len"] = int(len(result)) if result is not None else None
         return result
 
     monkeypatch.setattr(
-        Case, "_maybe_compute_per_section_cover_si_from_raster", _spy,
+        Case,
+        "_maybe_compute_per_section_cover_si_from_raster",
+        _spy,
     )
 
     cfg = yaml.safe_load(CASE_YAML.read_text())
@@ -3764,8 +4093,13 @@ def test_v271_r104_cover_raster_drives_composite_end_to_end(monkeypatch, tmp_pat
     lulc_path = CASE_YAML.parent / "lulc_r104.tif"
     arr = np.full((4, 4), valid_code, dtype=np.uint8)
     with rasterio.open(
-        lulc_path, "w", driver="GTiff",
-        height=4, width=4, count=1, dtype="uint8",
+        lulc_path,
+        "w",
+        driver="GTiff",
+        height=4,
+        width=4,
+        count=1,
+        dtype="uint8",
         crs="EPSG:4326",
         transform=from_bounds(-114.0, 44.0, -113.0, 45.0, 4, 4),
     ) as dst:
@@ -3773,11 +4107,13 @@ def test_v271_r104_cover_raster_drives_composite_end_to_end(monkeypatch, tmp_pat
     locs_path = CASE_YAML.parent / "loc_r104.csv"
     n = len(sections)
     # All sections sit inside the raster bbox.
-    pd.DataFrame({
-        "station_m": [s.station_m for s in sections],
-        "lon": [-113.5] * n,
-        "lat": [44.5] * n,
-    }).to_csv(locs_path, index=False)
+    pd.DataFrame(
+        {
+            "station_m": [s.station_m for s in sections],
+            "lon": [-113.5] * n,
+            "lat": [44.5] * n,
+        }
+    ).to_csv(locs_path, index=False)
     cfg.setdefault("data", {})["cover_raster"] = {"uri": lulc_path.name}
     cfg["data"]["section_locations"] = {"uri": locs_path.name, "buffer_m": 0}
     y2 = CASE_YAML.parent / "case.r104.yaml"
@@ -3790,14 +4126,12 @@ def test_v271_r104_cover_raster_drives_composite_end_to_end(monkeypatch, tmp_pat
         locs_path.unlink(missing_ok=True)
 
     assert captured.get("called"), (
-        "R10-4 regression: inline cover-raster helper was not invoked "
-        "by Case.run."
+        "R10-4 regression: inline cover-raster helper was not invoked by Case.run."
     )
     assert captured.get("array_len") == n, (
         f"R10-4 regression: per-section cover SI array length "
         f"{captured.get('array_len')} != section count {n}."
     )
     assert result.composite_summary is not None, (
-        "R10-4 regression: cover-raster-only case did not produce "
-        "a composite_summary."
+        "R10-4 regression: cover-raster-only case did not produce a composite_summary."
     )

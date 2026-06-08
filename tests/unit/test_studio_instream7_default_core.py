@@ -106,7 +106,9 @@ def _write_timeseries(path: Path) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
-def _write_initial_population(path: Path, rows: list[tuple[str, str, int, int, float, float, float]]) -> None:
+def _write_initial_population(
+    path: Path, rows: list[tuple[str, str, int, int, float, float, float]]
+) -> None:
     lines = [
         "; Synthetic initial population,,,,,,",
         "; Species,Reach,Age,Number,Length min,Length mode,Length max",
@@ -142,7 +144,9 @@ def _write_shapefile(path: Path, *, reach_cells: dict[str, list[tuple[int, float
                     "FRACSPWN": 0.10,
                 }
             )
-    gdf = gpd.GeoDataFrame(attrs, geometry=geometries, crs="EPSG:32610")  # UTM zone 10N — projected, metres
+    gdf = gpd.GeoDataFrame(
+        attrs, geometry=geometries, crs="EPSG:32610"
+    )  # UTM zone 10N — projected, metres
     gdf.to_file(path)
 
 
@@ -215,9 +219,7 @@ def synthetic_instream7_archive(tmp_path: Path) -> Path:
         depth_list=_quoted_list(
             [f"{rel_prefix}ReachA-Depths.csv", f"{rel_prefix}ReachB-Depths.csv"]
         ),
-        vel_list=_quoted_list(
-            [f"{rel_prefix}ReachA-Vels.csv", f"{rel_prefix}ReachB-Vels.csv"]
-        ),
+        vel_list=_quoted_list([f"{rel_prefix}ReachA-Vels.csv", f"{rel_prefix}ReachB-Vels.csv"]),
         species_list=_quoted_list(["Rainbow", "Brown"]),
         init_pop_rel=f"{rel_prefix}initial_population.csv",
     )
@@ -258,7 +260,8 @@ def test_build_studio_scenario_from_synthetic_archive(
     )
 
     payload = build_studio_scenario_from_instream7_archive(
-        synthetic_instream7_archive, case_id="synthetic",
+        synthetic_instream7_archive,
+        case_id="synthetic",
     )
 
     # Reach selection: takes first reach only
@@ -315,7 +318,8 @@ def test_cohort_population_dataframe_matches_synthetic_archive(
     )
 
     payload = build_studio_scenario_from_instream7_archive(
-        synthetic_instream7_archive, case_id="synthetic",
+        synthetic_instream7_archive,
+        case_id="synthetic",
     )
     cohorts = payload["config"]["population_cohorts"]
     assert isinstance(cohorts, list)
@@ -354,7 +358,8 @@ def test_multi_reach_shapefile_row_alignment(
 
     # Must build successfully — the IndexError would surface here.
     payload = build_studio_scenario_from_instream7_archive(
-        synthetic_instream7_archive, case_id="synthetic",
+        synthetic_instream7_archive,
+        case_id="synthetic",
     )
     # Cell IDs are prefixed with the case_id
     cell_ids = {c["cell_id"] for c in payload["cells"]}
@@ -372,10 +377,12 @@ def test_shapefile_axis_projection_axis_sign_is_deterministic(
     )
 
     p1 = build_studio_scenario_from_instream7_archive(
-        synthetic_instream7_archive, case_id="synthetic",
+        synthetic_instream7_archive,
+        case_id="synthetic",
     )
     p2 = build_studio_scenario_from_instream7_archive(
-        synthetic_instream7_archive, case_id="synthetic",
+        synthetic_instream7_archive,
+        case_id="synthetic",
     )
     s1 = [float(c["station_m"]) for c in p1["cells"]]
     s2 = [float(c["station_m"]) for c in p2["cells"]]

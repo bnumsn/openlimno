@@ -28,7 +28,9 @@ def counts_by_reach(frame: pd.DataFrame, default_reach_id: str) -> dict[str, int
 
 
 def counts_by_reach_and_species(
-    frame: pd.DataFrame, default_reach_id: str, default_species: str,
+    frame: pd.DataFrame,
+    default_reach_id: str,
+    default_species: str,
 ) -> dict[tuple[str, str], int]:
     """Count rows by (reach, species), falling back to defaults when columns
     are missing. 2026-05-28 multi-species attribution: native IBM event rows
@@ -126,15 +128,15 @@ def summarize_events(events: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=columns)
     table = events.copy()
     table["n"] = pd.to_numeric(table.get("n", 0), errors="coerce").fillna(0).astype(int)
-    table["n_eggs"] = (
-        pd.to_numeric(table.get("n_eggs", 0), errors="coerce").fillna(0).astype(int)
-    )
+    table["n_eggs"] = pd.to_numeric(table.get("n_eggs", 0), errors="coerce").fillna(0).astype(int)
     table["day"] = pd.to_numeric(table.get("day", 0), errors="coerce").fillna(0).astype(int)
     if "species" not in table.columns:
         table["species"] = ""
     return (
         table.groupby(
-            ["scenario_id", "reach_id", "species", "event"], dropna=False, as_index=False,
+            ["scenario_id", "reach_id", "species", "event"],
+            dropna=False,
+            as_index=False,
         )
         .agg(
             n_events=("event", "size"),
@@ -156,15 +158,14 @@ def daily_event_summary(events: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=columns)
     table = events.copy()
     table["n"] = pd.to_numeric(table.get("n", 0), errors="coerce").fillna(0).astype(int)
-    table["n_eggs"] = (
-        pd.to_numeric(table.get("n_eggs", 0), errors="coerce").fillna(0).astype(int)
-    )
+    table["n_eggs"] = pd.to_numeric(table.get("n_eggs", 0), errors="coerce").fillna(0).astype(int)
     if "species" not in table.columns:
         table["species"] = ""
     return (
         table.groupby(
             ["scenario_id", "reach_id", "day", "species", "event"],
-            dropna=False, as_index=False,
+            dropna=False,
+            as_index=False,
         )
         .agg(n=("n", "sum"), n_eggs=("n_eggs", "sum"))
         .sort_values(["scenario_id", "reach_id", "day", "species", "event"], kind="mergesort")

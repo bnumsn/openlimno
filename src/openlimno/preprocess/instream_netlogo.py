@@ -326,14 +326,18 @@ def _copy_role(
         target[role] = source[col]
 
 
-def _normalize_population(df: pd.DataFrame, roles: dict[str, str]) -> tuple[pd.DataFrame, list[str]]:
+def _normalize_population(
+    df: pd.DataFrame, roles: dict[str, str]
+) -> tuple[pd.DataFrame, list[str]]:
     out = pd.DataFrame()
     for role in POPULATION_ROLES:
         _copy_role(df, out, roles, role)
 
     metric_cols = [col for col in ("abundance", "biomass_g", "survival_rate") if col in out]
     if not metric_cols:
-        raise ValueError("inSTREAM population summary needs abundance, biomass, or survival columns.")
+        raise ValueError(
+            "inSTREAM population summary needs abundance, biomass, or survival columns."
+        )
 
     warnings: list[str] = []
     if "species" not in out:

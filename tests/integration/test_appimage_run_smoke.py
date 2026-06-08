@@ -4,6 +4,7 @@ Catches the class of regression where PyInstaller exclude lists or
 missing ``collect_all`` calls break the solver path inside the bundle
 while dev-venv tests stay green.
 """
+
 from __future__ import annotations
 
 import os
@@ -50,7 +51,10 @@ def _run_smoke(executable: Path, case_yaml: Path) -> str:
         env["APPIMAGE_EXTRACT_AND_RUN"] = "1"
     r = subprocess.run(
         [str(executable), "--smoke-run-case", str(case_yaml)],
-        env=env, capture_output=True, text=True, timeout=120,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     if r.returncode != 0:
         raise AssertionError(
@@ -61,8 +65,9 @@ def _run_smoke(executable: Path, case_yaml: Path) -> str:
     return r.stdout
 
 
-@pytest.mark.skipif(not DIST_BIN.is_file(),
-                     reason="onedir bundle not built (run pyinstaller first)")
+@pytest.mark.skipif(
+    not DIST_BIN.is_file(), reason="onedir bundle not built (run pyinstaller first)"
+)
 def test_onedir_bundle_runs_case(built_case):
     """The PyInstaller onedir bundle must run a case successfully."""
     out = _run_smoke(DIST_BIN, built_case / "case.yaml")
@@ -70,8 +75,9 @@ def test_onedir_bundle_runs_case(built_case):
     assert (built_case / "out/hydraulics.nc").is_file()
 
 
-@pytest.mark.skipif(not APPIMAGE.is_file(),
-                     reason="AppImage not built (run build_appimage.sh first)")
+@pytest.mark.skipif(
+    not APPIMAGE.is_file(), reason="AppImage not built (run build_appimage.sh first)"
+)
 def test_appimage_runs_case(built_case):
     """The single-file .AppImage must run a case successfully."""
     out = _run_smoke(APPIMAGE, built_case / "case.yaml")

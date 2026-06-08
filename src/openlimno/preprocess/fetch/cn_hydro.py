@@ -37,6 +37,7 @@ To enable Chinese discharge in your local environment:
 Without (3), :func:`fetch_china_discharge` raises
 ``ChinaHydroNotEnabledError`` instead of attempting any network call.
 """
+
 from __future__ import annotations
 
 import abc
@@ -102,7 +103,10 @@ class ChinaHydroAdapter(abc.ABC):
 
     @abc.abstractmethod
     def fetch_discharge(
-        self, station_id: str, start: str, end: str,
+        self,
+        station_id: str,
+        start: str,
+        end: str,
     ) -> ChinaDischargeResult:
         """Retrieve daily discharge for ``station_id`` over [start, end].
 
@@ -138,7 +142,10 @@ def list_registered_adapters() -> list[str]:
 
 
 def fetch_china_discharge(
-    source_key: str, station_id: str, start: str, end: str,
+    source_key: str,
+    station_id: str,
+    start: str,
+    end: str,
 ) -> ChinaDischargeResult:
     """Dispatch to the adapter registered under ``source_key``.
 

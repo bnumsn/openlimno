@@ -440,11 +440,11 @@ def read_telemac_selafin(
     if "depth_m" not in table:
         warnings.append("No depth variable detected; downstream WUA needs depth_m.")
     if "velocity_ms" not in table:
-        warnings.append("No velocity magnitude or U/V pair detected; downstream WUA needs velocity_ms.")
-    if header.points_per_element != 3:
         warnings.append(
-            f"Element area was computed for {header.points_per_element}-node polygons."
+            "No velocity magnitude or U/V pair detected; downstream WUA needs velocity_ms."
         )
+    if header.points_per_element != 3:
+        warnings.append(f"Element area was computed for {header.points_per_element}-node polygons.")
 
     table.attrs["openlimno_source_model"] = "TELEMAC-MASCARET Selafin"
     table.attrs["openlimno_source_key"] = source_key

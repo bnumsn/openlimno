@@ -29,6 +29,7 @@ ships the core headless surface that path A's GUI sits on top of.
 QGIS plugin remains the v1.x distribution path; deprecated after
 Studio 1.0 lands.
 """
+
 from __future__ import annotations
 
 import json
@@ -109,7 +110,10 @@ def plot_wua_q(
         ax.plot(
             wua_q_df["discharge_m3s"],
             wua_q_df[col],
-            "o-", lw=2, markersize=6, label=label,
+            "o-",
+            lw=2,
+            markersize=6,
+            label=label,
         )
     ax.set_xlabel("Discharge (m³/s)")
     ax.set_ylabel("WUA (m²)")
@@ -121,17 +125,28 @@ def plot_wua_q(
 
     if quality_grade == "C":
         ax.text(
-            0.5, 0.5, "C-GRADE HSI — TENTATIVE",
-            transform=ax.transAxes, ha="center", va="center",
-            fontsize=42, color="red", alpha=0.18,
-            rotation=18, weight="bold",
+            0.5,
+            0.5,
+            "C-GRADE HSI — TENTATIVE",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=42,
+            color="red",
+            alpha=0.18,
+            rotation=18,
+            weight="bold",
         )
     elif quality_grade == "B":
         ax.text(
-            0.99, 0.01,
+            0.99,
+            0.01,
             "HSI quality: B (transferred curve — see provenance.json)",
-            transform=ax.transAxes, ha="right", va="bottom",
-            fontsize=8, color="gray",
+            transform=ax.transAxes,
+            ha="right",
+            va="bottom",
+            fontsize=8,
+            color="gray",
         )
 
     fig.tight_layout()
@@ -142,7 +157,8 @@ def plot_wua_q(
     # also fixes a latent v1.9.2 R5-3 regression in ``cli.py``'s
     # ``wua-q --plot`` route that the existing test suite missed.
     Case._atomic_write(
-        png_path, lambda p: fig.savefig(p, dpi=dpi, format="png"),
+        png_path,
+        lambda p: fig.savefig(p, dpi=dpi, format="png"),
     )
     plt.close(fig)
 
@@ -181,7 +197,9 @@ def run_case_with_plots(
     if discharges_m3s is None:
         discharges_m3s = list(np.logspace(0, np.log10(30), 12))
     result = case.run(
-        discharges_m3s=discharges_m3s, slope=slope, manning_n=manning_n,
+        discharges_m3s=discharges_m3s,
+        slope=slope,
+        manning_n=manning_n,
     )
 
     # Read the quality grade out of the provenance the run just wrote.

@@ -61,6 +61,7 @@ that factor folded out — composite uses only the present overlay. Cases
 that lack both overlays return ``None`` (composite step is silently
 skipped, just like v1.1.1 thermal and v1.5.0 cover).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -178,8 +179,7 @@ class CompositeOverlay:
 def _validate_method(method: CompositeMethod) -> None:
     if method not in _VALID_METHODS:
         raise ValueError(
-            f"composite_hsi: unknown method {method!r}; "
-            f"expected one of {_VALID_METHODS}"
+            f"composite_hsi: unknown method {method!r}; expected one of {_VALID_METHODS}"
         )
 
 
@@ -246,7 +246,7 @@ def apply_overlay(
         for col in wua_q.columns:
             if not col.startswith("wua_m2_") or col.startswith("wua_m2_composite_"):
                 continue
-            suffix = col[len("wua_m2_"):]
+            suffix = col[len("wua_m2_") :]
             out[f"wua_m2_composite_{suffix}"] = wua_q[col].astype(float) * factor
         return out
 
@@ -287,10 +287,8 @@ def apply_overlay(
     for col in wua_q.columns:
         if not col.startswith("wua_m2_") or col.startswith("wua_m2_composite_"):
             continue
-        suffix = col[len("wua_m2_"):]
-        out[f"wua_m2_composite_{suffix}"] = (
-            wua_q[col].astype(float) * overlay_geom
-        )
+        suffix = col[len("wua_m2_") :]
+        out[f"wua_m2_composite_{suffix}"] = wua_q[col].astype(float) * overlay_geom
     return out
 
 
@@ -324,26 +322,27 @@ def composite_summary(
         }
     composite = apply_overlay(wua_q, overlay, method=method)
     base_cols = [
-        c for c in wua_q.columns
+        c
+        for c in wua_q.columns
         if c.startswith("wua_m2_") and not c.startswith("wua_m2_composite_")
     ]
     by_series: list[dict] = []
     for col in base_cols:
-        suffix = col[len("wua_m2_"):]
+        suffix = col[len("wua_m2_") :]
         comp_col = f"wua_m2_composite_{suffix}"
         base_max = float(wua_q[col].max())
         comp_max = float(composite[comp_col].max())
         argmax_idx = composite[comp_col].idxmax()
         q_at_max = float(composite.loc[argmax_idx, "discharge_m3s"])
-        by_series.append({
-            "species_stage": suffix,
-            "wua_m2_base_max": base_max,
-            "wua_m2_composite_max": comp_max,
-            "discharge_m3s_at_composite_max": q_at_max,
-            "composite_to_base_ratio": (
-                comp_max / base_max if base_max > 0 else None
-            ),
-        })
+        by_series.append(
+            {
+                "species_stage": suffix,
+                "wua_m2_base_max": base_max,
+                "wua_m2_composite_max": comp_max,
+                "discharge_m3s_at_composite_max": q_at_max,
+                "composite_to_base_ratio": (comp_max / base_max if base_max > 0 else None),
+            }
+        )
     return {
         "method": method,
         "cover_si": overlay.cover_si,
@@ -464,17 +463,13 @@ def apply_overlay_per_cell(
     area = np.asarray(area_per_cell, dtype=float)
     if csi_dv.shape != area.shape:
         raise ValueError(
-            f"csi_dv_per_cell shape {csi_dv.shape} != "
-            f"area_per_cell shape {area.shape}"
+            f"csi_dv_per_cell shape {csi_dv.shape} != area_per_cell shape {area.shape}"
         )
     if csi_dv.ndim != 1:
-        raise ValueError(
-            f"csi_dv_per_cell must be 1-D; got shape {csi_dv.shape}"
-        )
+        raise ValueError(f"csi_dv_per_cell must be 1-D; got shape {csi_dv.shape}")
     if np.any(csi_dv < -1e-9) or np.any(csi_dv > 1.0 + 1e-9):
         raise ValueError(
-            f"csi_dv_per_cell must be in [0, 1]; got range "
-            f"[{csi_dv.min()}, {csi_dv.max()}]"
+            f"csi_dv_per_cell must be in [0, 1]; got range [{csi_dv.min()}, {csi_dv.max()}]"
         )
 
     n_cells = csi_dv.shape[0]
@@ -487,10 +482,7 @@ def apply_overlay_per_cell(
             continue
         arr = np.broadcast_to(np.asarray(raw, dtype=float), (n_cells,))
         if np.any(arr < -1e-9) or np.any(arr > 1.0 + 1e-9):
-            raise ValueError(
-                f"{label} must be in [0, 1]; got range "
-                f"[{arr.min()}, {arr.max()}]"
-            )
+            raise ValueError(f"{label} must be in [0, 1]; got range [{arr.min()}, {arr.max()}]")
         factors.append(arr)
 
     # Per-cell present-factor count. d × v is always present (factors[0]

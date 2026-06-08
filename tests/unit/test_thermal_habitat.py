@@ -3,6 +3,7 @@
 Pin the trapezoidal curve shape, FishBase-defaults helper, series
 adapter (DataFrame + Series), and the summary-metrics dict.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -12,6 +13,7 @@ import pytest
 
 def test_thermal_range_validates_ordering():
     from openlimno.habitat import ThermalRange
+
     # OK
     ThermalRange(T_lethal_min=0.0, T_opt_min=10.0, T_opt_max=18.0, T_lethal_max=23.0)
     # Inverted: T_opt_min > T_opt_max
@@ -27,6 +29,7 @@ def test_thermal_range_validates_ordering():
 def test_thermal_range_from_fishbase_defaults():
     """Default lethal margin = ±5 °C."""
     from openlimno.habitat import ThermalRange
+
     tr = ThermalRange.from_fishbase(10.0, 18.0)
     assert tr.T_opt_min == 10.0 and tr.T_opt_max == 18.0
     assert tr.T_lethal_min == 5.0 and tr.T_lethal_max == 23.0
@@ -35,6 +38,7 @@ def test_thermal_range_from_fishbase_defaults():
 
 def test_thermal_range_from_fishbase_rejects_zero_margin():
     from openlimno.habitat import ThermalRange
+
     with pytest.raises(ValueError, match="lethal_margin_C"):
         ThermalRange.from_fishbase(10.0, 18.0, lethal_margin_C=0.0)
 
@@ -43,6 +47,7 @@ def test_thermal_hsi_curve_shape_scalar():
     """SI=0 below T_lethal_min, ramp to 1 across the bottom shoulder,
     1 across the optimum, ramp to 0 across the top shoulder, 0 above."""
     from openlimno.habitat import ThermalRange, thermal_hsi
+
     tr = ThermalRange(T_lethal_min=0.0, T_opt_min=10.0, T_opt_max=18.0, T_lethal_max=23.0)
     # Below lethal
     assert thermal_hsi(-5.0, tr) == 0.0
@@ -64,6 +69,7 @@ def test_thermal_hsi_curve_shape_scalar():
 
 def test_thermal_hsi_curve_vectorised():
     from openlimno.habitat import ThermalRange, thermal_hsi
+
     tr = ThermalRange(T_lethal_min=0.0, T_opt_min=10.0, T_opt_max=18.0, T_lethal_max=23.0)
     arr = np.array([-1.0, 5.0, 14.0, 20.5, 30.0])
     out = thermal_hsi(arr, tr)
@@ -75,11 +81,14 @@ def test_thermal_suitability_series_from_dataframe():
     """Default temperature_column is T_water_C_stefan to match the
     Daymet / Open-Meteo fetcher schema."""
     from openlimno.habitat import ThermalRange, thermal_suitability_series
+
     tr = ThermalRange(T_lethal_min=0.0, T_opt_min=10.0, T_opt_max=18.0, T_lethal_max=23.0)
-    df = pd.DataFrame({
-        "time": ["2024-01-01", "2024-07-01", "2024-12-01"],
-        "T_water_C_stefan": [2.0, 14.0, 25.0],
-    })
+    df = pd.DataFrame(
+        {
+            "time": ["2024-01-01", "2024-07-01", "2024-12-01"],
+            "T_water_C_stefan": [2.0, 14.0, 25.0],
+        }
+    )
     out = thermal_suitability_series(df, tr)
     assert list(out.columns) == ["time", "T_water_C", "thermal_SI"]
     assert len(out) == 3
@@ -94,6 +103,7 @@ def test_thermal_suitability_series_from_dataframe():
 def test_thermal_suitability_series_from_series():
     """Accept a plain pd.Series of temperatures keyed by date."""
     from openlimno.habitat import ThermalRange, thermal_suitability_series
+
     tr = ThermalRange(T_lethal_min=0.0, T_opt_min=10.0, T_opt_max=18.0, T_lethal_max=23.0)
     s = pd.Series(
         [5.0, 14.0, 20.5],
@@ -104,12 +114,14 @@ def test_thermal_suitability_series_from_series():
     assert list(out.columns) == ["time", "T_water_C", "thermal_SI"]
     assert len(out) == 3
     np.testing.assert_allclose(
-        out["thermal_SI"].values, [0.5, 1.0, 0.5],
+        out["thermal_SI"].values,
+        [0.5, 1.0, 0.5],
     )
 
 
 def test_thermal_suitability_series_rejects_missing_column():
     from openlimno.habitat import ThermalRange, thermal_suitability_series
+
     tr = ThermalRange(T_lethal_min=0.0, T_opt_min=10.0, T_opt_max=18.0, T_lethal_max=23.0)
     df = pd.DataFrame({"time": ["2024-01-01"], "tair_C": [5.0]})  # wrong col
     with pytest.raises(KeyError, match="T_water_C_stefan"):
@@ -118,11 +130,14 @@ def test_thermal_suitability_series_rejects_missing_column():
 
 def test_thermal_metrics_summary():
     from openlimno.habitat import ThermalRange, thermal_metrics, thermal_suitability_series
+
     tr = ThermalRange(T_lethal_min=0.0, T_opt_min=10.0, T_opt_max=18.0, T_lethal_max=23.0)
-    df = pd.DataFrame({
-        "time": ["d1", "d2", "d3", "d4", "d5"],
-        "T_water_C_stefan": [2.0, 14.0, 14.0, 25.0, 16.0],
-    })
+    df = pd.DataFrame(
+        {
+            "time": ["d1", "d2", "d3", "d4", "d5"],
+            "T_water_C_stefan": [2.0, 14.0, 14.0, 25.0, 16.0],
+        }
+    )
     series = thermal_suitability_series(df, tr)
     m = thermal_metrics(series)
     assert m["days_total"] == 5
@@ -134,6 +149,7 @@ def test_thermal_metrics_summary():
 
 def test_thermal_metrics_handles_empty_series():
     from openlimno.habitat import thermal_metrics
+
     empty = pd.DataFrame({"time": [], "T_water_C": [], "thermal_SI": []})
     m = thermal_metrics(empty)
     assert m["days_total"] == 0
@@ -152,20 +168,24 @@ def test_thermal_chain_with_fishbase_and_openmeteo_schema(tmp_path):
         thermal_suitability_series,
     )
     from openlimno.preprocess.fetch import fetch_fishbase_traits
+
     # Rainbow trout: T 9..18 °C from FishBase
     traits = fetch_fishbase_traits("Oncorhynchus mykiss")
     assert traits is not None
     tr = ThermalRange.from_fishbase(
-        traits.temperature_min_C, traits.temperature_max_C,
+        traits.temperature_min_C,
+        traits.temperature_max_C,
     )
     # Simulate a year of Open-Meteo output (T_water_C_stefan column)
     days = pd.date_range("2024-01-01", periods=365, freq="D")
     # Sinusoidal water temp 4 → 22 °C peaking mid-summer
     T = 13.0 + 9.0 * np.sin(2 * np.pi * (np.arange(365) - 100) / 365.0)
-    clim = pd.DataFrame({
-        "time": days.strftime("%Y-%m-%d"),
-        "T_water_C_stefan": T,
-    })
+    clim = pd.DataFrame(
+        {
+            "time": days.strftime("%Y-%m-%d"),
+            "T_water_C_stefan": T,
+        }
+    )
     series = thermal_suitability_series(clim, tr)
     m = thermal_metrics(series)
     # Rainbow trout has a narrow optimum 9..18; with the synthetic

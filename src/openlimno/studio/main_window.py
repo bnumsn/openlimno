@@ -8,6 +8,7 @@ Wires gui_core.Controller to a standalone PyQt5 window:
 - OSM basemap auto-loaded on first start
 - QgsMessageBar above canvas + cursor-coords status indicator
 """
+
 from __future__ import annotations
 
 import sys
@@ -52,6 +53,7 @@ def _studio_version() -> str:
     """Single source of truth for the Studio version string."""
     try:
         from importlib.metadata import version
+
         return version("openlimno")
     except Exception:
         return "0.1.0-dev"
@@ -257,15 +259,14 @@ class MainWindow(QMainWindow):
 
         _ol_action("🆕 Build case from OSM…", self.ctl.build_case_from_osm)
         _ol_action("▶ Run case…", self.ctl.run_case)
-        a_pick = _ol_action("Click cross-section to view profile",
-                              self.ctl.activate_pick_tool, checkable=True)
+        a_pick = _ol_action(
+            "Click cross-section to view profile", self.ctl.activate_pick_tool, checkable=True
+        )
         self.ctl._pick_action = a_pick
         m_tools.addSeparator()
-        _ol_action("Open hydraulic results (.nc)…", self.ctl.open_hydraulic_nc,
-                     on_toolbar=False)
+        _ol_action("Open hydraulic results (.nc)…", self.ctl.open_hydraulic_nc, on_toolbar=False)
         _ol_action("Open WUA-Q curve…", self.ctl.open_wua_q, on_toolbar=False)
-        _ol_action("Plot cross-section profile…", self.ctl.plot_cross_section,
-                     on_toolbar=False)
+        _ol_action("Plot cross-section profile…", self.ctl.plot_cross_section, on_toolbar=False)
 
         # --- Help ---
         m_help = mb.addMenu("&Help")
@@ -281,7 +282,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _show_about(self) -> None:
         QMessageBox.about(
-            self, "OpenLimno Studio",
+            self,
+            "OpenLimno Studio",
             f"<b>OpenLimno Studio</b> v{_studio_version()}<br>"
             "Open-source aquatic ecosystem modeling — successor to "
             "PHABSIM / River2D / FishXing.<br><br>"
@@ -299,22 +301,24 @@ class MainWindow(QMainWindow):
         cur = _studio_version()
         try:
             import urllib.request
+
             req = urllib.request.Request(
                 "https://api.github.com/repos/bnumsn/openlimno/releases",
                 headers={"User-Agent": f"OpenLimno-Studio/{cur}"},
             )
             with urllib.request.urlopen(req, timeout=8) as r:
                 import json as _json
+
                 releases = _json.load(r)
         except Exception as e:
             QMessageBox.warning(
-                self, "Check for updates",
+                self,
+                "Check for updates",
                 f"Couldn't reach GitHub: {e}",
             )
             return
         if not releases:
-            QMessageBox.information(self, "Check for updates",
-                                      f"No releases yet (current: {cur}).")
+            QMessageBox.information(self, "Check for updates", f"No releases yet (current: {cur}).")
             return
         latest = releases[0]
         latest_tag = latest.get("tag_name", "").lstrip("v")
@@ -323,12 +327,14 @@ class MainWindow(QMainWindow):
         kind = "prerelease" if is_pre else "release"
         if latest_tag == cur:
             QMessageBox.information(
-                self, "Check for updates",
+                self,
+                "Check for updates",
                 f"You're on the latest {kind}: <b>v{cur}</b>.",
             )
         else:
             QMessageBox.information(
-                self, "Update available",
+                self,
+                "Update available",
                 f"Current: <b>v{cur}</b><br>"
                 f"Latest {kind}: <b>v{latest_tag}</b><br><br>"
                 f'Download: <a href="{url}">{url}</a>',
@@ -351,7 +357,9 @@ class MainWindow(QMainWindow):
                 src_crs = lyr.crs()
                 if src_crs != canvas_crs and src_crs.isValid() and canvas_crs.isValid():
                     le = QgsCoordinateTransform(
-                        src_crs, canvas_crs, QgsProject.instance(),
+                        src_crs,
+                        canvas_crs,
+                        QgsProject.instance(),
                     ).transformBoundingBox(le)
             except Exception:
                 continue
@@ -379,7 +387,8 @@ class MainWindow(QMainWindow):
 
     def open_geopackage(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open GeoPackage",
+            self,
+            "Open GeoPackage",
             str(Path.home() / "openlimno-workspace"),
             "GeoPackage (*.gpkg)",
         )
@@ -389,7 +398,8 @@ class MainWindow(QMainWindow):
 
     def open_project(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open QGIS project",
+            self,
+            "Open QGIS project",
             str(Path.home() / "openlimno-workspace"),
             "QGIS project (*.qgz *.qgs)",
         )
@@ -397,16 +407,14 @@ class MainWindow(QMainWindow):
             return
         ok = QgsProject.instance().read(path)
         if not ok:
-            QMessageBox.warning(self, "OpenLimno Studio",
-                                  f"Failed to open project: {path}")
+            QMessageBox.warning(self, "OpenLimno Studio", f"Failed to open project: {path}")
             return
         self._zoom_full_extent()
 
     def load_geopackage(self, gpkg: Path) -> int:
         probe = QgsVectorLayer(str(gpkg), "probe", "ogr")
         if not probe.isValid():
-            QMessageBox.warning(self, "OpenLimno Studio",
-                                  f"Could not open {gpkg}.")
+            QMessageBox.warning(self, "OpenLimno Studio", f"Could not open {gpkg}.")
             return 0
         added = 0
         for sl in probe.dataProvider().subLayers():
@@ -445,9 +453,7 @@ class MainWindow(QMainWindow):
             if lyr.name() == "OpenStreetMap":
                 return
         url = (
-            "type=xyz&"
-            "url=https://tile.openstreetmap.org/%7Bz%7D/%7Bx%7D/%7By%7D.png&"
-            "zmax=19&zmin=0"
+            "type=xyz&url=https://tile.openstreetmap.org/%7Bz%7D/%7Bx%7D/%7By%7D.png&zmax=19&zmin=0"
         )
         layer = QgsRasterLayer(url, "OpenStreetMap", "wms")
         if layer.isValid():

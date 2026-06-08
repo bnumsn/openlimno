@@ -8,6 +8,7 @@ fixtures. This test exercises that chain so a future regression in
 ``_maybe_compute_per_section_cover_si_from_raster`` /
 ``_maybe_run_per_cell_composite`` doesn't break the example.
 """
+
 from __future__ import annotations
 
 import math
@@ -44,8 +45,7 @@ def test_v280_composite_hsi_example_runs_end_to_end():
     # v2.8.0 example. A single missing overlay would shrink n_overlays
     # below 2 and indicate a thermal-or-cover wiring regression.
     assert summary["n_overlays"] == 2, (
-        f"v2.8.0 expected n_overlays=2 (thermal + cover); got "
-        f"{summary['n_overlays']}"
+        f"v2.8.0 expected n_overlays=2 (thermal + cover); got {summary['n_overlays']}"
     )
     assert summary["cover_si"] is not None, (
         "v2.7.0 cover-raster path did not contribute to composite."
@@ -56,16 +56,13 @@ def test_v280_composite_hsi_example_runs_end_to_end():
 
     # Per-series composite must be populated for both species/stage
     # pairs the example declares.
-    by_series = {
-        row["species_stage"]: row for row in summary["by_species_stage"]
-    }
+    by_series = {row["species_stage"]: row for row in summary["by_species_stage"]}
     assert "oncorhynchus_mykiss_spawning" in by_series
     assert "oncorhynchus_mykiss_fry" in by_series
     for suffix, row in by_series.items():
         assert row["wua_m2_base_max"] > 0, f"empty base WUA for {suffix}"
         assert row["wua_m2_composite_max"] > 0, (
-            f"empty composite WUA for {suffix} — per-cell path likely "
-            f"failed silently."
+            f"empty composite WUA for {suffix} — per-cell path likely failed silently."
         )
         # v2.10.1 R11-19: numeric-stability pin. The composite is a
         # 4-way per-cell geometric mean

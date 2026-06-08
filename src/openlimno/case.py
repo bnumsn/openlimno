@@ -53,9 +53,7 @@ from openlimno.wedm import validate_case
 if TYPE_CHECKING:
     from openlimno.habitat.composite import CompositeOverlay
 
-PerCellCsiMap: TypeAlias = dict[
-    tuple[float, str, str], tuple[np.ndarray, np.ndarray]
-]
+PerCellCsiMap: TypeAlias = dict[tuple[float, str, str], tuple[np.ndarray, np.ndarray]]
 
 
 def _uri_looks_absolute(uri: str | Path) -> bool:
@@ -221,12 +219,11 @@ class Case:
             # is True, which would silently coerce a YAML
             # ``slope: true`` into ``1.0``.
             if isinstance(yaml_slope, (int, float)) and not isinstance(
-                yaml_slope, bool,
+                yaml_slope,
+                bool,
             ):
                 slope = float(yaml_slope)
-                warnings.append(
-                    f"Using calibrated slope from YAML: {slope:.6g}"
-                )
+                warnings.append(f"Using calibrated slope from YAML: {slope:.6g}")
             else:
                 slope = 0.002
         if manning_n is None:
@@ -236,12 +233,11 @@ class Case:
             # path that load_sections_from_parquet already supports.
             yaml_n = b1d.get("manning_n")
             if isinstance(yaml_n, (int, float)) and not isinstance(
-                yaml_n, bool,
+                yaml_n,
+                bool,
             ):
                 manning_n = float(yaml_n)
-                warnings.append(
-                    f"Using calibrated manning_n from YAML: {manning_n:.6g}"
-                )
+                warnings.append(f"Using calibrated manning_n from YAML: {manning_n:.6g}")
             else:
                 manning_n = 0.035
 
@@ -304,10 +300,7 @@ class Case:
             # warn ONLY when bbox IS present (we're past the
             # OSM-stub stage and into the BC-fill-in stage) and
             # boundaries is still missing.
-            if (
-                "boundaries" not in hydro_block
-                and "bbox" in cfg.get("case", {})
-            ):
+            if "boundaries" not in hydro_block and "bbox" in cfg.get("case", {}):
                 warnings.append(
                     "v3.3.0 R11-2: case has case.bbox declared but "
                     "no hydrodynamics.boundaries block; the builtin-"
@@ -423,7 +416,8 @@ class Case:
         # directly. Memory overhead is negligible (one float array
         # per (Q, sp, stage) at section granularity).
         composite_overlay_method_for_capture = habitat_cfg.get(
-            "composite_overlay_method", "product",
+            "composite_overlay_method",
+            "product",
         )
         capture_per_cell = composite_overlay_method_for_capture == "geom_mean_per_cell"
         per_cell_csi: PerCellCsiMap = {}
@@ -440,7 +434,9 @@ class Case:
         # (zero-step user path); fall back to v2.5.1 pre-computed CSV;
         # else None → scalar broadcast as before.
         per_section_thermal_si = self._maybe_compute_per_section_thermal_si_from_raster(
-            cfg, sections, warnings,
+            cfg,
+            sections,
+            warnings,
         )
         # v2.6.1 (R9-4): treat empty arrays as "not present" so the
         # CSV fallback fires when the raster path silently produces
@@ -449,7 +445,9 @@ class Case:
         # is well-defined for 1-D.
         if per_section_thermal_si is None or len(per_section_thermal_si) == 0:
             per_section_thermal_si = self._maybe_load_per_section_thermal_si(
-                cfg, sections, warnings,
+                cfg,
+                sections,
+                warnings,
             )
 
         # v2.7.0: symmetric per-section cover SI pipeline (mirrors
@@ -457,11 +455,15 @@ class Case:
         # same: inline LULC raster (zero-step) → pre-computed CSV →
         # scalar broadcast (the v1.5.0 watershed_cover_si path).
         per_section_cover_si = self._maybe_compute_per_section_cover_si_from_raster(
-            cfg, sections, warnings,
+            cfg,
+            sections,
+            warnings,
         )
         if per_section_cover_si is None or len(per_section_cover_si) == 0:
             per_section_cover_si = self._maybe_load_per_section_cover_si(
-                cfg, sections, warnings,
+                cfg,
+                sections,
+                warnings,
             )
 
         wua_records: list[dict[str, Any]] = []
@@ -564,14 +566,16 @@ class Case:
         thermal_metrics_dict: dict | None = None
         try:
             thermal_metrics_dict = self._maybe_run_thermal_habitat(
-                cfg, case_dir, out_dir, warnings,
+                cfg,
+                case_dir,
+                out_dir,
+                warnings,
             )
         except Exception as e:  # noqa: BLE001
             # Thermal is auxiliary — never fail the run; surface
             # the error as a warning so reviewers can investigate.
             warnings.append(
-                f"thermal_habitat step failed: {e!r}. Skipping; "
-                f"the WUA-Q pipeline remains valid."
+                f"thermal_habitat step failed: {e!r}. Skipping; the WUA-Q pipeline remains valid."
             )
 
         # 5d. Cover habitat suitability (v1.5.0). If the case carries
@@ -581,12 +585,14 @@ class Case:
         cover_metrics_dict: dict | None = None
         try:
             cover_metrics_dict = self._maybe_run_cover_habitat(
-                cfg, case_dir, out_dir, warnings,
+                cfg,
+                case_dir,
+                out_dir,
+                warnings,
             )
         except Exception as e:  # noqa: BLE001
             warnings.append(
-                f"cover_habitat step failed: {e!r}. Skipping; "
-                f"the WUA-Q pipeline remains valid."
+                f"cover_habitat step failed: {e!r}. Skipping; the WUA-Q pipeline remains valid."
             )
 
         # 5e. Multivariate HSI composite (v1.6.0; geom_mean added v1.10.0).
@@ -594,7 +600,8 @@ class Case:
         # emit the composite WUA-Q overlay tables. Skipped silently when
         # neither overlay was computed.
         composite_overlay_method = habitat_cfg.get(
-            "composite_overlay_method", "product",
+            "composite_overlay_method",
+            "product",
         )
         composite_summary_dict: dict | None = None
         composite_df: pd.DataFrame | None = None
@@ -635,24 +642,21 @@ class Case:
                 "source": "per_section_cover_si (v2.7.0 synth)",
             }
         try:
-            composite_summary_dict, composite_df = (
-                self._maybe_run_composite_hsi(
-                    wua_df,
-                    effective_thermal_metrics,
-                    effective_cover_metrics,
-                    out_dir,
-                    formats,
-                    warnings,
-                    method=composite_overlay_method,
-                    per_cell_csi=per_cell_csi if capture_per_cell else None,
-                    per_section_thermal_si=per_section_thermal_si,
-                    per_section_cover_si=per_section_cover_si,
-                )
+            composite_summary_dict, composite_df = self._maybe_run_composite_hsi(
+                wua_df,
+                effective_thermal_metrics,
+                effective_cover_metrics,
+                out_dir,
+                formats,
+                warnings,
+                method=composite_overlay_method,
+                per_cell_csi=per_cell_csi if capture_per_cell else None,
+                per_section_thermal_si=per_section_thermal_si,
+                per_section_cover_si=per_section_cover_si,
             )
         except Exception as e:  # noqa: BLE001
             warnings.append(
-                f"composite_hsi step failed: {e!r}. Skipping; the "
-                f"WUA-Q pipeline remains valid."
+                f"composite_hsi step failed: {e!r}. Skipping; the WUA-Q pipeline remains valid."
             )
 
         # 5f. Regulatory exports (SPEC §4.2.4.2 / ADR-0009). Runs LAST
@@ -791,13 +795,15 @@ class Case:
         for entry in raw:
             p = Path(entry).expanduser()  # R12-1
             roots.append(
-                p.resolve() if p.is_absolute()
-                else (self._case_dir_resolved / p).resolve()
+                p.resolve() if p.is_absolute() else (self._case_dir_resolved / p).resolve()
             )
         return roots
 
     def _apply_sandbox_check(
-        self, uri: str | Path, resolved: Path, kind: str,
+        self,
+        uri: str | Path,
+        resolved: Path,
+        kind: str,
     ) -> Path:
         """v3.4.0 R15-7: shared sandbox containment check used by
         both ``_resolve_safe`` (read) and ``_resolve_write_safe``
@@ -870,11 +876,7 @@ class Case:
         if os.environ.get("OPENLIMNO_PATH_SAFETY_REDACT", "0") == "1":
             roots_repr = f"<{len(roots)} configured roots>"
             resolved_repr = "<redacted absolute path>"
-            uri_repr = (
-                "<redacted absolute URI>"
-                if _uri_looks_absolute(uri)
-                else repr(uri)
-            )
+            uri_repr = "<redacted absolute URI>" if _uri_looks_absolute(uri) else repr(uri)
         else:
             roots_repr = str([str(r) for r in roots])
             resolved_repr = str(resolved)
@@ -942,7 +944,8 @@ class Case:
                 scenario).
         """
         resolved = self._resolve_safe(
-            uri, allow_outside_case=allow_outside_case,
+            uri,
+            allow_outside_case=allow_outside_case,
         )
         nofollow_flag = getattr(os, "O_NOFOLLOW", 0)
         return os.open(resolved, flags | nofollow_flag)
@@ -982,7 +985,9 @@ class Case:
                 contents = f.read()
         """
         fd = self._open_safe_fd(
-            uri, flags=flags, allow_outside_case=allow_outside_case,
+            uri,
+            flags=flags,
+            allow_outside_case=allow_outside_case,
         )
         try:
             f = os.fdopen(fd, mode)
@@ -1165,9 +1170,7 @@ class Case:
         try:
             path = self._resolve_safe(uri)
         except ValueError as e:
-            warnings.append(
-                f"mesh.uri rejected by path-safety sandbox: {e}"
-            )
+            warnings.append(f"mesh.uri rejected by path-safety sandbox: {e}")
             return None
         if not path.exists():
             warnings.append(f"mesh.uri does not exist: {path}")
@@ -1495,10 +1498,7 @@ class Case:
         # `wua_m2_<sp>_<stage>` columns hold the composite values, so the
         # compute_* functions (which look up that exact column name)
         # operate on the composite without any signature change.
-        composite_view = (
-            self._composite_view(composite_df) if composite_df is not None
-            else None
-        )
+        composite_view = self._composite_view(composite_df) if composite_df is not None else None
         overlay_note = self._composite_header_lines(composite_summary)
         # v1.7.1 (review F3): HSI quality-grade watermark line shared by
         # both base and composite regulatory CSVs.
@@ -1511,15 +1511,20 @@ class Case:
 
                     res = cn_sl712.compute_sl712(Q, wua_q, species, stage)
                     self._emit_regulatory_csv(
-                        res, out_dir / "sl712.csv",
+                        res,
+                        out_dir / "sl712.csv",
                         quality_watermark=quality_watermark,
                     )
                     if composite_view is not None:
                         comp = cn_sl712.compute_sl712(
-                            Q, composite_view, species, stage,
+                            Q,
+                            composite_view,
+                            species,
+                            stage,
                         )
                         self._emit_regulatory_csv(
-                            comp, out_dir / "sl712_composite.csv",
+                            comp,
+                            out_dir / "sl712_composite.csv",
                             quality_watermark=quality_watermark,
                             overlay_note=overlay_note,
                         )
@@ -1528,15 +1533,20 @@ class Case:
 
                     res = us_ferc_4e.compute_ferc_4e(Q, wua_q, species, stage)
                     self._emit_regulatory_csv(
-                        res, out_dir / "ferc_4e.csv",
+                        res,
+                        out_dir / "ferc_4e.csv",
                         quality_watermark=quality_watermark,
                     )
                     if composite_view is not None:
                         comp = us_ferc_4e.compute_ferc_4e(
-                            Q, composite_view, species, stage,
+                            Q,
+                            composite_view,
+                            species,
+                            stage,
                         )
                         self._emit_regulatory_csv(
-                            comp, out_dir / "ferc_4e_composite.csv",
+                            comp,
+                            out_dir / "ferc_4e_composite.csv",
                             quality_watermark=quality_watermark,
                             overlay_note=overlay_note,
                         )
@@ -1545,15 +1555,20 @@ class Case:
 
                     res = eu_wfd.compute_wfd(Q, wua_q, species, stage)
                     self._emit_regulatory_csv(
-                        res, out_dir / "eu_wfd.csv",
+                        res,
+                        out_dir / "eu_wfd.csv",
                         quality_watermark=quality_watermark,
                     )
                     if composite_view is not None:
                         comp = eu_wfd.compute_wfd(
-                            Q, composite_view, species, stage,
+                            Q,
+                            composite_view,
+                            species,
+                            stage,
                         )
                         self._emit_regulatory_csv(
-                            comp, out_dir / "eu_wfd_composite.csv",
+                            comp,
+                            out_dir / "eu_wfd_composite.csv",
                             quality_watermark=quality_watermark,
                             overlay_note=overlay_note,
                         )
@@ -1572,7 +1587,8 @@ class Case:
         compute_* function).
         """
         cols_to_drop = [
-            c for c in composite_df.columns
+            c
+            for c in composite_df.columns
             if c.startswith("wua_m2_") and not c.startswith("wua_m2_composite_")
         ]
         view = composite_df.drop(columns=cols_to_drop).copy()
@@ -1623,7 +1639,8 @@ class Case:
                 if (cover is not None and thermal is not None)
                 else "#   WUA values below are depth × velocity × "
                 + (
-                    "cover only (no thermal overlay)" if cover is not None
+                    "cover only (no thermal overlay)"
+                    if cover is not None
                     else "thermal only (no cover overlay)"
                 )
             ),
@@ -1660,9 +1677,7 @@ class Case:
                     continue
                 # Reject NaN magnitudes too (a numeric-format would
                 # produce 'nan' which is even worse than no annotation).
-                if math.isnan(float(base_max)) or math.isnan(
-                    float(comp_max)
-                ):
+                if math.isnan(float(base_max)) or math.isnan(float(comp_max)):
                     continue
                 ratio_part = ""
                 if ratio is not None and not math.isnan(float(ratio)):
@@ -1727,6 +1742,7 @@ class Case:
         behind.
         """
         import tempfile as _tempfile
+
         prefix_lines: list[str] = []
         if quality_watermark:
             # _wua_csv_header returns a string ending in '\n' already.
@@ -1740,7 +1756,8 @@ class Case:
         # so concurrent same-path publishes still don't collide on
         # body-stage filenames.
         body_fd, body_path_str = _tempfile.mkstemp(
-            prefix=f".{path.name}.body.", suffix=".inprogress",
+            prefix=f".{path.name}.body.",
+            suffix=".inprogress",
             dir=path.parent,
         )
         os.close(body_fd)
@@ -1757,7 +1774,8 @@ class Case:
             content = body
 
         Case._atomic_write(
-            path, lambda p: p.write_text(content, encoding="utf-8"),
+            path,
+            lambda p: p.write_text(content, encoding="utf-8"),
         )
 
     def _wua_csv_header(self, quality_grade: str) -> str | None:
@@ -1778,7 +1796,10 @@ class Case:
         )
 
     def _maybe_run_thermal_habitat(
-        self, cfg: dict, case_dir: Path, out_dir: Path,
+        self,
+        cfg: dict,
+        case_dir: Path,
+        out_dir: Path,
         warnings: list[str],
     ) -> dict | None:
         """v1.1.1: detect WEDM v0.2 `data.fishbase_traits` +
@@ -1805,9 +1826,7 @@ class Case:
             return None
         clim_uri = clim.get("uri")
         if not clim_uri:
-            warnings.append(
-                "data.climate.uri missing — skipping thermal_habitat step."
-            )
+            warnings.append("data.climate.uri missing — skipping thermal_habitat step.")
             return None
 
         clim_path = (case_dir / clim_uri).resolve()
@@ -1823,6 +1842,7 @@ class Case:
             thermal_metrics,
             thermal_suitability_series,
         )
+
         clim_df = pd.read_csv(clim_path)
         if "T_water_C_stefan" not in clim_df.columns:
             warnings.append(
@@ -1833,11 +1853,9 @@ class Case:
             return None
 
         tr = ThermalRange.from_fishbase(
-            float(t_min), float(t_max),
-            source=(
-                f"FishBase via data.fishbase_traits "
-                f"({fb.get('scientific_name', '?')})"
-            ),
+            float(t_min),
+            float(t_max),
+            source=(f"FishBase via data.fishbase_traits ({fb.get('scientific_name', '?')})"),
         )
         thermal_df = thermal_suitability_series(clim_df, tr)
         self._atomic_write(
@@ -1847,7 +1865,10 @@ class Case:
         return thermal_metrics(thermal_df)
 
     def _maybe_run_cover_habitat(
-        self, cfg: dict, case_dir: Path, out_dir: Path,
+        self,
+        cfg: dict,
+        case_dir: Path,
+        out_dir: Path,
         warnings: list[str],
     ) -> dict | None:
         """v1.5.0: detect WEDM v0.2 `data.lulc` + `data.watershed` and
@@ -1870,8 +1891,7 @@ class Case:
         ws_uri = ws.get("uri")
         if not lulc_uri or not ws_uri:
             warnings.append(
-                "data.lulc.uri or data.watershed.uri missing — "
-                "skipping cover_habitat step."
+                "data.lulc.uri or data.watershed.uri missing — skipping cover_habitat step."
             )
             return None
         lulc_path = (case_dir / lulc_uri).resolve()
@@ -1893,14 +1913,13 @@ class Case:
             DEFAULT_RIPARIAN_COVER_SI,
             watershed_cover_si,
         )
+
         mean_si, class_pixels = watershed_cover_si(lulc_path, ws_path)
         # Fold area_km2 per class from data.lulc.class_km2 when the
         # case carries it (v0.3.4 CLI does); otherwise leave km² null.
         class_km2_source = lulc.get("class_km2") or {}
         # class_km2 keys come from JSON as strings; coerce to int.
-        class_km2 = {
-            int(k): float(v) for k, v in class_km2_source.items()
-        }
+        class_km2 = {int(k): float(v) for k, v in class_km2_source.items()}
         # int-keyed dicts are NOT JSON-serialisable directly; flatten
         # to a list of records for round-trip stability.
         payload = {
@@ -1910,9 +1929,7 @@ class Case:
                 {
                     "class_code": int(code),
                     "pixel_count": int(class_pixels[code]),
-                    "cover_si": float(
-                        DEFAULT_RIPARIAN_COVER_SI.get(int(code), 0.0)
-                    ),
+                    "cover_si": float(DEFAULT_RIPARIAN_COVER_SI.get(int(code), 0.0)),
                     "area_km2": class_km2.get(int(code)),
                 }
                 for code in sorted(class_pixels)
@@ -1921,7 +1938,8 @@ class Case:
         self._atomic_write(
             out_dir / "cover_si.json",
             lambda p: p.write_text(
-                json.dumps(payload, indent=2), encoding="utf-8",
+                json.dumps(payload, indent=2),
+                encoding="utf-8",
             ),
         )
         return {
@@ -1964,15 +1982,17 @@ class Case:
             return None, None
 
         base_cols = [
-            c for c in wua_df.columns
-            if c.startswith("wua_m2_")
-            and not c.startswith("wua_m2_composite_")
+            c
+            for c in wua_df.columns
+            if c.startswith("wua_m2_") and not c.startswith("wua_m2_composite_")
         ]
 
         out_rows: list[dict[str, Any]] = []
         by_series_stats: dict[str, dict[str, Any]] = {
-            c[len("wua_m2_"):]: {
-                "base_max": 0.0, "comp_max": 0.0, "q_at_max": None,
+            c[len("wua_m2_") :]: {
+                "base_max": 0.0,
+                "comp_max": 0.0,
+                "q_at_max": None,
             }
             for c in base_cols
         }
@@ -1984,7 +2004,7 @@ class Case:
         # ``juvenile_winter`` collapsed into a non-existent key,
         # silently falling back to base WUA).
         suffix_to_pair: dict[str, tuple[str, str]] = {}
-        for (_q_key, sp, st) in per_cell_csi:
+        for _q_key, sp, st in per_cell_csi:
             suffix_to_pair[f"{sp}_{st}"] = (sp, st)
 
         for _, row in wua_df.iterrows():
@@ -1992,7 +2012,7 @@ class Case:
             out_row: dict[str, Any] = {"discharge_m3s": Q}
             for col in base_cols:
                 out_row[col] = row[col]
-                suffix = col[len("wua_m2_"):]
+                suffix = col[len("wua_m2_") :]
                 pair = suffix_to_pair.get(suffix)
                 if pair is None:
                     # No HSI vars resolved → fall back to base value.
@@ -2059,15 +2079,15 @@ class Case:
         for suffix, stats in by_series_stats.items():
             base_max = stats["base_max"]
             comp_max = stats["comp_max"]
-            by_series.append({
-                "species_stage": suffix,
-                "wua_m2_base_max": base_max,
-                "wua_m2_composite_max": comp_max,
-                "discharge_m3s_at_composite_max": stats["q_at_max"],
-                "composite_to_base_ratio": (
-                    comp_max / base_max if base_max > 0 else None
-                ),
-            })
+            by_series.append(
+                {
+                    "species_stage": suffix,
+                    "wua_m2_base_max": base_max,
+                    "wua_m2_composite_max": comp_max,
+                    "discharge_m3s_at_composite_max": stats["q_at_max"],
+                    "composite_to_base_ratio": (comp_max / base_max if base_max > 0 else None),
+                }
+            )
 
         summary: dict[str, object] = {
             "method": "geom_mean_per_cell",
@@ -2144,8 +2164,7 @@ class Case:
             locs_df = pd.read_csv(locs_path)
         except Exception as e:  # noqa: BLE001
             warnings.append(
-                f"section_locations CSV read failed: {e!r}. "
-                f"Falling back from inline raster path."
+                f"section_locations CSV read failed: {e!r}. Falling back from inline raster path."
             )
             return None
         required_cols = {"station_m", "lon", "lat"}
@@ -2188,21 +2207,17 @@ class Case:
             thermal_hsi,
             thermal_si_per_section,
         )
+
         try:
             from shapely.geometry import Point
         except ImportError as e:
-            warnings.append(
-                f"shapely not importable for inline raster path: "
-                f"{e!r}. Falling back."
-            )
+            warnings.append(f"shapely not importable for inline raster path: {e!r}. Falling back.")
             return None
 
         tr = ThermalRange.from_fishbase(
-            float(t_min), float(t_max),
-            source=(
-                f"FishBase via data.fishbase_traits "
-                f"({fb.get('scientific_name', '?')})"
-            ),
+            float(t_min),
+            float(t_max),
+            source=(f"FishBase via data.fishbase_traits ({fb.get('scientific_name', '?')})"),
         )
 
         raw_buffer_m = locs.get("buffer_m", 0.0)
@@ -2212,8 +2227,7 @@ class Case:
             buffer_m = float(raw_buffer_m)
         except (TypeError, ValueError):
             warnings.append(
-                f"section_locations.buffer_m must be a number, got "
-                f"{raw_buffer_m!r}. Falling back."
+                f"section_locations.buffer_m must be a number, got {raw_buffer_m!r}. Falling back."
             )
             return None
         # v2.6.1 (R9-5): refuse negative buffers loudly. The schema
@@ -2221,8 +2235,7 @@ class Case:
         # could slip through.
         if buffer_m < 0.0:
             warnings.append(
-                f"section_locations.buffer_m must be ≥ 0, got "
-                f"{buffer_m}. Falling back."
+                f"section_locations.buffer_m must be ≥ 0, got {buffer_m}. Falling back."
             )
             return None
         band = int(raster.get("band", 1) or 1)
@@ -2233,6 +2246,7 @@ class Case:
         # declares. Without this, a UTM raster + EPSG:4326 sections
         # silently sample wildly wrong pixels.
         import rasterio
+
         locs_crs_str = str(locs.get("crs", "EPSG:4326"))
         try:
             with rasterio.open(raster_path) as src:
@@ -2241,8 +2255,7 @@ class Case:
                 raster_bounds = src.bounds
         except Exception as e:  # noqa: BLE001
             warnings.append(
-                f"rasterio.open({raster_path}) failed: {e!r}. "
-                f"Falling back from inline raster path."
+                f"rasterio.open({raster_path}) failed: {e!r}. Falling back from inline raster path."
             )
             return None
         if raster_crs is None:
@@ -2253,11 +2266,11 @@ class Case:
             return None
         try:
             from rasterio.crs import CRS
+
             locs_crs = CRS.from_user_input(locs_crs_str)
         except Exception as e:  # noqa: BLE001
             warnings.append(
-                f"section_locations.crs={locs_crs_str!r} parse failed: "
-                f"{e!r}. Falling back."
+                f"section_locations.crs={locs_crs_str!r} parse failed: {e!r}. Falling back."
             )
             return None
 
@@ -2269,9 +2282,12 @@ class Case:
         else:
             try:
                 from rasterio.warp import transform as warp_transform
+
                 xs_list, ys_list = warp_transform(
-                    locs_crs, raster_crs,
-                    raw_xs.tolist(), raw_ys.tolist(),
+                    locs_crs,
+                    raster_crs,
+                    raw_xs.tolist(),
+                    raw_ys.tolist(),
                 )
                 xs = np.asarray(xs_list, dtype=float)
                 ys = np.asarray(ys_list, dtype=float)
@@ -2291,12 +2307,12 @@ class Case:
                     samples = list(src.sample(coords, indexes=band))
             except Exception as e:  # noqa: BLE001
                 warnings.append(
-                    f"rasterio.sample failed: {e!r}. Falling back "
-                    f"from inline raster path."
+                    f"rasterio.sample failed: {e!r}. Falling back from inline raster path."
                 )
                 return None
             t_vals = np.array(
-                [float(s[0]) for s in samples], dtype=float,
+                [float(s[0]) for s in samples],
+                dtype=float,
             )
             # v2.6.1 (R9-2): rasterio.sample returns the raster's
             # nodata value (or 0 when nodata is None) for points
@@ -2304,10 +2320,7 @@ class Case:
             # sentinels and silently converts them into SI values.
             # Use explicit outside-bounds check + nodata comparison.
             min_x, min_y, max_x, max_y = raster_bounds
-            in_bounds = (
-                (xs >= min_x) & (xs <= max_x)
-                & (ys >= min_y) & (ys <= max_y)
-            )
+            in_bounds = (xs >= min_x) & (xs <= max_x) & (ys >= min_y) & (ys <= max_y)
             valid = np.isfinite(t_vals) & in_bounds
             if raster_nodata is not None and np.isfinite(raster_nodata):
                 valid &= np.abs(t_vals - float(raster_nodata)) > 1e-9
@@ -2343,7 +2356,10 @@ class Case:
 
         try:
             arr = thermal_si_per_section(
-                raster_path, geoms, tr, band=band,
+                raster_path,
+                geoms,
+                tr,
+                band=band,
                 # v2.6.1 (R9-6): the inline buffered path can produce
                 # sub-pixel geometries (≤ a few hundred metres in
                 # degree space at typical Open-Meteo resolution);
@@ -2353,8 +2369,7 @@ class Case:
             )
         except Exception as e:  # noqa: BLE001
             warnings.append(
-                f"thermal_si_per_section failed: {e!r}. "
-                f"Falling back from inline raster path."
+                f"thermal_si_per_section failed: {e!r}. Falling back from inline raster path."
             )
             return None
         return np.clip(arr.astype(float), 0.0, 1.0)
@@ -2519,19 +2534,18 @@ class Case:
             buffer_m = float(raw_buffer_m)
         except (TypeError, ValueError):
             warnings.append(
-                f"section_locations.buffer_m must be a number, got "
-                f"{raw_buffer_m!r}. Falling back."
+                f"section_locations.buffer_m must be a number, got {raw_buffer_m!r}. Falling back."
             )
             return None
         if buffer_m < 0.0:
             warnings.append(
-                f"section_locations.buffer_m must be ≥ 0, got "
-                f"{buffer_m}. Falling back."
+                f"section_locations.buffer_m must be ≥ 0, got {buffer_m}. Falling back."
             )
             return None
         band = int(raster.get("band", 1) or 1)
 
         import rasterio
+
         locs_crs_str = str(locs.get("crs", "EPSG:4326"))
         try:
             with rasterio.open(raster_path) as src:
@@ -2552,11 +2566,11 @@ class Case:
             return None
         try:
             from rasterio.crs import CRS
+
             locs_crs = CRS.from_user_input(locs_crs_str)
         except Exception as e:  # noqa: BLE001
             warnings.append(
-                f"section_locations.crs={locs_crs_str!r} parse failed: "
-                f"{e!r}. Falling back."
+                f"section_locations.crs={locs_crs_str!r} parse failed: {e!r}. Falling back."
             )
             return None
 
@@ -2567,9 +2581,12 @@ class Case:
         else:
             try:
                 from rasterio.warp import transform as warp_transform
+
                 xs_list, ys_list = warp_transform(
-                    locs_crs, raster_crs,
-                    raw_xs.tolist(), raw_ys.tolist(),
+                    locs_crs,
+                    raster_crs,
+                    raw_xs.tolist(),
+                    raw_ys.tolist(),
                 )
                 xs = np.asarray(xs_list, dtype=float)
                 ys = np.asarray(ys_list, dtype=float)
@@ -2596,19 +2613,14 @@ class Case:
                 with rasterio.open(raster_path) as src:
                     samples = list(src.sample(coords, indexes=band))
             except Exception as e:  # noqa: BLE001
-                warnings.append(
-                    f"rasterio.sample (cover) failed: {e!r}. "
-                    f"Falling back."
-                )
+                warnings.append(f"rasterio.sample (cover) failed: {e!r}. Falling back.")
                 return None
             codes = np.array(
-                [int(round(float(s[0]))) for s in samples], dtype=int,
+                [int(round(float(s[0]))) for s in samples],
+                dtype=int,
             )
             min_x, min_y, max_x, max_y = raster_bounds
-            in_bounds = (
-                (xs >= min_x) & (xs <= max_x)
-                & (ys >= min_y) & (ys <= max_y)
-            )
+            in_bounds = (xs >= min_x) & (xs <= max_x) & (ys >= min_y) & (ys <= max_y)
             valid = in_bounds.copy()
             if raster_nodata is not None and np.isfinite(raster_nodata):
                 valid &= codes != int(round(float(raster_nodata)))
@@ -2626,16 +2638,19 @@ class Case:
             valid &= mapped
             if not np.all(valid):
                 bad = np.where(~valid)[0].tolist()
-                unmapped_codes = sorted({
-                    int(codes[i]) for i in bad
-                    if in_bounds[i]
-                    and (
-                        raster_nodata is None
-                        or not np.isfinite(raster_nodata)
-                        or int(codes[i]) != int(round(float(raster_nodata)))
-                    )
-                    and int(codes[i]) not in DEFAULT_RIPARIAN_COVER_SI
-                })
+                unmapped_codes = sorted(
+                    {
+                        int(codes[i])
+                        for i in bad
+                        if in_bounds[i]
+                        and (
+                            raster_nodata is None
+                            or not np.isfinite(raster_nodata)
+                            or int(codes[i]) != int(round(float(raster_nodata)))
+                        )
+                        and int(codes[i]) not in DEFAULT_RIPARIAN_COVER_SI
+                    }
+                )
                 # v2.7.1 (R10-2): unmapped codes typically mean the
                 # user pointed at a continuous-value raster (e.g.
                 # NDVI 0..1, ESA WorldCover stored as float32). Fail
@@ -2658,10 +2673,7 @@ class Case:
                 )
                 return None
             si = np.array(
-                [
-                    float(DEFAULT_RIPARIAN_COVER_SI.get(int(code), 0.0))
-                    for code in codes
-                ],
+                [float(DEFAULT_RIPARIAN_COVER_SI.get(int(code), 0.0)) for code in codes],
                 dtype=float,
             )
             return np.clip(si, 0.0, 1.0)
@@ -2670,15 +2682,10 @@ class Case:
         try:
             from shapely.geometry import Point
         except ImportError as e:
-            warnings.append(
-                f"shapely not importable for cover-raster path: "
-                f"{e!r}. Falling back."
-            )
+            warnings.append(f"shapely not importable for cover-raster path: {e!r}. Falling back.")
             return None
         geoms: list[Any] = []
-        raster_is_geographic = bool(
-            getattr(raster_crs, "is_geographic", False)
-        )
+        raster_is_geographic = bool(getattr(raster_crs, "is_geographic", False))
         for x, y in zip(xs, ys, strict=True):
             if raster_is_geographic:
                 cos_lat = max(abs(np.cos(np.radians(float(y)))), 1e-6)
@@ -2690,15 +2697,15 @@ class Case:
             geoms.append(Point(float(x), float(y)).buffer(buf_radius))
         try:
             arr = cover_si_per_section(
-                raster_path, geoms,
+                raster_path,
+                geoms,
                 # v2.7.0: same sub-pixel-buffer rationale as the
                 # v2.6.1 R9-6 inline thermal raster path.
                 all_touched=True,
             )
         except Exception as e:  # noqa: BLE001
             warnings.append(
-                f"cover_si_per_section failed: {e!r}. Falling back "
-                f"from inline cover-raster path."
+                f"cover_si_per_section failed: {e!r}. Falling back from inline cover-raster path."
             )
             return None
         return np.clip(arr.astype(float), 0.0, 1.0)
@@ -2804,7 +2811,8 @@ class Case:
         )
 
         overlay = CompositeOverlay.from_metrics(
-            thermal_metrics_dict, cover_metrics_dict,
+            thermal_metrics_dict,
+            cover_metrics_dict,
             warnings=warnings,
         )
         if overlay.overlay_si is None:
@@ -2815,14 +2823,13 @@ class Case:
         # silently produce a parquet with no composite columns, which
         # is more misleading than no parquet at all.
         base_cols = [
-            c for c in wua_df.columns
-            if c.startswith("wua_m2_")
-            and not c.startswith("wua_m2_composite_")
+            c
+            for c in wua_df.columns
+            if c.startswith("wua_m2_") and not c.startswith("wua_m2_composite_")
         ]
         if not base_cols:
             warnings.append(
-                "composite_hsi: wua_df carries no `wua_m2_*` columns; "
-                "skipping composite emission."
+                "composite_hsi: wua_df carries no `wua_m2_*` columns; skipping composite emission."
             )
             return None, None
 
@@ -2847,7 +2854,10 @@ class Case:
         # parquet/csv pair with no matching composite_hsi.json.
         if method == "geom_mean_per_cell":
             composite_df, summary = self._maybe_run_per_cell_composite(
-                wua_df, overlay, per_cell_csi, warnings,
+                wua_df,
+                overlay,
+                per_cell_csi,
+                warnings,
                 per_section_thermal_si=per_section_thermal_si,
                 per_section_cover_si=per_section_cover_si,
             )
@@ -2875,13 +2885,9 @@ class Case:
         )
 
         if overlay.cover_si is None:
-            warnings.append(
-                "composite_hsi: thermal-only overlay (cover SI unavailable)."
-            )
+            warnings.append("composite_hsi: thermal-only overlay (cover SI unavailable).")
         elif overlay.thermal_si is None:
-            warnings.append(
-                "composite_hsi: cover-only overlay (thermal SI unavailable)."
-            )
+            warnings.append("composite_hsi: cover-only overlay (thermal SI unavailable).")
         return summary, composite_df
 
     @staticmethod
@@ -2914,10 +2920,13 @@ class Case:
         same path.
         """
         import tempfile as _tempfile
+
         target_dir = target.parent
         base = target.name
         pub_fd, pub_path_str = _tempfile.mkstemp(
-            prefix=f".{base}.publish.", suffix=".tmp", dir=target_dir,
+            prefix=f".{base}.publish.",
+            suffix=".tmp",
+            dir=target_dir,
         )
         os.close(pub_fd)
         publish = Path(pub_path_str)
@@ -2950,6 +2959,7 @@ class Case:
         """v1.9.0: routes through ``_atomic_write`` so wua_q.csv and
         wua_hmu.csv inherit the same atomicity + umask semantics as the
         regulatory CSVs from the v1.7.1/v1.8.3 chain."""
+
         def _render(tmp: Path) -> None:
             if header_line:
                 with tmp.open("w", encoding="utf-8") as f:
@@ -2957,6 +2967,7 @@ class Case:
                     df.to_csv(f, index=False)
             else:
                 df.to_csv(tmp, index=False)
+
         Case._atomic_write(path, _render)
 
     def _compute_wua_quality(
@@ -2994,7 +3005,13 @@ class Case:
         warnings: list[str],
     ) -> float:
         csi, areas = self._compute_cell_csi_and_area(
-            results, hsi_curves, species, stage, composite, ack, warnings,
+            results,
+            hsi_curves,
+            species,
+            stage,
+            composite,
+            ack,
+            warnings,
         )
         if csi is None:
             return 0.0
@@ -3171,6 +3188,7 @@ class Case:
                 SidecarCorruptedError,
                 read_sidecar,
             )
+
             external_sources = read_sidecar(self.case_yaml_path.parent)
         except ImportError:
             # fetch module optional in case of stripped install
@@ -3200,6 +3218,7 @@ class Case:
         # human reader see at a glance which fetched layers backed
         # this run, without joining sidecar to case.yaml manually.
         import yaml as _yaml_v06
+
         try:
             _case_doc = _yaml_v06.safe_load(case_yaml_text) or {}
         except Exception:  # noqa: BLE001
@@ -3207,8 +3226,12 @@ class Case:
         fetch_summary: dict[str, dict] = {}
         case_data_block = _case_doc.get("data", {}) or {}
         for key in (
-            "dem", "lulc", "soil", "watershed",
-            "species_occurrences", "climate",
+            "dem",
+            "lulc",
+            "soil",
+            "watershed",
+            "species_occurrences",
+            "climate",
         ):
             block = case_data_block.get(key)
             if isinstance(block, dict):
@@ -3216,7 +3239,8 @@ class Case:
                 # (class_km2 with 11 entries is OK; the histogram lives
                 # in the sidecar too anyway).
                 fetch_summary[key] = {
-                    k: v for k, v in block.items()
+                    k: v
+                    for k, v in block.items()
                     if isinstance(v, (str, int, float, bool, list, dict))
                 }
             elif isinstance(block, str):
@@ -3272,9 +3296,7 @@ class Case:
         # Tag the species block in fetch_summary so downstream
         # reporting / dashboard rendering can colour-code without
         # re-thresholding.
-        fetch_summary.setdefault("species_occurrences", {})[
-            "density_class"
-        ] = density_class
+        fetch_summary.setdefault("species_occurrences", {})["density_class"] = density_class
 
         # Parameter fingerprint = sha256(yaml + studyplan + sorted discharges)
         param_blob = case_yaml_text + b"\n"

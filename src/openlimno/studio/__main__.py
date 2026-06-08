@@ -5,6 +5,7 @@ the main window. Works whether launched from the system Python (which
 has qgis bindings on the path) or from a virtualenv (we splice the
 system dist-packages so qgis can be imported regardless).
 """
+
 from __future__ import annotations
 
 import os
@@ -20,6 +21,7 @@ def _ensure_qgis_importable() -> None:
     """
     try:
         import qgis  # noqa: F401
+
         return
     except ModuleNotFoundError:
         pass
@@ -44,12 +46,14 @@ def _smoke_run_case_in_bundle(case_yaml: str) -> int:
     _ensure_qgis_importable()
     try:
         from openlimno.case import Case
+
         case = Case.from_yaml(case_yaml)
         result = case.run()
         print(f"SMOKE_OK: {result.summary()}", flush=True)
         return 0
     except Exception:
         import traceback
+
         print("SMOKE_FAIL:", flush=True)
         traceback.print_exc()
         return 1
@@ -79,6 +83,7 @@ def main() -> int:
     qgs.initQgis()
     try:
         from openlimno.studio.main_window import MainWindow
+
         win = MainWindow()
         win.show()
         rc = qgs.exec_()

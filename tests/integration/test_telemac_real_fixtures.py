@@ -94,9 +94,7 @@ def test_real_telemac_selafin_imports_hydraulic_cells(
     assert result.source_key == "telemac-slf"
     assert result.table.attrs["openlimno_output_table"] == "hydraulic_cells"
     assert len(result.table) == 25007
-    assert {"depth_m", "velocity_ms", "water_surface_m", "area_m2"}.issubset(
-        result.table.columns
-    )
+    assert {"depth_m", "velocity_ms", "water_surface_m", "area_m2"}.issubset(result.table.columns)
     assert result.table["depth_m"].max() > 0.0
     assert result.table["velocity_ms"].max() > 0.0
     assert result.table["area_m2"].min() > 0.0

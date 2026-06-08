@@ -893,9 +893,12 @@ def test_ibm_studio_cli_refuses_without_experimental_flag(
         main,
         [
             "ibm-studio",
-            "--host", "127.0.0.1",
-            "--port", "8877",
-            "--out-dir", str(tmp_path),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8877",
+            "--out-dir",
+            str(tmp_path),
             "--no-open-browser",
             # --i-understand-this-is-experimental DELIBERATELY ABSENT
         ],

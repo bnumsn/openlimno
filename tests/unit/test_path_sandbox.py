@@ -6,6 +6,7 @@ Pins the contract for ``Case._resolve_safe`` and
 back-compat path; these tests establish the v2.11.0 API surface so
 that future tightening doesn't accidentally break opt-in consumers.
 """
+
 from __future__ import annotations
 
 import textwrap
@@ -41,21 +42,23 @@ def _write_case_yaml(
             lines.append("  allowed_data_roots:")
             for r in allowed_data_roots:
                 lines.append(f"    - '{r}'")
-    lines.extend([
-        "mesh:",
-        "  uri: ./mesh.nc",
-        "hydrodynamics:",
-        "  backend: builtin-1d",
-        "habitat:",
-        "  species: [oncorhynchus_mykiss]",
-        "  stages: [spawning]",
-        "  metric: wua-q",
-        "  composite: min",
-        "output:",
-        "  dir: ./out",
-        "  formats: [csv]",
-        "",
-    ])
+    lines.extend(
+        [
+            "mesh:",
+            "  uri: ./mesh.nc",
+            "hydrodynamics:",
+            "  backend: builtin-1d",
+            "habitat:",
+            "  species: [oncorhynchus_mykiss]",
+            "  stages: [spawning]",
+            "  metric: wua-q",
+            "  composite: min",
+            "output:",
+            "  dir: ./out",
+            "  formats: [csv]",
+            "",
+        ]
+    )
     p = case_dir / "case.yaml"
     p.write_text("\n".join(lines), encoding="utf-8")
     return p
@@ -132,7 +135,8 @@ def test_v2110_sandbox_allows_under_case_dir(tmp_path: Path) -> None:
     case_dir = tmp_path / "case_dir"
     # Configure an unrelated allow-list to turn on strict mode.
     case_yaml = _write_case_yaml(
-        case_dir, allowed_data_roots=["/mnt/openlimno-data"],
+        case_dir,
+        allowed_data_roots=["/mnt/openlimno-data"],
     )
     case = _make_case(case_yaml)
 
@@ -152,7 +156,8 @@ def test_v2110_sandbox_allows_under_configured_root(
     shared = tmp_path / "shared_data"
     shared.mkdir()
     case_yaml = _write_case_yaml(
-        case_dir, allowed_data_roots=[str(shared)],
+        case_dir,
+        allowed_data_roots=[str(shared)],
     )
     case = _make_case(case_yaml)
 
@@ -167,7 +172,8 @@ def test_v2110_sandbox_allows_under_configured_root(
 def test_v2110_sandbox_rejects_traversal(tmp_path: Path) -> None:
     case_dir = tmp_path / "case_dir"
     case_yaml = _write_case_yaml(
-        case_dir, allowed_data_roots=["./local_data"],
+        case_dir,
+        allowed_data_roots=["./local_data"],
     )
     case = _make_case(case_yaml)
 
@@ -192,7 +198,8 @@ def test_v2110_sandbox_rejects_absolute_outside_roots(
     shared = tmp_path / "shared_data"
     shared.mkdir()
     case_yaml = _write_case_yaml(
-        case_dir, allowed_data_roots=[str(shared)],
+        case_dir,
+        allowed_data_roots=[str(shared)],
     )
     case = _make_case(case_yaml)
 
@@ -210,7 +217,8 @@ def test_v2110_sandbox_rejects_absolute_outside_roots(
 def test_v2110_sandbox_allow_outside_case_kwarg(tmp_path: Path) -> None:
     case_dir = tmp_path / "case_dir"
     case_yaml = _write_case_yaml(
-        case_dir, allowed_data_roots=["./local_data"],
+        case_dir,
+        allowed_data_roots=["./local_data"],
     )
     case = _make_case(case_yaml)
 
@@ -253,17 +261,15 @@ def test_v2110_schema_accepts_allowed_data_roots(tmp_path: Path) -> None:
         allowed_data_roots=["./data", "/mnt/shared", "~/openlimno-data"],
     )
     errors = validate_case(case_yaml)
-    assert errors == [], (
-        f"v2.11.0 schema regression: valid allowed_data_roots "
-        f"rejected: {errors}"
-    )
+    assert errors == [], f"v2.11.0 schema regression: valid allowed_data_roots rejected: {errors}"
 
 
 # ---------------------------------------------------------------------
 # v2.11.1 — 12th-round review patches (R12-1..R12-9)
 # ---------------------------------------------------------------------
 def test_v2111_r121_tilde_expansion_in_allowed_roots(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """R12-1 (codex+gemini+claude HIGH): `~/openlimno-data` in
     allowed_data_roots must be home-expanded, not treated as a
@@ -277,7 +283,8 @@ def test_v2111_r121_tilde_expansion_in_allowed_roots(
 
     case_dir = tmp_path / "case_dir"
     case_yaml = _write_case_yaml(
-        case_dir, allowed_data_roots=["~/openlimno-data"],
+        case_dir,
+        allowed_data_roots=["~/openlimno-data"],
     )
     case = _make_case(case_yaml)
 
@@ -307,7 +314,8 @@ def test_v2111_r122_absolute_path_with_dotdot_rejected(
     """
     case_dir = tmp_path / "case_dir"
     case_yaml = _write_case_yaml(
-        case_dir, allowed_data_roots=["./local_data"],
+        case_dir,
+        allowed_data_roots=["./local_data"],
     )
     case = _make_case(case_yaml)
 
@@ -362,27 +370,29 @@ def test_v2111_r124_mesh_uri_routed_through_resolve_safe(
     # include the outside dir.
     case_dir.mkdir(parents=True)
     (case_dir / "case.yaml").write_text(
-        "\n".join([
-            "openlimno: '0.2'",
-            "case:",
-            "  name: mesh_sandbox_t",
-            "  crs: EPSG:4326",
-            "  allowed_data_roots:",
-            "    - './local_data'",
-            "mesh:",
-            f"  uri: '{outside_mesh}'",
-            "hydrodynamics:",
-            "  backend: builtin-1d",
-            "habitat:",
-            "  species: [oncorhynchus_mykiss]",
-            "  stages: [spawning]",
-            "  metric: wua-q",
-            "  composite: min",
-            "output:",
-            "  dir: ./out",
-            "  formats: [csv]",
-            "",
-        ]),
+        "\n".join(
+            [
+                "openlimno: '0.2'",
+                "case:",
+                "  name: mesh_sandbox_t",
+                "  crs: EPSG:4326",
+                "  allowed_data_roots:",
+                "    - './local_data'",
+                "mesh:",
+                f"  uri: '{outside_mesh}'",
+                "hydrodynamics:",
+                "  backend: builtin-1d",
+                "habitat:",
+                "  species: [oncorhynchus_mykiss]",
+                "  stages: [spawning]",
+                "  metric: wua-q",
+                "  composite: min",
+                "output:",
+                "  dir: ./out",
+                "  formats: [csv]",
+                "",
+            ]
+        ),
         encoding="utf-8",
     )
     case = _make_case(case_dir / "case.yaml")
@@ -412,7 +422,8 @@ def test_v2111_r126_validate_case_and_resolve_safe_round_trip(
 
     case_dir = tmp_path / "case_dir"
     case_yaml = _write_case_yaml(
-        case_dir, allowed_data_roots=["./shared"],
+        case_dir,
+        allowed_data_roots=["./shared"],
     )
     # Schema acceptance:
     errors = validate_case(case_yaml)
@@ -470,7 +481,8 @@ def test_v2111_schema_minitems_allows_explicit_empty(
     from openlimno.wedm import validate_case
 
     case_yaml = _write_case_yaml(
-        tmp_path / "case_dir", allowed_data_roots=[],
+        tmp_path / "case_dir",
+        allowed_data_roots=[],
     )
     errors = validate_case(case_yaml)
     assert errors == [], (
@@ -499,17 +511,16 @@ def test_v2120_n_cross_section_routed_through_sandbox(
     import inspect
 
     from openlimno.case import Case
+
     src = inspect.getsource(Case.run)
     # Source-text pin (cheap regression detector): the two new
     # call sites must use _resolve_safe, not _resolve, for the
     # cross_section and hsi_curve URIs.
     assert "cross_section_path = self._resolve_safe(" in src, (
-        "v2.12.0 N regression: cross_section URI no longer routed "
-        "through _resolve_safe."
+        "v2.12.0 N regression: cross_section URI no longer routed through _resolve_safe."
     )
     assert "hsi_path = self._resolve_safe(" in src, (
-        "v2.12.0 N regression: hsi_curve URI no longer routed "
-        "through _resolve_safe."
+        "v2.12.0 N regression: hsi_curve URI no longer routed through _resolve_safe."
     )
 
 
@@ -523,7 +534,8 @@ def test_v2120_n_cross_section_routed_through_sandbox(
 # v2.14.1 — followups
 # ---------------------------------------------------------------------
 def test_v2141_is_relative_to_cross_drive_handled(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """v2.14.1 R13-defensive: pathlib's ``is_relative_to`` raises
     ``ValueError`` on cross-drive Windows paths in Python 3.11 (it
@@ -539,7 +551,8 @@ def test_v2141_is_relative_to_cross_drive_handled(
     shared = tmp_path / "shared"
     shared.mkdir()
     case_yaml = _write_case_yaml(
-        case_dir, allowed_data_roots=[str(shared)],
+        case_dir,
+        allowed_data_roots=[str(shared)],
     )
     case = _make_case(case_yaml)
 
@@ -592,6 +605,5 @@ def test_v2110_schema_rejects_unknown_case_field(tmp_path: Path) -> None:
     )
     errors = validate_case(case_dir / "case.yaml")
     assert any("made_up_field" in e for e in errors), (
-        f"v2.11.0 regression: unknown case-level field was silently "
-        f"accepted. Errors: {errors}"
+        f"v2.11.0 regression: unknown case-level field was silently accepted. Errors: {errors}"
     )

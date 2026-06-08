@@ -16,6 +16,7 @@ Verified contracts:
   * The 4 shipped fixture YAMLs (3 examples + lemhi-tiny) all pass
     ``validate_case`` under the v3.0 strict-by-default semantics.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -37,8 +38,7 @@ def test_v310_shipped_fixtures_validate_under_strict_sandbox() -> None:
         REPO_ROOT / "examples" / "lemhi" / "case.yaml",
         REPO_ROOT / "examples" / "composite_hsi" / "case.yaml",
         REPO_ROOT / "examples" / "phabsim_replication" / "case.yaml",
-        REPO_ROOT / "tests" / "integration" / "fixtures"
-            / "lemhi-tiny" / "case.yaml",
+        REPO_ROOT / "tests" / "integration" / "fixtures" / "lemhi-tiny" / "case.yaml",
     ]
     # v3.4.0 R15-9 (claude test-coverage): a deleted fixture used
     # to pass this test silently (the loop just `continue`'d). Now
@@ -85,9 +85,9 @@ def test_v310_sandbox_call_sites_inventory() -> None:
     cli_src = (REPO_ROOT / "src" / "openlimno" / "cli.py").read_text(
         encoding="utf-8",
     )
-    calibrate_src = (
-        REPO_ROOT / "src" / "openlimno" / "workflows" / "calibrate.py"
-    ).read_text(encoding="utf-8")
+    calibrate_src = (REPO_ROOT / "src" / "openlimno" / "workflows" / "calibrate.py").read_text(
+        encoding="utf-8"
+    )
 
     # case.py sites (7 of 10):
     case_safe_calls = case_src.count("self._resolve_safe(")
@@ -118,9 +118,7 @@ def test_v310_sandbox_call_sites_inventory() -> None:
 
     # And: no raw _resolve in the sites that should have been
     # migrated (defensive — catches a copy-paste regression).
-    leftover_resolve = case_src.count(
-        "self._resolve("
-    ) - case_src.count("self._resolve_safe(")
+    leftover_resolve = case_src.count("self._resolve(") - case_src.count("self._resolve_safe(")
     # Acceptable raw _resolve calls in case.py:
     #   - _resolve_safe's internal wrapped call (line ~720)
     #   - output dir at top of Case.run (write target, intentional)
@@ -358,6 +356,7 @@ def test_v310_per_call_allow_outside_case_still_works(
 
     # With the kwarg → resolved-without-check, no exception.
     out = case._resolve_safe(
-        "../../../tmp/foo.csv", allow_outside_case=True,
+        "../../../tmp/foo.csv",
+        allow_outside_case=True,
     )
     assert out.is_absolute()

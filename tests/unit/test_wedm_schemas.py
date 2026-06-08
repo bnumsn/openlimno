@@ -123,7 +123,9 @@ def test_case_schema_rejects_bad_bbox(tmp_path: Path) -> None:
 def test_case_schema_accepts_full_v02_data_block(tmp_path: Path) -> None:
     """All five new data.* blocks together must validate."""
     case = tmp_path / "full_v02.yaml"
-    body = _v02_case_base() + """data:
+    body = (
+        _v02_case_base()
+        + """data:
   dem: data/dem.tif
   lulc:
     uri: data/lulc_2021.tif
@@ -168,6 +170,7 @@ def test_case_schema_accepts_full_v02_data_block(tmp_path: Path) -> None:
     start_year: 2020
     end_year: 2024
 """
+    )
     case.write_text(body, encoding="utf-8")
     errors = validate_case(case)
     assert errors == [], f"Full v0.2 data block must validate: {errors}"
@@ -178,12 +181,15 @@ def test_case_schema_rejects_unknown_worldcover_class_code(tmp_path: Path) -> No
     (10/20/30/40/50/60/70/80/90/95/100). A typo like '35' must fail
     so downstream code never iterates a non-existent class."""
     case = tmp_path / "bad_lulc.yaml"
-    body = _v02_case_base() + """data:
+    body = (
+        _v02_case_base()
+        + """data:
   lulc:
     uri: data/lulc_2021.tif
     class_km2:
       "35": 1.0
 """
+    )
     case.write_text(body, encoding="utf-8")
     errors = validate_case(case)
     assert errors, "class_km2 key '35' (not a WorldCover code) must fail"
@@ -191,11 +197,14 @@ def test_case_schema_rejects_unknown_worldcover_class_code(tmp_path: Path) -> No
 
 def test_case_schema_rejects_unknown_climate_source(tmp_path: Path) -> None:
     case = tmp_path / "bad_climate.yaml"
-    body = _v02_case_base() + """data:
+    body = (
+        _v02_case_base()
+        + """data:
   climate:
     uri: data/climate.csv
     source: openweathermap
 """
+    )
     case.write_text(body, encoding="utf-8")
     errors = validate_case(case)
     assert errors, "climate.source='openweathermap' must fail (not in enum)"
@@ -203,13 +212,16 @@ def test_case_schema_rejects_unknown_climate_source(tmp_path: Path) -> None:
 
 def test_case_schema_rejects_unknown_hydrosheds_region(tmp_path: Path) -> None:
     case = tmp_path / "bad_watershed.yaml"
-    body = _v02_case_base() + """data:
+    body = (
+        _v02_case_base()
+        + """data:
   watershed:
     uri: data/watershed.geojson
     pour_lat: 0
     pour_lon: 0
     region: xx
 """
+    )
     case.write_text(body, encoding="utf-8")
     errors = validate_case(case)
     assert errors, "watershed.region='xx' must fail (not a continent code)"
@@ -217,13 +229,16 @@ def test_case_schema_rejects_unknown_hydrosheds_region(tmp_path: Path) -> None:
 
 def test_case_schema_rejects_unknown_soil_depth(tmp_path: Path) -> None:
     case = tmp_path / "bad_soil.yaml"
-    body = _v02_case_base() + """data:
+    body = (
+        _v02_case_base()
+        + """data:
   soil:
     uri: data/soil.csv
     lat: 38.20
     lon: 100.20
     depths: [0-3cm]
 """
+    )
     case.write_text(body, encoding="utf-8")
     errors = validate_case(case)
     assert errors, "soil.depths=['0-3cm'] must fail (not a SoilGrids depth)"
@@ -231,13 +246,16 @@ def test_case_schema_rejects_unknown_soil_depth(tmp_path: Path) -> None:
 
 def test_case_schema_rejects_unknown_match_type(tmp_path: Path) -> None:
     case = tmp_path / "bad_species.yaml"
-    body = _v02_case_base() + """data:
+    body = (
+        _v02_case_base()
+        + """data:
   species_occurrences:
     uri: data/sp.csv
     scientific_name: Salmo trutta
     usage_key: 8215487
     match_type: PARTIAL
 """
+    )
     case.write_text(body, encoding="utf-8")
     errors = validate_case(case)
     assert errors, "match_type='PARTIAL' must fail (not in GBIF enum)"
@@ -309,8 +327,7 @@ def test_v2100_boundaries_rejects_unknown_type_enum(tmp_path: Path) -> None:
     )
     errors = validate_case(case)
     assert any("garbage" in e for e in errors), (
-        f"v2.10.0 regression: garbage boundary type silently accepted. "
-        f"Errors seen: {errors}"
+        f"v2.10.0 regression: garbage boundary type silently accepted. Errors seen: {errors}"
     )
 
 
@@ -333,8 +350,7 @@ def test_v2100_boundaries_canonical_shape_validates(tmp_path: Path) -> None:
     )
     errors = validate_case(case)
     assert errors == [], (
-        f"v2.10.0 over-tightening: canonical boundaries shape rejected. "
-        f"Errors: {errors}"
+        f"v2.10.0 over-tightening: canonical boundaries shape rejected. Errors: {errors}"
     )
 
 
@@ -347,8 +363,7 @@ def _hydro_with_upstream_block(upstream_yaml: str) -> str:
     block inserted under hydrodynamics.boundaries."""
     return _v02_case_base().replace(
         "hydrodynamics:\n  backend: builtin-1d\n",
-        "hydrodynamics:\n  backend: builtin-1d\n"
-        "  boundaries:\n    upstream:\n" + upstream_yaml,
+        "hydrodynamics:\n  backend: builtin-1d\n  boundaries:\n    upstream:\n" + upstream_yaml,
     )
 
 
@@ -380,9 +395,7 @@ def test_v2101_discharge_with_series_ok(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     errors = validate_case(case)
-    assert errors == [], (
-        f"v2.10.1 R11-3 over-tightening: discharge+series rejected — {errors}"
-    )
+    assert errors == [], f"v2.10.1 R11-3 over-tightening: discharge+series rejected — {errors}"
 
 
 def test_v2101_discharge_with_value_ok(tmp_path: Path) -> None:
@@ -396,9 +409,7 @@ def test_v2101_discharge_with_value_ok(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     errors = validate_case(case)
-    assert errors == [], (
-        f"v2.10.1 R11-3 over-tightening: discharge+value rejected — {errors}"
-    )
+    assert errors == [], f"v2.10.1 R11-3 over-tightening: discharge+value rejected — {errors}"
 
 
 def test_v2101_rating_curve_requires_ref(tmp_path: Path) -> None:
@@ -410,10 +421,7 @@ def test_v2101_rating_curve_requires_ref(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     errors = validate_case(case)
-    assert errors, (
-        "v2.10.1 R11-3 regression: rating-curve BC with no ref must "
-        "fail; got 0 errors."
-    )
+    assert errors, "v2.10.1 R11-3 regression: rating-curve BC with no ref must fail; got 0 errors."
 
 
 def test_v2101_rating_curve_with_series_rejected(tmp_path: Path) -> None:
@@ -430,8 +438,7 @@ def test_v2101_rating_curve_with_series_rejected(tmp_path: Path) -> None:
     )
     errors = validate_case(case)
     assert errors, (
-        "v2.10.1 R11-3 regression: rating-curve+series (wrong-payload "
-        "combo) was accepted."
+        "v2.10.1 R11-3 regression: rating-curve+series (wrong-payload combo) was accepted."
     )
 
 
@@ -443,8 +450,7 @@ def test_v2101_format_checker_wired_uri_reference(tmp_path: Path) -> None:
     case = tmp_path / "bad_uri.yaml"
     case.write_text(
         _hydro_with_upstream_block(
-            "      type: discharge\n"
-            "      series: 'has spaces://invalid uri'\n",
+            "      type: discharge\n      series: 'has spaces://invalid uri'\n",
         ),
         encoding="utf-8",
     )
@@ -466,17 +472,13 @@ def test_v2101_shipped_fixtures_validate(tmp_path: Path) -> None:
         repo_root / "examples" / "lemhi" / "case.yaml",
         repo_root / "examples" / "composite_hsi" / "case.yaml",
         repo_root / "examples" / "phabsim_replication" / "case.yaml",
-        repo_root / "tests" / "integration" / "fixtures"
-            / "lemhi-tiny" / "case.yaml",
+        repo_root / "tests" / "integration" / "fixtures" / "lemhi-tiny" / "case.yaml",
     ]
     for fxt in fixtures:
         if not fxt.exists():
             continue  # skip if fixture not yet shipped
         errors = validate_case(fxt)
-        assert errors == [], (
-            f"v2.10.1 R11-20: shipped fixture {fxt} no longer "
-            f"validates: {errors}"
-        )
+        assert errors == [], f"v2.10.1 R11-20: shipped fixture {fxt} no longer validates: {errors}"
 
 
 def test_geometric_mean_requires_acknowledge_independence(tmp_path: Path) -> None:

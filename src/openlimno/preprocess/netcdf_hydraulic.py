@@ -175,7 +175,14 @@ def _find_roles(ds: xr.Dataset) -> dict[str, str | None]:
     )
     velocity = _find_var(
         ds,
-        any_tokens=("velocitymagnitude", "currentspeed", "current_speed", "ucmaga", "ucmag", "speed"),
+        any_tokens=(
+            "velocitymagnitude",
+            "currentspeed",
+            "current_speed",
+            "ucmaga",
+            "ucmag",
+            "speed",
+        ),
         excludes=("wind", "minimum", "maximum", "normal"),
     )
     u = _find_var(
@@ -276,9 +283,7 @@ def _coordinate_values(
     if x.size == n_cells and y.size == n_cells:
         return x.reshape(-1), y.reshape(-1), tuple(warnings)
 
-    warnings.append(
-        f"Coordinate variables {x_name!r}/{y_name!r} are not cell-aligned; skipped."
-    )
+    warnings.append(f"Coordinate variables {x_name!r}/{y_name!r} are not cell-aligned; skipped.")
     return None, None, tuple(warnings)
 
 
@@ -394,7 +399,9 @@ def read_netcdf_hydraulic(
                 if idx is not None:
                     resolved_indexes.append(idx)
             else:
-                warnings.append(f"Velocity variable {velocity_name!r} is not cell-aligned; skipped.")
+                warnings.append(
+                    f"Velocity variable {velocity_name!r} is not cell-aligned; skipped."
+                )
                 velocity_name = None
         if "velocity_ms" not in rows:
             if roles["u"] is not None and roles["v"] is not None:
@@ -407,7 +414,9 @@ def read_netcdf_hydraulic(
                             resolved_indexes.append(idx)
                     velocity_name = f"{roles['u']}+{roles['v']}"
                 else:
-                    warnings.append("U/V velocity component variables are not cell-aligned; skipped.")
+                    warnings.append(
+                        "U/V velocity component variables are not cell-aligned; skipped."
+                    )
             else:
                 warnings.append("No velocity magnitude or U/V component variables detected.")
 
@@ -423,7 +432,9 @@ def read_netcdf_hydraulic(
 
         resolved_idx = resolved_indexes[0] if resolved_indexes else None
         if any(idx != resolved_idx for idx in resolved_indexes[1:]):
-            warnings.append(f"NetCDF variables resolved to different time indexes: {resolved_indexes}.")
+            warnings.append(
+                f"NetCDF variables resolved to different time indexes: {resolved_indexes}."
+            )
         rows["time_index"] = resolved_idx
         rows["time"] = _time_label(ds, resolved_idx)
 
