@@ -147,8 +147,6 @@ class Params:
         "f_no3_pref",
         "k_denit",
         "couple_ph",
-        "pH_min_nitrif",
-        "pH_opt_nitrif",
     )
 
     def validate(self) -> None:
@@ -172,6 +170,17 @@ class Params:
             errors.append(f"ph={self.ph} must be in [0, 14]")
         if not (math.isfinite(self.temperature_c) and self.temperature_c > -273.15):
             errors.append(f"temperature_c={self.temperature_c} must be > -273.15")
+        # The nitrification pH-inhibition ramp needs both thresholds in [0,14]
+        # and min < opt; min >= opt collapses the ramp (span<=0 → factor 1),
+        # silently disabling pH inhibition instead of erroring.
+        for name in ("pH_min_nitrif", "pH_opt_nitrif"):
+            v = getattr(self, name)
+            if not (math.isfinite(v) and 0.0 <= v <= 14.0):
+                errors.append(f"{name}={v} must be in [0, 14]")
+        if self.pH_min_nitrif >= self.pH_opt_nitrif:
+            errors.append(
+                f"pH_min_nitrif={self.pH_min_nitrif} must be < pH_opt_nitrif={self.pH_opt_nitrif}"
+            )
         if errors:
             raise ValueError("invalid parameters: " + "; ".join(errors))
 

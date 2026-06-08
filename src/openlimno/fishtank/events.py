@@ -29,6 +29,11 @@ _DISSOLVED = ("TAN", "NO2", "NO3", "DO", "DIC", "Alk")
 # untouched, a biofilm wipe leaves the dissolved pool untouched.
 _BIOFILM = ("X_AOB", "X_NOB")
 
+# Upper bound on instances a single repeating event may materialise over the run
+# horizon (≈ 6-minute cadence over 42 days). Stops a tiny repeat_days from
+# exhausting memory before integration on the non-Studio entry points.
+_MAX_EXPANDED_EVENTS = 10_000
+
 # Params an event may retarget mid-run via ``set_param`` (time-varying
 # driver, e.g. a power outage dropping reaeration k_a, or a heat-wave
 # raising temperature). Restricted to physical/forcing fields so a scenario
@@ -145,6 +150,15 @@ class EventSchedule:
         out: list[Event] = []
         for e in self.events:
             if e.repeat_days and e.repeat_days > 0:
+                # Guard against a tiny repeat_days exploding into millions of
+                # instances before integration. The Studio UI caps this, but
+                # CLI / IO / direct-solver callers all share this path.
+                count = math.ceil(max(0.0, days - e.day) / e.repeat_days)
+                if count > _MAX_EXPANDED_EVENTS:
+                    raise ValueError(
+                        f"repeat_days={e.repeat_days} over {days} days expands to "
+                        f"{count} events (cap {_MAX_EXPANDED_EVENTS}); use a larger cadence"
+                    )
                 d = e.day
                 while d < days:
                     # Carry repeat_days onto each materialised instance so the
@@ -217,6 +231,13 @@ def apply_event(
         setattr(c, event.target, getattr(c, event.target) + event.value)
     else:
         raise ValueError(f"unknown event kind: {event.kind!r}")
+    # An event must leave the model in a valid physical state. set_param could
+    # otherwise write k_a<0 / ph∉[0,14] / DO_sat=0, and a negative dose could
+    # drive a state below zero — both bypass the simulate()/ABM entry validation
+    # since they happen mid-run. Re-check at this one shared application point so
+    # every caller (ODE solver + ABM) is covered.
+    c.validate()
+    p.validate()
     return c, p
 
 

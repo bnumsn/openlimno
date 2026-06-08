@@ -398,6 +398,11 @@ def _tap_water_payload(schedule: EventSchedule | None) -> dict[str, float] | Non
         "NO2": float(tap.NO2),
         "NO3": float(tap.NO3),
         "DO": float(tap.DO),
+        # DIC/Alk change the coupled-pH trajectory through a water change, so
+        # they belong in the reproducibility fingerprint — otherwise two runs
+        # with different tap buffer could share a parameter_fingerprint.
+        "DIC": float(tap.DIC),
+        "Alk": float(tap.Alk),
     }
 
 
