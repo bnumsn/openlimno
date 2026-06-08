@@ -47,9 +47,15 @@ def _format_checker() -> FormatChecker:
     def _is_uri_reference(value: object) -> bool:
         if not isinstance(value, str):
             return True
-        return not _URI_REFERENCE_FORBIDDEN.search(value) and not _MALFORMED_PERCENT_ESCAPE.search(
-            value
-        )
+        # A backslash is only ever a Windows path separator here (case data
+        # fields hold local file references like C:\data\mesh.nc). RFC-3986
+        # forbids a literal backslash, but treating it as a path separator keeps
+        # the same case YAML valid on Windows and POSIX. Genuinely-malformed
+        # URIs are still caught by the other forbidden chars (spaces, etc.).
+        candidate = value.replace("\\", "/")
+        return not _URI_REFERENCE_FORBIDDEN.search(
+            candidate
+        ) and not _MALFORMED_PERCENT_ESCAPE.search(candidate)
 
     checks = cast(Callable[[str], _FormatRegistrar], checker.checks)
     checks("uri-reference")(_is_uri_reference)

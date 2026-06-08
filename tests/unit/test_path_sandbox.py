@@ -280,6 +280,8 @@ def test_v2111_r121_tilde_expansion_in_allowed_roots(
     fake_home = tmp_path / "fakehome"
     fake_home.mkdir()
     monkeypatch.setenv("HOME", str(fake_home))
+    # os.path.expanduser consults USERPROFILE (not HOME) on Windows.
+    monkeypatch.setenv("USERPROFILE", str(fake_home))
 
     case_dir = tmp_path / "case_dir"
     case_yaml = _write_case_yaml(

@@ -71,7 +71,7 @@ def schemas() -> dict[str, dict[str, Any]]:
     not DATA_DIR.exists(), reason="Lemhi data not built; run tools/build_lemhi_dataset.py"
 )
 def test_manifest_present() -> None:
-    manifest = json.loads((DATA_DIR / "manifest.json").read_text())
+    manifest = json.loads((DATA_DIR / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["wedm_version"] == "0.1"
     assert "Q_2024.csv" in manifest["files"]
 

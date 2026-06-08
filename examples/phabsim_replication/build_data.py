@@ -135,7 +135,7 @@ def main() -> None:
 
     print(f"Wrote PHABSIM replication data to {DATA}")
     for q, w in expected.items():
-        print(f"  Q={q} m³/s → analytic WUA={w:.3f} m²")
+        print(f"  Q={q} m3/s -> analytic WUA={w:.3f} m2")
 
 
 if __name__ == "__main__":
