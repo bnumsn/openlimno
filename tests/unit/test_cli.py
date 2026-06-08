@@ -970,7 +970,8 @@ def test_ibm_profile_validate_cli(tmp_path: Path) -> None:
     result = runner.invoke(main, ["ibm", "profile", "validate", str(profile_path)])
 
     assert result.exit_code == 0, result.output
-    assert "validates against IBM profile schema" in result.output
+    # normalise whitespace: rich wraps the (long, on macOS) temp path mid-message
+    assert "validates against IBM profile schema" in " ".join(result.output.split())
 
 
 def test_ibm_scenario_validate_and_run_cli(tmp_path: Path) -> None:
@@ -1022,7 +1023,8 @@ def test_ibm_scenario_validate_and_run_cli(tmp_path: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["ibm", "scenario", "validate", str(scenario_path)])
     assert result.exit_code == 0, result.output
-    assert "validates against IBM scenario schema" in result.output
+    # normalise whitespace: rich wraps the (long, on macOS) temp path mid-message
+    assert "validates against IBM scenario schema" in " ".join(result.output.split())
 
     result = runner.invoke(main, ["ibm", "run", str(scenario_path)])
     assert result.exit_code == 0, result.output
