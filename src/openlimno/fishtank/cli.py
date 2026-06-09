@@ -127,5 +127,18 @@ def studio_cmd(host: str, port: int, open_browser: bool) -> None:
     run_fishtank_studio(host=host, port=port, open_browser=open_browser)
 
 
+@main.command("desktop")
+def desktop_cmd() -> None:
+    """Launch the native desktop app (PySide6) — needs the ``desktop`` extra."""
+
+    try:
+        from .desktop import run
+    except ImportError as exc:  # PySide6 not installed
+        raise click.ClickException(
+            f"desktop app needs PySide6: pip install 'openlimno[desktop]'  ({exc})"
+        ) from exc
+    raise SystemExit(run())
+
+
 if __name__ == "__main__":
     main()
