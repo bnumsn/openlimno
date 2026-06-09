@@ -241,7 +241,8 @@ th { color: #536377; font-size: 12px; background: #f8fafc; }
       </div>
     </section>
     <div class="actions">
-      <button class="btn primary" id="runBtn">Run</button>
+      <button class="btn primary" id="runBtn">Run ODE</button>
+      <button class="btn" id="runBothBtn">Run both</button>
       <button class="btn" id="calibrateBtn">Calibrate</button>
       <button class="btn" id="exportBtn">Export scenario</button>
       <button class="btn" id="resetBtn">Reset</button>
@@ -616,25 +617,40 @@ function renderAgents(result, silent=false) {
 }
 
 async function runAgents(silent=false) {
+  // silent=true is used by runBoth(): render the ABM view but leave the status
+  // line to the caller (so a combined ODE+ABM status can be set once). silent=false
+  // is the standalone "Run ABM" button and owns its own "ABM 完成" status.
   if (!silent) setStatus(t('Running ABM'));
   try {
     const result = await api('/api/agents', collect());
     renderAgents(result, silent);
-    if (silent && lastResult) {
-      setStatus(__lang === 'zh'
-        ? `运行完成:${lastResult.timeseries.length} 行 ODE;${result.provenance.agent_count} 个 ABM 个体`
-        : `Run complete: ${lastResult.timeseries.length} ODE rows; ${result.provenance.agent_count} ABM agent(s)`);
-    }
   } catch (err) {
     setStatus(err.message);
   }
 }
 
+// ODE only. The companion "Run ABM" button (ABM view) runs the agent model
+// independently; the two are decoupled so each can be run and read on its own.
 async function run() {
   setStatus(t('Running'));
   try {
     render(await api('/api/run', collect()));
+  }
+  catch (err) { setStatus(err.message); }
+}
+
+// Run both models in one click; each still renders to its own view (ODE →
+// dashboard/3D, ABM → ABM view), then a single combined status reports both.
+async function runBoth() {
+  setStatus(t('Running'));
+  try {
+    render(await api('/api/run', collect()));
     await runAgents(true);
+    if (lastResult && lastAgents) {
+      setStatus(__lang === 'zh'
+        ? `运行完成:${lastResult.timeseries.length} 行 ODE,${lastResult.events_log.length} 个事件;${lastAgents.provenance.agent_count} 个 ABM 个体`
+        : `Run complete: ${lastResult.timeseries.length} ODE rows, ${lastResult.events_log.length} event(s); ${lastAgents.provenance.agent_count} ABM agent(s)`);
+    }
   }
   catch (err) { setStatus(err.message); }
 }
@@ -711,6 +727,7 @@ document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', (
   $(tab.dataset.view).classList.add('active');
 }));
 $('runBtn').addEventListener('click', run);
+$('runBothBtn').addEventListener('click', runBoth);
 $('agentRunBtn').addEventListener('click', () => runAgents(false));
 $('calibrateBtn').addEventListener('click', calibrate);
 $('exportBtn').addEventListener('click', downloadScenario);
@@ -721,12 +738,15 @@ $('resetBtn').addEventListener('click', async () => {
 });
 $('addEventBtn').addEventListener('click', () => $('events').appendChild(eventRow({day: 7, kind: 'water_change', value: 0.25, repeat_days: 7})));
 window.addEventListener('resize', () => {
+  // Re-render whatever has been run; render() restores the ODE status line.
+  // Only override with the combined status when BOTH models have results, so a
+  // resize after an ODE-only run never sprouts a phantom ABM tail.
   if (lastResult) render(lastResult);
-  if (lastAgents) {
-    renderAgents(lastAgents, true);
+  if (lastAgents) renderAgents(lastAgents, true);
+  if (lastResult && lastAgents) {
     setStatus(__lang === 'zh'
-      ? `运行完成:${lastResult?.timeseries?.length || 0} 行 ODE;${lastAgents.provenance.agent_count} 个 ABM 个体`
-      : `Run complete: ${lastResult?.timeseries?.length || 0} ODE rows; ${lastAgents.provenance.agent_count} ABM agent(s)`);
+      ? `运行完成:${lastResult.timeseries.length} 行 ODE,${lastResult.events_log.length} 个事件;${lastAgents.provenance.agent_count} 个 ABM 个体`
+      : `Run complete: ${lastResult.timeseries.length} ODE rows, ${lastResult.events_log.length} event(s); ${lastAgents.provenance.agent_count} ABM agent(s)`);
   }
 });
 window.__fishtankAgentStatus = () => ({
@@ -748,7 +768,8 @@ const ZH = {
   "Tap NO3":"自来水硝酸盐","Tap DO":"自来水溶氧","Alk meq/L":"碱度 meq/L","DIC mmol/L":"DIC mmol/L",
   "Seed":"随机种子","ABM step days":"ABM 步长(天)","Fish agents":"鱼数量","g per fish":"每条鱼克数",
   "Feed g/day":"投喂 g/天","AOB patches":"氨氧化菌斑块数","NOB patches":"亚硝氧化菌斑块数",
-  "Add event":"加事件","Run":"运行","Calibrate":"校准","Export scenario":"导出场景","Reset":"重置",
+  "Add event":"加事件","Run":"运行","Run ODE":"运行 ODE","Run both":"运行 ODE+ABM",
+  "Calibrate":"校准","Export scenario":"导出场景","Reset":"重置",
   "Run ABM":"运行 ABM",
   "3D Tank":"3D 鱼缸","ABM Agents":"个体(ABM)","Dashboard":"仪表盘","Chemistry":"水化学",
   "Calibration":"校准","Export":"导出",
