@@ -69,11 +69,14 @@ def run_studio_payload(payload: dict[str, Any]) -> dict[str, Any]:
         max_days=_STUDIO_ODE_MAX_DAYS,
     )
     result = simulate(chemistry, params, days=days, dt_output_hours=dt_hours, schedule=schedule)
-    if params.couple_ph > 0.0:
-        # Coupled run: the timeseries pH IS the authoritative solved pH. The
-        # post-hoc diagnostic (which ignores the coupling AND any Alk dosing)
-        # would contradict it — e.g. show buffer_dosing crashing harder than
-        # the un-dosed crash — so skip it here.
+    # The post-hoc diagnostic assumes every NO3 increase is nitrification-driven
+    # alkalinity loss. Three things break that assumption — the SAME three
+    # diagnostic_ph_trajectory itself warns about — so skip it (and its
+    # UserWarning) whenever any holds, rather than show a misleading curve:
+    #   couple_ph>0 : the timeseries pH is already the authoritative solved pH;
+    #   mu_plant>0  : plant uptake is an NO3 sink the proxy can't see;
+    #   k_denit>0   : denitrification voids NO3, breaking the proxy too.
+    if params.couple_ph > 0.0 or params.mu_plant > 0.0 or params.k_denit > 0.0:
         ph_df = None
     else:
         carbonate = _mapping(payload.get("carbonate", {}), "carbonate")

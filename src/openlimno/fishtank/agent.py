@@ -53,6 +53,15 @@ def simulate_agent_based_model(scenario: dict[str, Any]) -> dict[str, Any]:
     The ABM uses the same state variables and event semantics as the ODE model
     but advances them by aggregating fish and biofilm-agent activity at each
     discrete step.
+
+    Numerics note: this is an explicit forward-Euler march (step ``dt_days``,
+    capped at 0.25 d) with per-step substrate clipping to keep concentrations
+    non-negative, NOT the ODE's adaptive LSODA. The two are independent
+    numerical paths over the same kinetics, so expect the SAME qualitative
+    trajectory (cycle timing, peak ordering) but NOT pointwise-equal values —
+    the Studio's side-by-side ODE/ABM panels are a trend comparison, not a
+    convergence test. The ABM also resolves the Tier-1 core only (see
+    ``tier_scope`` below).
     """
 
     tank = _mapping(scenario.get("tank", {}), "tank")

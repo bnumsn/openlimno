@@ -133,6 +133,12 @@ def derivatives(t: float, y: list[float], p: Params) -> list[float]:
     # Attached biofilm: growth = Y·ρ = μ·X, logistic-capped at media
     # capacity, first-order decay. (Water changes do NOT touch X — see
     # events.py — because the biofilm is attached.)
+    # Teaching simplification (ASM forms, aquarium magnitudes): the full ρ of
+    # oxidised TAN flows to NO2/NO3, while biomass grows by Y·ρ on top — the N
+    # assimilated INTO new nitrifier cells is not subtracted from the dissolved
+    # pool. Catabolism and anabolism are thus decoupled, so dissolved N is not
+    # strictly conserved (off by ~Y per oxidised mg-N — a few % at Y_AOB=0.15).
+    # Real, intentional: the Hour-1 conservation check should find and discuss it.
     dX_AOB = p.Y_AOB * rho1 * (1.0 - X_AOB / p.X_AOB_max) - p.b_AOB * X_AOB
     dX_NOB = p.Y_NOB * rho2 * (1.0 - X_NOB / p.X_NOB_max) - p.b_NOB * X_NOB
 
