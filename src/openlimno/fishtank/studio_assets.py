@@ -256,6 +256,7 @@ th { color: #536377; font-size: 12px; background: #f8fafc; }
       <button class="tab" data-view="chemistry">Chemistry</button>
       <button class="tab" data-view="eventsView">Events</button>
       <button class="tab" data-view="calibration">Calibration</button>
+      <button class="tab" data-view="compareView">Compare</button>
       <button class="tab" data-view="exportView">Export</button>
     </div>
     <section id="tank3d" class="view tank-view active">
@@ -314,6 +315,16 @@ th { color: #536377; font-size: 12px; background: #f8fafc; }
     </section>
     <section id="calibration" class="view">
       <div class="panel"><div class="panel-head"><div class="panel-title">Bundled calibration</div></div><div class="panel-body" id="calibrationPanel"><div class="muted">Click Calibrate to fit bundled tank_A_fishless.csv against mu_AOB and mu_NOB.</div></div></div>
+    </section>
+    <section id="compareView" class="view">
+      <div class="panel">
+        <div class="panel-head"><div class="panel-title">ODE vs ABM</div><div class="legend" id="compareLegend"></div></div>
+        <div class="panel-body">
+          <div id="compareHint" class="muted">Run both models to compare</div>
+          <svg id="compareChart" class="chart"></svg>
+          <div id="compareNote" class="table-note">Solid = ODE, dashed = ABM</div>
+        </div>
+      </div>
     </section>
     <section id="exportView" class="view">
       <div class="panel"><div class="panel-head"><div class="panel-title">Scenario JSON</div></div><div class="panel-body"><pre id="scenarioJson" class="mono"></pre></div></div>
@@ -468,6 +479,58 @@ function lineChart(svg, rows, series, yLabel) {
 
 function legend(id, series) {
   $(id).innerHTML = series.map(s => `<span><i class="swatch" style="background:${s.color}"></i>${s.label}</span>`).join('');
+}
+
+// Overlay two datasets on shared axes: ODE solid, ABM dashed, same colour per
+// variable, so a student can read how the agent model tracks (or departs from)
+// the ODE for each shared state variable.
+function compareChart(svg, odeRows, abmRows, series, yLabel) {
+  const width = svg.clientWidth || 800;
+  const height = svg.clientHeight || 310;
+  const pad = {l: 54, r: 18, t: 18, b: 34};
+  const all = odeRows.concat(abmRows);
+  const xs = all.map(r => Number(r.day));
+  const values = series.flatMap(s => all.map(r => Number(r[s.key])));
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  let minY = Math.min(0, ...values), maxY = Math.max(...values);
+  if (maxY === minY) maxY = minY + 1;
+  const x = v => pad.l + (Number(v) - minX) / (maxX - minX || 1) * (width - pad.l - pad.r);
+  const y = v => height - pad.b - (Number(v) - minY) / (maxY - minY) * (height - pad.t - pad.b);
+  let html = `<g class="chart-grid">`;
+  for (let i = 0; i <= 4; i++) {
+    const yy = pad.t + i * (height - pad.t - pad.b) / 4;
+    html += `<line x1="${pad.l}" x2="${width-pad.r}" y1="${yy}" y2="${yy}"></line>`;
+  }
+  html += `</g><g class="axis"><text x="8" y="18">${yLabel}</text><text x="${width-58}" y="${height-8}">${t('day')}</text></g>`;
+  for (const s of series) {
+    const ode = odeRows.map((r, i) => `${i === 0 ? 'M' : 'L'}${x(r.day).toFixed(1)},${y(r[s.key]).toFixed(1)}`).join(' ');
+    const abm = abmRows.map((r, i) => `${i === 0 ? 'M' : 'L'}${x(r.day).toFixed(1)},${y(r[s.key]).toFixed(1)}`).join(' ');
+    html += `<path d="${ode}" fill="none" stroke="${s.color}" stroke-width="2.2"></path>`;
+    html += `<path d="${abm}" fill="none" stroke="${s.color}" stroke-width="2" stroke-dasharray="5 4" opacity="0.85"></path>`;
+  }
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.innerHTML = html;
+}
+
+// Render the ODE-vs-ABM overlay from the last results of each model. Needs both
+// (use "Run both"); otherwise show a hint and clear the chart.
+function renderCompare() {
+  const hint = $('compareHint');
+  if (!lastResult || !lastAgents) {
+    if (hint) hint.style.display = '';
+    $('compareChart').innerHTML = '';
+    $('compareLegend').innerHTML = '';
+    return;
+  }
+  if (hint) hint.style.display = 'none';
+  const series = [
+    {key:'TAN', label:t('TAN'), color:'#d1495b'},
+    {key:'NO2', label:t('NO2'), color:'#edae49'},
+    {key:'NO3', label:t('NO3'), color:'#00798c'},
+    {key:'DO',  label:t('DO'),  color:'#3066be'}
+  ];
+  compareChart($('compareChart'), lastResult.timeseries, lastAgents.timeseries, series, t('mg/L'));
+  legend('compareLegend', series);
 }
 
 function table(id, rows, columns, opts={}) {
@@ -646,6 +709,7 @@ async function runBoth() {
   try {
     render(await api('/api/run', collect()));
     await runAgents(true);
+    renderCompare();
     if (lastResult && lastAgents) {
       setStatus(__lang === 'zh'
         ? `运行完成:${lastResult.timeseries.length} 行 ODE,${lastResult.events_log.length} 个事件;${lastAgents.provenance.agent_count} 个 ABM 个体`
@@ -725,6 +789,9 @@ document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', (
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   tab.classList.add('active');
   $(tab.dataset.view).classList.add('active');
+  // The compare overlay reads both models' last results; (re)draw it when its
+  // tab is opened, including after a resize while it was hidden (svg had 0 width).
+  if (tab.dataset.view === 'compareView') renderCompare();
 }));
 $('runBtn').addEventListener('click', run);
 $('runBothBtn').addEventListener('click', runBoth);
@@ -771,6 +838,8 @@ const ZH = {
   "Add event":"加事件","Run":"运行","Run ODE":"运行 ODE","Run both":"运行 ODE+ABM",
   "Calibrate":"校准","Export scenario":"导出场景","Reset":"重置",
   "Run ABM":"运行 ABM",
+  "Compare":"对比","ODE vs ABM":"ODE 对比 ABM","Run both models to compare":"先点「运行 ODE+ABM」生成对比",
+  "Solid = ODE, dashed = ABM":"实线 = ODE,虚线 = ABM",
   "3D Tank":"3D 鱼缸","ABM Agents":"个体(ABM)","Dashboard":"仪表盘","Chemistry":"水化学",
   "Calibration":"校准","Export":"导出",
   "Agent tank map":"个体分布图","Population dynamics":"种群动态","ABM event log":"ABM 事件日志",
@@ -817,7 +886,7 @@ const ZH = {
     "示意图:点的位置随机,亮起的数量随浓度示意,并非真实空间分布。"
 };
 function t(s) { return (__lang === 'zh' && ZH[s] != null) ? ZH[s] : s; }
-const I18N_SEL = '.section h2, .tabs .tab, .panel-title, .sidebar label, .actions .btn, #calibrationPanel .muted, .tank-fallback, .agent-pill, #tankNote';
+const I18N_SEL = '.section h2, .tabs .tab, .panel-title, .sidebar label, .actions .btn, #calibrationPanel .muted, #compareHint, #compareNote, .tank-fallback, .agent-pill, #tankNote';
 function applyLang(lang) {
   __lang = lang;
   // 静态界面(选择器命中)
@@ -836,6 +905,7 @@ function applyLang(lang) {
   if (lastResult) render(lastResult);
   else setStatus(t('Ready — click Run to start'));
   if (lastAgents) renderAgents(lastAgents, true);
+  renderCompare();
   const toggleBtn = $('langToggle');
   if (toggleBtn) toggleBtn.textContent = lang === 'zh' ? 'EN / 中文' : '中文 / EN';
   document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
