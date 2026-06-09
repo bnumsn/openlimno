@@ -50,8 +50,12 @@ def test_kpis_and_status_line():
 
 # ---- Qt offscreen GUI smoke -------------------------------------------------
 def test_gui_smoke_runs_and_draws():
-    pytest.importorskip("PySide6")
+    # Skip where Qt can't actually run — not just where PySide6 is absent, but
+    # also where it's installed-but-broken (e.g. a Windows runner whose QtWidgets
+    # DLL fails to load). Importing the submodule surfaces that as an ImportError
+    # that importorskip turns into a skip.
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6.QtWidgets")
     from PySide6.QtWidgets import QApplication
 
     from openlimno.fishtank.desktop.main_window import MainWindow
