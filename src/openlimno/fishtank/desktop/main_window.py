@@ -62,8 +62,11 @@ class MainWindow(QMainWindow):
 
         self._build_toolbar()
         self._build_body()
-        self._load_preset_into_fields(self.payload)
-        self.statusBar().showMessage(ctrl.status_line(None, None))
+        # Load the first preset fully (payload + description + fields), then run
+        # it once so the window opens already showing data — not empty 0–1 axes,
+        # which read as a broken/unfinished app on first launch.
+        self._on_preset()
+        self._run_both()
 
     # ---- layout ---------------------------------------------------------
     def _build_toolbar(self) -> None:

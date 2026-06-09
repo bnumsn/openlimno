@@ -50,11 +50,24 @@ class LineChart(FigureCanvasQTAgg):
         self._ylabel = ylabel
         self._blank()
 
-    def _blank(self) -> None:
+    def _blank(self, hint: str = "运行后在此显示结果") -> None:
+        # Empty-state: a centred hint instead of bare 0–1 matplotlib axes, so a
+        # just-opened (or failed) chart reads as "ready" not "broken".
         self.ax.clear()
-        self.ax.set_xlabel("天 / day")
-        self.ax.set_ylabel(self._ylabel)
-        self.ax.grid(True, alpha=0.3)
+        self.ax.set_xticks([])
+        self.ax.set_yticks([])
+        for spine in self.ax.spines.values():
+            spine.set_visible(False)
+        self.ax.text(
+            0.5,
+            0.5,
+            hint,
+            ha="center",
+            va="center",
+            transform=self.ax.transAxes,
+            fontsize=11,
+            color="#94a3b8",
+        )
         self.draw_idle()
 
     def plot(
