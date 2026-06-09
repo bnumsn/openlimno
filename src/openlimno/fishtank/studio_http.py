@@ -263,6 +263,11 @@ class _FishtankStudioHandler(BaseHTTPRequestHandler):
         body = html.encode("utf-8")
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        # The single-page app IS the HTML (inline JS/CSS). Never let a browser
+        # serve a stale cached copy — after a Studio update a normal refresh must
+        # pick up the new page, not silently keep dead/old handlers.
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.send_header("Pragma", "no-cache")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)

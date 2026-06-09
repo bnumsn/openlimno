@@ -32661,7 +32661,7 @@ packages:
 - pypi: ./
   name: openlimno
   version: 3.6.1
-  sha256: 4bdc92cd877dbbe07ba479675588e0603666f35015f65ddc8f511351a4747206
+  sha256: 55f39943c8293d4247f9417481e52632be9847ac1c1db48551dda7b47f04c250
   requires_dist:
   - numpy>=1.26
   - pandas>=2.2
@@ -32681,6 +32681,7 @@ packages:
   - rich>=13
   - scipy>=1.12
   - requests>=2.31
+  - pyside6>=6.5 ; extra == 'desktop'
   - pytest>=8 ; extra == 'dev'
   - pytest-cov>=5 ; extra == 'dev'
   - pytest-regressions>=2 ; extra == 'dev'
