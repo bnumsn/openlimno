@@ -38,7 +38,7 @@ button, input, select { font: inherit; }
   background: #f2fbfa; color: #0b3736; font-weight: 800;
 }
 .status { font-size: 13px; color: #cde8e5; }
-.shell { display: grid; grid-template-columns: 360px 1fr; min-height: calc(100vh - 56px); }
+.shell { display: grid; grid-template-columns: 360px 1fr; height: calc(100vh - 56px); min-height: calc(100vh - 56px); }
 .sidebar { border-right: 1px solid var(--line); background: #fff; padding: 14px; overflow: auto; }
 .main { padding: 14px; overflow: auto; }
 .section { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; box-shadow: var(--shadow); margin-bottom: 12px; }
@@ -56,14 +56,23 @@ button, input, select { font: inherit; }
   padding: 6px 8px; background: #fff; color: var(--text);
 }
 .row { display: flex; align-items: center; gap: 8px; }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+/* Run/Calibrate/Export/Reset bar — pinned to the bottom of the (now internally
+   scrolling) sidebar so the run buttons are ALWAYS visible, even when the long
+   parameter list pushes past the fold. Without this the run buttons sat ~1400px
+   down and were off-screen on a 1080p projector — clicks never reached them. */
+.actions { display: flex; gap: 8px; flex-wrap: wrap;
+  position: sticky; bottom: -14px; background: #fff; padding: 10px 0 14px;
+  margin-top: 6px; border-top: 1px solid var(--line); z-index: 4; }
 .btn {
   border: 1px solid #c7d1db; background: #fff; color: #172033; height: 34px;
   padding: 0 11px; border-radius: 6px; cursor: pointer; font-weight: 650;
 }
 .btn:hover { background: #f2f5f8; }
+/* Clear pressed feedback so a click is visibly registered. */
+.btn:active { background: #d7dee7; transform: translateY(1px); }
 .btn.primary { background: var(--brand); color: #fff; border-color: var(--brand); }
 .btn.primary:hover { background: var(--brand-2); }
+.btn.primary:active { background: #134e4a; transform: translateY(1px); }
 .btn.danger { color: var(--danger); border-color: #f1b7b2; }
 .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
 .tab {
@@ -147,7 +156,11 @@ th { color: #536377; font-size: 12px; background: #f8fafc; }
 .table-gap td { text-align: center; color: var(--muted); font-weight: 700; background: #f8fafc; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 @media (max-width: 1050px) {
-  .shell { grid-template-columns: 1fr; }
+  /* Single column on narrow screens — revert to whole-page scroll so the
+     stacked sidebar+main aren't trapped in a fixed-height viewport. */
+  .shell { grid-template-columns: 1fr; height: auto; min-height: 0; }
+  .sidebar { overflow: visible; }
+  .actions { position: static; }
   .main { order: -1; }
   .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
   .kpis { grid-template-columns: repeat(2, 1fr); }
@@ -242,7 +255,8 @@ th { color: #536377; font-size: 12px; background: #f8fafc; }
     </section>
     <div class="actions">
       <button class="btn primary" id="runBtn">Run ODE</button>
-      <button class="btn" id="runBothBtn">Run both</button>
+      <button class="btn" id="runAbmBtn">Run ABM</button>
+      <button class="btn" id="runBothBtn">Run ODE+ABM</button>
       <button class="btn" id="calibrateBtn">Calibrate</button>
       <button class="btn" id="exportBtn">Export scenario</button>
       <button class="btn" id="resetBtn">Reset</button>
@@ -250,16 +264,16 @@ th { color: #536377; font-size: 12px; background: #f8fafc; }
   </aside>
   <main class="main">
     <div class="tabs">
-      <button class="tab active" data-view="tank3d">3D Tank</button>
+      <button class="tab" data-view="tank3d">3D Tank</button>
       <button class="tab" data-view="agentsView">ABM Agents</button>
-      <button class="tab" data-view="dashboard">Dashboard</button>
+      <button class="tab active" data-view="dashboard">Dashboard</button>
       <button class="tab" data-view="chemistry">Chemistry</button>
       <button class="tab" data-view="eventsView">Events</button>
       <button class="tab" data-view="calibration">Calibration</button>
       <button class="tab" data-view="compareView">Compare</button>
       <button class="tab" data-view="exportView">Export</button>
     </div>
-    <section id="tank3d" class="view tank-view active">
+    <section id="tank3d" class="view tank-view">
       <div class="tank-stage">
         <canvas id="tankCanvas" aria-label="3D virtual aquarium"></canvas>
         <div class="tank-hud" id="tankHud"></div>
@@ -291,7 +305,7 @@ th { color: #536377; font-size: 12px; background: #f8fafc; }
         <div class="panel-body"><div id="agentEventsTable"></div></div>
       </div>
     </section>
-    <section id="dashboard" class="view">
+    <section id="dashboard" class="view active">
       <div class="kpis" id="kpis"></div>
       <div id="warnings"></div>
       <div class="panel">
@@ -794,6 +808,7 @@ document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', (
   if (tab.dataset.view === 'compareView') renderCompare();
 }));
 $('runBtn').addEventListener('click', run);
+$('runAbmBtn').addEventListener('click', () => runAgents(false));
 $('runBothBtn').addEventListener('click', runBoth);
 $('agentRunBtn').addEventListener('click', () => runAgents(false));
 $('calibrateBtn').addEventListener('click', calibrate);
@@ -835,9 +850,9 @@ const ZH = {
   "Tap NO3":"自来水硝酸盐","Tap DO":"自来水溶氧","Alk meq/L":"碱度 meq/L","DIC mmol/L":"DIC mmol/L",
   "Seed":"随机种子","ABM step days":"ABM 步长(天)","Fish agents":"鱼数量","g per fish":"每条鱼克数",
   "Feed g/day":"投喂 g/天","AOB patches":"氨氧化菌斑块数","NOB patches":"亚硝氧化菌斑块数",
-  "Add event":"加事件","Run":"运行","Run ODE":"运行 ODE","Run both":"运行 ODE+ABM",
+  "Add event":"加事件","Run":"运行","Run ODE":"运行 方程模型(ODE)","Run ODE+ABM":"运行 两者(ODE+ABM)","Run both":"运行 两者(ODE+ABM)",
   "Calibrate":"校准","Export scenario":"导出场景","Reset":"重置",
-  "Run ABM":"运行 ABM",
+  "Run ABM":"运行 个体模型(ABM)",
   "Compare":"对比","ODE vs ABM":"ODE 对比 ABM","Run both models to compare":"先点「运行 ODE+ABM」生成对比",
   "Solid = ODE, dashed = ABM":"实线 = ODE,虚线 = ABM",
   "3D Tank":"3D 鱼缸","ABM Agents":"个体(ABM)","Dashboard":"仪表盘","Chemistry":"水化学",
@@ -1223,6 +1238,11 @@ function update3d(row, t) {
 }
 
 function animate3d(timeMs) {
+  // Skip the expensive WebGL render while the 3D tab is hidden. setAnimationLoop
+  // otherwise renders at ~60fps on EVERY tab, stalling weak GPUs / remote-desktop
+  // sessions ("GPU stall due to ReadPixels") and making clicks feel unresponsive.
+  // The loop keeps ticking; it just does no work until the 3D tab is active again.
+  if (!$('tank3d').classList.contains('active')) return;
   frames3d += 1;
   const t = timeMs * .001;
   if (tankRows.length > 0) {
