@@ -149,14 +149,30 @@ test-cov = 'pytest tests/ --cov=src/openlimno --cov-report=term-missing --cov-re
 lint = "ruff check src/ tests/ benchmarks/_compare"
 lint-fix = "ruff check --fix src/ tests/ benchmarks/_compare"
 format = "ruff format src/ tests/"
+# Non-strict sweep over the whole package. Mostly redundant with the strict
+# tasks, but NOT entirely: it is the only default-environment type check that
+# covers src/openlimno/qgis/ (kept out of the strict default by ADR-0011), so
+# CI keeps running it next to ``typecheck-strict``.
 typecheck = "mypy src/openlimno"
-typecheck-strict-core = 'mypy --strict src/openlimno --exclude "src/openlimno/(gui_core|studio|qgis)/"'
+# The Qt/GUI layer is excluded here and picked up by ``typecheck-strict-gui``
+# below, which relaxes exactly the checks that untyped PySide6/matplotlib
+# backends make impossible.
+typecheck-strict-core = 'mypy --strict src/openlimno --exclude "src/openlimno/(gui_core|studio|qgis|fishtank/desktop)/"'
 # v3.6.1-post: QGIS plugin is maintenance-only (see
 # src/openlimno/qgis/openlimno_qgis_plugin/MAINTENANCE_ONLY.md + ADR-0011).
-# Default ``check`` covers Studio (gui_core + studio); QGIS is opt-in
-# via ``typecheck-strict-qgis`` for PRs that actually touch qgis/.
-typecheck-strict-gui = "mypy --strict src/openlimno/gui_core src/openlimno/studio --ignore-missing-imports --allow-untyped-decorators --allow-untyped-calls"
+# Default ``check`` covers Studio (gui_core + studio) and the fishtank
+# desktop app; QGIS is opt-in via ``typecheck-strict-qgis`` for PRs that
+# actually touch qgis/.
+# fishtank/desktop belongs in this bucket for the same reason gui_core and
+# studio do: it subclasses matplotlib's FigureCanvasQTAgg, whose ``__init__``
+# and ``draw_idle`` are untyped, so every call to them trips
+# ``no-untyped-call`` under bare --strict. gui_core/controller.py constructs
+# the very same canvas class and is already covered by --allow-untyped-calls.
+typecheck-strict-gui = "mypy --strict src/openlimno/gui_core src/openlimno/studio src/openlimno/fishtank/desktop --ignore-missing-imports --allow-untyped-decorators --allow-untyped-calls"
 typecheck-strict-qgis = "mypy --strict src/openlimno/qgis --ignore-missing-imports --allow-untyped-decorators --allow-untyped-calls"
+# The default strict gate, in one task: what ``check`` enforces and what CI's
+# typecheck job runs. Use this locally to reproduce the CI type gate.
+typecheck-strict = { depends-on = ["typecheck-strict-core", "typecheck-strict-gui"] }
 # Back-compat alias so existing scripts / CI / hooks that call the old
 # task name don't break. Remove after the next maintainer sync.
 typecheck-strict-gui-qgis = { depends-on = ["typecheck-strict-gui", "typecheck-strict-qgis"] }
@@ -170,10 +186,13 @@ benchmark-all = { depends-on = ["benchmark-mms", "benchmark-toro", "benchmark-ph
 
 # Pre-commit hook: composite quality gate
 # v2.5.1 (R8-4): dropped redundant base ``typecheck`` (non-strict
-# ``mypy src/openlimno``). The two strict tasks together check every
-# file in src/openlimno under stricter rules, so the non-strict pass
-# was pure CI churn.
+# ``mypy src/openlimno``). At the time the two strict tasks together
+# covered every file in src/openlimno under stricter rules, so the
+# non-strict pass was pure churn.
 # v3.6.1-post: QGIS strict-typing moved out of default (maintenance-only
-# per ADR-0011). ``check`` now covers core + Studio. PRs that touch
-# qgis/ should additionally run ``pixi run typecheck-strict-qgis``.
-check = { depends-on = ["lint", "typecheck-strict-core", "typecheck-strict-gui", "test", "validate-schemas"] }
+# per ADR-0011). ``check`` now covers core + Studio + the fishtank desktop
+# app — i.e. everything except src/openlimno/qgis/, which the v2.5.1 note
+# above no longer holds for. PRs that touch qgis/ should additionally run
+# ``pixi run typecheck-strict-qgis``; CI keeps the non-strict ``typecheck``
+# sweep so qgis/ is not left completely unchecked.
+check = { depends-on = ["lint", "typecheck-strict", "test", "validate-schemas"] }

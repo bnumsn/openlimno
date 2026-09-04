@@ -39,6 +39,11 @@ def _use_cjk_font() -> None:
 _use_cjk_font()
 
 
+# Typing note: FigureCanvasQTAgg ships without annotations, so `super().__init__`
+# and every `self.draw_idle()` below are untyped calls. This package is therefore
+# type-checked by `pixi run typecheck-strict-gui` (mypy --strict plus
+# --allow-untyped-calls), not by `typecheck-strict-core` — same bucket as
+# gui_core/studio, which construct the very same canvas class.
 class LineChart(FigureCanvasQTAgg):
     """A single line chart. ``plot`` draws one dataset; ``plot_compare`` overlays
     two (ODE solid vs ABM dashed) on shared axes."""
