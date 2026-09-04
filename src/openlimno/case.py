@@ -196,50 +196,7 @@ class Case:
         cfg = self.config
         case_dir = self.case_dir
 
-        # v2.14.0 PEST++ round-trip closure (v2.14.1 R13-1 sentinel-
-        # default form): when a calibration run has patched
-        # ``hydrodynamics.builtin_1d.{manning_n, slope}`` into the
-        # case YAML, those values become the EFFECTIVE defaults for
-        # this run. Explicit kwargs to Case.run still win (caller-
-        # supplied values override the calibrated YAML — useful for
-        # sensitivity sweeps).
-        #
-        # Pre-v2.14.1 used "equals hard-coded default" as the kwarg-
-        # was-omitted signal. R13 reviewers (claude + gemini)
-        # independently caught the bug: a user explicitly passing
-        # ``slope=0.002`` to force the standard default got their
-        # explicit value silently overwritten by the calibrated YAML.
-        # Sentinel ``None`` defaults distinguish "caller omitted" from
-        # "caller chose this value" unambiguously.
-        b1d = cfg.get("hydrodynamics", {}).get("builtin_1d") or {}
-
-        if slope is None:
-            yaml_slope = b1d.get("slope")
-            # R13-6: reject bool — isinstance(True, (int, float))
-            # is True, which would silently coerce a YAML
-            # ``slope: true`` into ``1.0``.
-            if isinstance(yaml_slope, (int, float)) and not isinstance(
-                yaml_slope,
-                bool,
-            ):
-                slope = float(yaml_slope)
-                warnings.append(f"Using calibrated slope from YAML: {slope:.6g}")
-            else:
-                slope = 0.002
-        if manning_n is None:
-            # builtin_1d_config schema permits manning_n as a number
-            # or as a path to a per-segment CSV; only honor the
-            # scalar form here. The CSV form is a different code
-            # path that load_sections_from_parquet already supports.
-            yaml_n = b1d.get("manning_n")
-            if isinstance(yaml_n, (int, float)) and not isinstance(
-                yaml_n,
-                bool,
-            ):
-                manning_n = float(yaml_n)
-                warnings.append(f"Using calibrated manning_n from YAML: {manning_n:.6g}")
-            else:
-                manning_n = 0.035
+        slope, manning_n = self._resolve_calibrated_params(slope, manning_n, warnings)
 
         # Discharges
         if discharges_m3s is None:
@@ -281,6 +238,266 @@ class Case:
         # we want flagged early.
         mesh_path = self._resolve_mesh_uri(cfg, warnings)
 
+        hydraulic_results, discharges_m3s, using_schism_results = self._run_hydraulics(
+            backend,
+            sections=sections,
+            discharges_m3s=discharges_m3s,
+            slope=slope,
+            hydro_work=hydro_work,
+            mesh_path=mesh_path,
+            warnings=warnings,
+        )
+
+        # 4. Habitat (cell WUA-Q for each species/stage)
+        habitat_cfg = cfg["habitat"]
+        composite = habitat_cfg.get("composite", "geometric_mean")
+        ack = bool(habitat_cfg.get("acknowledge_independence", False))
+        # Hard guard before computing anything
+        require_independence_ack(composite, ack)  # type: ignore[arg-type]
+
+        species_list = habitat_cfg["species"]
+        stage_list = habitat_cfg["stages"]
+        # v2.4.0: capture per-cell CSI arrays alongside the reach
+        # total so the geom_mean_per_cell composite path in
+        # _maybe_run_composite_hsi can call apply_overlay_per_cell
+        # directly. Memory overhead is negligible (one float array
+        # per (Q, sp, stage) at section granularity).
+        composite_overlay_method_for_capture = habitat_cfg.get(
+            "composite_overlay_method",
+            "product",
+        )
+        capture_per_cell = composite_overlay_method_for_capture == "geom_mean_per_cell"
+        per_cell_csi: PerCellCsiMap = {}
+        per_section_thermal_si, per_section_cover_si = self._load_per_section_overlay_si(
+            sections,
+            warnings,
+        )
+
+        wua_df = self._build_wua_table(
+            discharges_m3s,
+            hydraulic_results,
+            hsi_curves,
+            species_list,
+            stage_list,
+            composite=composite,
+            ack=ack,
+            capture_per_cell=capture_per_cell,
+            per_cell_csi=per_cell_csi,
+            warnings=warnings,
+        )
+
+        # 4b. HMU multi-scale aggregation (SPEC §4.2.3.2-3)
+        hmu_df = self._aggregate_hmu(
+            hydraulic_results,
+            hsi_curves,
+            species_list,
+            stage_list,
+            composite=composite,
+            ack=ack,
+            warnings=warnings,
+        )
+
+        # 4c. StudyPlan TUF override (SPEC §4.4.1.1)
+        sp_obj = self._load_studyplan(studyplan_path, warnings)
+
+        # 4d. Drift egg evaluation (SPEC §4.2.6) - only if explicitly requested
+        # (return value unused at this layer; auto-writes drift_egg.csv to out_dir)
+        self._maybe_drift_egg(
+            cfg,
+            {} if using_schism_results else hydraulic_results,
+            sections,
+            out_dir,
+            warnings,
+        )
+
+        # 5. Outputs
+        formats = cfg["output"]["formats"]
+        # Watermark header for tentative HSI (computed below; pass to writers)
+        wua_quality_grade = self._compute_wua_quality(
+            hsi_curves,
+            species_list,
+            stage_list,
+            warnings,
+        )
+        self._write_primary_outputs(
+            wua_df,
+            hmu_df,
+            hydraulic_results,
+            sections,
+            out_dir,
+            formats,
+            wua_quality_grade,
+        )
+
+        # 5b. (Regulatory exports moved below 5c-5e in v1.7.0 so they can
+        # see the composite WUA-Q overlay; this comment preserved as a
+        # signpost for readers expecting the old order.)
+
+        (
+            thermal_metrics_dict,
+            cover_metrics_dict,
+            composite_summary_dict,
+            composite_df,
+        ) = self._run_overlay_and_composite(
+            wua_df,
+            case_dir,
+            out_dir,
+            formats,
+            habitat_cfg,
+            per_section_thermal_si=per_section_thermal_si,
+            per_section_cover_si=per_section_cover_si,
+            per_cell_csi=per_cell_csi if capture_per_cell else None,
+            warnings=warnings,
+        )
+
+        # 5f. Regulatory exports (SPEC §4.2.4.2 / ADR-0009). Runs LAST
+        # (was step 5b through v1.6.x) so it can see the composite
+        # WUA-Q from step 5e and emit paired `<kind>_composite.csv`
+        # variants alongside the base reports when overlays exist.
+        reg_exports = cfg.get("regulatory_export", [])
+        if reg_exports:
+            self._run_regulatory_exports(
+                reg_exports,
+                wua_df,
+                species_list,
+                stage_list,
+                out_dir,
+                discharge_series_path,
+                warnings,
+                composite_df=composite_df,
+                composite_summary=composite_summary_dict,
+                wua_quality_grade=wua_quality_grade,
+            )
+
+        # 6. HSI watermarking warning (already computed above for CSV header)
+        if wua_quality_grade == "C":
+            warnings.append(
+                "WUA computed using ≥1 C-grade HSI curve — outputs are TENTATIVE. "
+                "Run `openlimno hsi upgrade` to improve metadata."
+            )
+
+        # 7. Provenance
+        prov_path = out_dir / "provenance.json"
+        provenance = self._build_provenance(
+            discharges_m3s,
+            sections,
+            species_list,
+            stage_list,
+            warnings,
+            studyplan=sp_obj,
+            wua_quality_grade=wua_quality_grade,
+            data_paths={
+                "cross_section": cross_section_path,
+                "hsi_curve": hsi_path,
+            },
+            thermal_metrics_dict=thermal_metrics_dict,
+            cover_metrics_dict=cover_metrics_dict,
+            composite_summary_dict=composite_summary_dict,
+        )
+        self._atomic_write(
+            prov_path,
+            lambda p: p.write_text(
+                json.dumps(provenance, indent=2, default=str),
+                encoding="utf-8",
+            ),
+        )
+
+        return CaseRunResult(
+            case_name=self.name,
+            case_dir=case_dir,
+            output_dir=out_dir,
+            sections=sections,
+            discharges_m3s=discharges_m3s,
+            hydraulic_results=hydraulic_results,
+            wua_q=wua_df,
+            provenance_path=prov_path,
+            warnings=warnings,
+            composite_wua_q=composite_df,
+            composite_summary=composite_summary_dict,
+        )
+
+    # ------------------------------------------------------------------
+    # run() stage helpers
+    #
+    # Each of these is one numbered stage of ``run`` above, lifted out
+    # verbatim. They exist to give the pipeline stages names; they are
+    # not a reusable API and are called exactly once each, in the order
+    # they appear here.
+    # ------------------------------------------------------------------
+    def _resolve_calibrated_params(
+        self,
+        slope: float | None,
+        manning_n: float | None,
+        warnings: list[str],
+    ) -> tuple[float, float]:
+        """Stage 0: settle ``slope`` / ``manning_n`` against the case YAML.
+
+        v2.14.0 PEST++ round-trip closure (v2.14.1 R13-1 sentinel-
+        default form): when a calibration run has patched
+        ``hydrodynamics.builtin_1d.{manning_n, slope}`` into the
+        case YAML, those values become the EFFECTIVE defaults for
+        this run. Explicit kwargs to Case.run still win (caller-
+        supplied values override the calibrated YAML — useful for
+        sensitivity sweeps).
+
+        Pre-v2.14.1 used "equals hard-coded default" as the kwarg-
+        was-omitted signal. R13 reviewers (claude + gemini)
+        independently caught the bug: a user explicitly passing
+        ``slope=0.002`` to force the standard default got their
+        explicit value silently overwritten by the calibrated YAML.
+        Sentinel ``None`` defaults distinguish "caller omitted" from
+        "caller chose this value" unambiguously.
+        """
+        b1d = self.config.get("hydrodynamics", {}).get("builtin_1d") or {}
+
+        if slope is None:
+            yaml_slope = b1d.get("slope")
+            # R13-6: reject bool — isinstance(True, (int, float))
+            # is True, which would silently coerce a YAML
+            # ``slope: true`` into ``1.0``.
+            if isinstance(yaml_slope, (int, float)) and not isinstance(
+                yaml_slope,
+                bool,
+            ):
+                slope = float(yaml_slope)
+                warnings.append(f"Using calibrated slope from YAML: {slope:.6g}")
+            else:
+                slope = 0.002
+        if manning_n is None:
+            # builtin_1d_config schema permits manning_n as a number
+            # or as a path to a per-segment CSV; only honor the
+            # scalar form here. The CSV form is a different code
+            # path that load_sections_from_parquet already supports.
+            yaml_n = b1d.get("manning_n")
+            if isinstance(yaml_n, (int, float)) and not isinstance(
+                yaml_n,
+                bool,
+            ):
+                manning_n = float(yaml_n)
+                warnings.append(f"Using calibrated manning_n from YAML: {manning_n:.6g}")
+            else:
+                manning_n = 0.035
+        return slope, manning_n
+
+    def _run_hydraulics(
+        self,
+        backend: str,
+        *,
+        sections: list[CrossSection],
+        discharges_m3s: list[float],
+        slope: float,
+        hydro_work: Path,
+        mesh_path: Path | None,
+        warnings: list[str],
+    ) -> tuple[dict[float, list[MANSQResult]], list[float], bool]:
+        """Stage 3: drive the configured solver via the HydroSolver Protocol.
+
+        Returns ``(hydraulic_results, discharges_m3s, using_schism_results)``.
+        The SCHISM branch rewrites ``discharges_m3s`` (its "discharge" axis
+        is really SCHISM output ``time_seconds``), which is why the caller
+        takes the list back rather than keeping its own.
+        """
+        cfg = self.config
         using_schism_results = False
         if backend == "builtin-1d":
             # v3.2.0 R11-2 closure: solver-level warning when the
@@ -400,27 +617,19 @@ class Case:
             raise NotImplementedError(
                 f"Unknown hydrodynamics backend '{backend}'. Supported: builtin-1d, schism."
             )
+        return hydraulic_results, discharges_m3s, using_schism_results
 
-        # 4. Habitat (cell WUA-Q for each species/stage)
-        habitat_cfg = cfg["habitat"]
-        composite = habitat_cfg.get("composite", "geometric_mean")
-        ack = bool(habitat_cfg.get("acknowledge_independence", False))
-        # Hard guard before computing anything
-        require_independence_ack(composite, ack)  # type: ignore[arg-type]
+    def _load_per_section_overlay_si(
+        self,
+        sections: list[CrossSection],
+        warnings: list[str],
+    ) -> tuple[np.ndarray | None, np.ndarray | None]:
+        """Stage 4a: resolve the per-section thermal + cover SI arrays.
 
-        species_list = habitat_cfg["species"]
-        stage_list = habitat_cfg["stages"]
-        # v2.4.0: capture per-cell CSI arrays alongside the reach
-        # total so the geom_mean_per_cell composite path in
-        # _maybe_run_composite_hsi can call apply_overlay_per_cell
-        # directly. Memory overhead is negligible (one float array
-        # per (Q, sp, stage) at section granularity).
-        composite_overlay_method_for_capture = habitat_cfg.get(
-            "composite_overlay_method",
-            "product",
-        )
-        capture_per_cell = composite_overlay_method_for_capture == "geom_mean_per_cell"
-        per_cell_csi: PerCellCsiMap = {}
+        Returns ``(per_section_thermal_si, per_section_cover_si)``; either
+        may be ``None``, meaning "fall back to a scalar broadcast".
+        """
+        cfg = self.config
         # v2.5.1 (R8-5): load optional pre-computed per-section thermal SI
         # array from ``data.thermal_si_per_section.uri`` (CSV with
         # ``station_m`` + ``thermal_si`` columns). Users build it via
@@ -465,7 +674,28 @@ class Case:
                 sections,
                 warnings,
             )
+        return per_section_thermal_si, per_section_cover_si
 
+    def _build_wua_table(
+        self,
+        discharges_m3s: list[float],
+        hydraulic_results: dict[float, list[MANSQResult]],
+        hsi_curves: dict[str, HSICurve],
+        species_list: list[str],
+        stage_list: list[str],
+        *,
+        composite: str,
+        ack: bool,
+        capture_per_cell: bool,
+        per_cell_csi: PerCellCsiMap,
+        warnings: list[str],
+    ) -> pd.DataFrame:
+        """Stage 4: the cell-level WUA-Q sweep, one row per discharge.
+
+        When ``capture_per_cell`` is set, the per-cell CSI/area arrays are
+        stashed into ``per_cell_csi`` (mutated in place) for the
+        ``geom_mean_per_cell`` composite path downstream.
+        """
         wua_records: list[dict[str, Any]] = []
         for Q in discharges_m3s:
             row: dict[str, Any] = {"discharge_m3s": Q}
@@ -500,41 +730,24 @@ class Case:
                     row[col] = wua_value
             wua_records.append(row)
 
-        wua_df = pd.DataFrame(wua_records)
+        return pd.DataFrame(wua_records)
 
-        # 4b. HMU multi-scale aggregation (SPEC §4.2.3.2-3)
-        hmu_df = self._aggregate_hmu(
-            hydraulic_results,
-            hsi_curves,
-            species_list,
-            stage_list,
-            composite=composite,
-            ack=ack,
-            warnings=warnings,
-        )
+    def _write_primary_outputs(
+        self,
+        wua_df: pd.DataFrame,
+        hmu_df: pd.DataFrame | None,
+        hydraulic_results: dict[float, list[MANSQResult]],
+        sections: list[CrossSection],
+        out_dir: Path,
+        formats: list[str],
+        wua_quality_grade: str,
+    ) -> None:
+        """Stage 5: write the WUA-Q / HMU / hydraulics artifacts.
 
-        # 4c. StudyPlan TUF override (SPEC §4.4.1.1)
-        sp_obj = self._load_studyplan(studyplan_path, warnings)
-
-        # 4d. Drift egg evaluation (SPEC §4.2.6) - only if explicitly requested
-        # (return value unused at this layer; auto-writes drift_egg.csv to out_dir)
-        self._maybe_drift_egg(
-            cfg,
-            {} if using_schism_results else hydraulic_results,
-            sections,
-            out_dir,
-            warnings,
-        )
-
-        # 5. Outputs
-        formats = cfg["output"]["formats"]
-        # Watermark header for tentative HSI (computed below; pass to writers)
-        wua_quality_grade = self._compute_wua_quality(
-            hsi_curves,
-            species_list,
-            stage_list,
-            warnings,
-        )
+        Write order is load-bearing for reproducibility diffs, so it is
+        preserved exactly: csv (wua_q, wua_hmu) → parquet (wua_q, wua_hmu)
+        → netcdf.
+        """
         watermark_header = self._wua_csv_header(wua_quality_grade) if "csv" in formats else None
         if "csv" in formats:
             self._write_csv_with_header(wua_df, out_dir / "wua_q.csv", watermark_header)
@@ -553,10 +766,27 @@ class Case:
         if "netcdf" in formats:
             self._write_hydraulic_netcdf(hydraulic_results, sections, out_dir / "hydraulics.nc")
 
-        # 5b. (Regulatory exports moved below 5c-5e in v1.7.0 so they can
-        # see the composite WUA-Q overlay; this comment preserved as a
-        # signpost for readers expecting the old order.)
+    def _run_overlay_and_composite(
+        self,
+        wua_df: pd.DataFrame,
+        case_dir: Path,
+        out_dir: Path,
+        formats: list[str],
+        habitat_cfg: dict[str, Any],
+        *,
+        per_section_thermal_si: np.ndarray | None,
+        per_section_cover_si: np.ndarray | None,
+        per_cell_csi: PerCellCsiMap | None,
+        warnings: list[str],
+    ) -> tuple[dict | None, dict | None, dict | None, pd.DataFrame | None]:
+        """Stages 5c-5e: thermal SI, cover SI, then the multivariate composite.
 
+        Returns ``(thermal_metrics_dict, cover_metrics_dict,
+        composite_summary_dict, composite_df)``. Every stage here is
+        auxiliary: each is wrapped so a failure degrades to a warning and
+        leaves the WUA-Q pipeline intact.
+        """
+        cfg = self.config
         # 5c. Thermal habitat suitability (v1.1.1). If the case carries
         # both data.fishbase_traits + data.climate, evaluate a daily
         # thermal SI series + summary metrics — closes the
@@ -650,7 +880,8 @@ class Case:
                 formats,
                 warnings,
                 method=composite_overlay_method,
-                per_cell_csi=per_cell_csi if capture_per_cell else None,
+                # Already gated on ``capture_per_cell`` by the caller.
+                per_cell_csi=per_cell_csi,
                 per_section_thermal_si=per_section_thermal_si,
                 per_section_cover_si=per_section_cover_si,
             )
@@ -659,70 +890,11 @@ class Case:
                 f"composite_hsi step failed: {e!r}. Skipping; the WUA-Q pipeline remains valid."
             )
 
-        # 5f. Regulatory exports (SPEC §4.2.4.2 / ADR-0009). Runs LAST
-        # (was step 5b through v1.6.x) so it can see the composite
-        # WUA-Q from step 5e and emit paired `<kind>_composite.csv`
-        # variants alongside the base reports when overlays exist.
-        reg_exports = cfg.get("regulatory_export", [])
-        if reg_exports:
-            self._run_regulatory_exports(
-                reg_exports,
-                wua_df,
-                species_list,
-                stage_list,
-                out_dir,
-                discharge_series_path,
-                warnings,
-                composite_df=composite_df,
-                composite_summary=composite_summary_dict,
-                wua_quality_grade=wua_quality_grade,
-            )
-
-        # 6. HSI watermarking warning (already computed above for CSV header)
-        if wua_quality_grade == "C":
-            warnings.append(
-                "WUA computed using ≥1 C-grade HSI curve — outputs are TENTATIVE. "
-                "Run `openlimno hsi upgrade` to improve metadata."
-            )
-
-        # 7. Provenance
-        prov_path = out_dir / "provenance.json"
-        provenance = self._build_provenance(
-            discharges_m3s,
-            sections,
-            species_list,
-            stage_list,
-            warnings,
-            studyplan=sp_obj,
-            wua_quality_grade=wua_quality_grade,
-            data_paths={
-                "cross_section": cross_section_path,
-                "hsi_curve": hsi_path,
-            },
-            thermal_metrics_dict=thermal_metrics_dict,
-            cover_metrics_dict=cover_metrics_dict,
-            composite_summary_dict=composite_summary_dict,
-        )
-        self._atomic_write(
-            prov_path,
-            lambda p: p.write_text(
-                json.dumps(provenance, indent=2, default=str),
-                encoding="utf-8",
-            ),
-        )
-
-        return CaseRunResult(
-            case_name=self.name,
-            case_dir=case_dir,
-            output_dir=out_dir,
-            sections=sections,
-            discharges_m3s=discharges_m3s,
-            hydraulic_results=hydraulic_results,
-            wua_q=wua_df,
-            provenance_path=prov_path,
-            warnings=warnings,
-            composite_wua_q=composite_df,
-            composite_summary=composite_summary_dict,
+        return (
+            thermal_metrics_dict,
+            cover_metrics_dict,
+            composite_summary_dict,
+            composite_df,
         )
 
     # ------------------------------------------------------------------
