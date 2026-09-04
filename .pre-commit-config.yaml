@@ -28,7 +28,7 @@ repos:
         pass_filenames: false
 
       - id: spec-scope-check
-        name: SPEC scope check (warn if §0.3 keywords appear in 1.0 code)
+        name: SPEC scope check (fails if unexempted §0.3 keywords appear in 1.0 code)
         entry: python tools/m0_checklist/spec_scope_check.py
         language: system
         files: ^src/openlimno/.*\.py$
