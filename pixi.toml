@@ -83,6 +83,16 @@ hypothesis = ">=6"
 ruff = ">=0.4"
 mypy = ">=1.10"
 pre-commit = ">=3.7"
+# Studio JS assets live in src/openlimno/*/assets/*.js and are syntax-checked
+# by tests/unit/test_studio_assets_extraction.py via `node --check`. Cheap
+# enough to belong in the default env so the gate is real on every matrix job.
+nodejs = ">=20"
+
+# Studio JS execution tests (Playwright + headless Chromium). Kept out of the
+# default env so the 3-OS x 2-Python matrix stays light; the browser itself is
+# fetched by `playwright install chromium`, not by conda.
+[feature.browser.dependencies]
+playwright = ">=1.44"
 
 [feature.docs.dependencies]
 mkdocs = ">=1.6"
@@ -132,6 +142,7 @@ osgeo = { features = ["dev", "osgeo"], solve-group = "osgeo" }
 workflow = { features = ["dev", "workflow"], solve-group = "workflow" }
 pestpp = { features = ["dev", "pestpp"], solve-group = "pestpp" }
 mike = { features = ["dev", "mike"], solve-group = "mike" }
+browser = { features = ["dev", "browser"], solve-group = "browser" }
 all = { features = ["dev", "docs", "schism"], solve-group = "all" }
 
 # ---------------------------------------------------------------
@@ -143,6 +154,9 @@ test-all = "pytest tests/ benchmarks/_compare -v"
 test-online = "pytest tests/integration -v -m online"
 test-osgeo = "pytest tests/unit/test_preprocess_fetch.py tests/unit/test_xs_rows_cache.py -v -m osgeo"
 test-qgis = "pytest tests/integration/test_qgis_plugin_shim.py -v"
+studio-browser-install = "playwright install chromium"
+test-studio-assets = "pytest tests/unit/test_studio_assets_extraction.py -q"
+test-studio-browser = "pytest tests/unit/test_studio_browser.py -q"
 test-workflow = "pytest tests/integration/test_snakemake_calibrate.py -v -m workflow"
 test-pestpp = "pytest tests/integration/test_pestpp_glm_real.py -v -m pestpp"
 test-cov = 'pytest tests/ --cov=src/openlimno --cov-report=term-missing --cov-report=xml -m "not online and not qgis and not osgeo and not pestpp and not workflow"'

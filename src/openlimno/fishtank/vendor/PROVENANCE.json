@@ -39,8 +39,8 @@
       "detail": "serves it at the route `/assets/three.module.min.js` from `_VENDOR_DIR`"
     },
     {
-      "file": "src/openlimno/fishtank/studio_assets.py",
-      "detail": "the Studio page imports it: `import * as THREE from '/assets/three.module.min.js';`"
+      "file": "src/openlimno/fishtank/assets/studio_tank3d.mjs",
+      "detail": "the 3D tank module imports it: `import * as THREE from '/assets/three.module.min.js';` (inlined into the Studio page by studio_assets.py at import time)"
     },
     {
       "file": "pyproject.toml",

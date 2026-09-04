@@ -98,6 +98,14 @@ packages = ["src/openlimno"]
 "src/openlimno/ibm/schemas" = "openlimno/ibm/schemas"
 
 [tool.hatch.build.targets.wheel.force-include]
+# Studio browser assets: the CSS/JS that studio_assets.py inlines into
+# INDEX_HTML / _INDEX_HTML at import time. Without these the Studio pages
+# cannot be rendered from an installed wheel.
+"src/openlimno/fishtank/assets/studio.css" = "openlimno/fishtank/assets/studio.css"
+"src/openlimno/fishtank/assets/studio_app.js" = "openlimno/fishtank/assets/studio_app.js"
+"src/openlimno/fishtank/assets/studio_tank3d.mjs" = "openlimno/fishtank/assets/studio_tank3d.mjs"
+"src/openlimno/ibm/assets/studio.css" = "openlimno/ibm/assets/studio.css"
+"src/openlimno/ibm/assets/studio_app.js" = "openlimno/ibm/assets/studio_app.js"
 "src/openlimno/fishtank/vendor/three.module.min.js" = "openlimno/fishtank/vendor/three.module.min.js"
 "src/openlimno/fishtank/vendor/THREE_LICENSE" = "openlimno/fishtank/vendor/THREE_LICENSE"
 "src/openlimno/fishtank/vendor/PROVENANCE.json" = "openlimno/fishtank/vendor/PROVENANCE.json"
