@@ -32661,7 +32661,7 @@ packages:
 - pypi: ./
   name: openlimno
   version: 3.6.1
-  sha256: 55f39943c8293d4247f9417481e52632be9847ac1c1db48551dda7b47f04c250
+  sha256: 638de6121bd6bda5ecda30eebe189e28aa99f8450fc857d64afaa26dacdca04c
   requires_dist:
   - numpy>=1.26
   - pandas>=2.2
