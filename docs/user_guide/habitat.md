@@ -19,7 +19,7 @@ Every HSI curve carries:
 - `transferability_score` ∈ [0,1]
 - `quality_grade` — A / B / C; results computed from C-grade are watermarked
 
-See [Concepts § HSI rigor](../getting_started/concepts.md#hsi-rigor--hard-constraints-not-warnings) for rationale.
+See [Concepts § HSI rigor](../getting_started/concepts.md#hsi-rigor-hard-constraints-not-warnings) for rationale.
 
 ## WUA at three scales
 

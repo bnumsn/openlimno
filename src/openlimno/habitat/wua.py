@@ -6,7 +6,7 @@ Cell-level only in M1; HMU/reach aggregation lands in M2 (§4.2.3.2-3).
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -14,8 +14,8 @@ import pandas as pd
 
 from .hsi import HSICurve, composite_csi, require_independence_ack
 
-if TYPE_CHECKING:
-    pass
+#: Column contract of :func:`wua_q_curve`, held even for an empty Q sweep.
+_WUA_Q_COLUMNS: tuple[str, ...] = ("discharge_m3s", "wua_m2", "n_sections_used")
 
 
 def cell_wua(csi: npt.ArrayLike, area: npt.ArrayLike) -> float:
@@ -37,7 +37,36 @@ def evaluate_section_csi(
     acknowledge_independence: bool = False,
     extras: dict[str, float] | None = None,
 ) -> float:
-    """Compute CSI at a single section given (depth, velocity, [extras])."""
+    """Compute CSI at a single section given (depth, velocity, [extras]).
+
+    Scalar counterpart of the array-wise composite used by
+    :meth:`openlimno.case.Case._compute_cell_csi_and_area`; both build the
+    same ``{variable: SI}`` mapping and hand it to
+    :func:`openlimno.habitat.hsi.composite_csi`.
+
+    Parameters
+    ----------
+    depth, velocity
+        Section-mean hydraulics (m, m/s).
+    hsi_curves
+        Curves keyed ``(species, life_stage, variable)``. Variables with no
+        curve for this ``(species, life_stage)`` are silently dropped from the
+        composite — unlike the ``Case`` path, there is no warnings channel.
+    extras
+        Additional ``{variable: value}`` pairs (substrate, cover, temperature)
+        to fold into the composite when a matching curve exists.
+
+    Returns
+    -------
+    float
+        CSI ∈ [0, 1], or ``0.0`` when no variable resolved to a curve.
+
+    Raises
+    ------
+    ValueError
+        If ``composite`` is a geometric/arithmetic mean and
+        ``acknowledge_independence`` is False (SPEC §4.2.2.2 / ADR-0006).
+    """
     require_independence_ack(composite, acknowledge_independence)  # type: ignore[arg-type]
 
     suits: dict[str, np.ndarray] = {}
@@ -66,10 +95,24 @@ def wua_q_curve(
 ) -> pd.DataFrame:
     """Compute WUA as a function of Q.
 
+    Library-level entry point for a WUA-Q sweep: it needs only a solver
+    callable, cross-sections and HSI curves, so callers can sweep discharge
+    without assembling a full :class:`openlimno.case.Case` (case YAML, WEDM
+    inputs, output directory). It is also the only surface that accepts
+    explicit per-section area weights — see ``section_areas_m2``.
+
+    Numerically it is the same computation ``Case.run`` writes into
+    ``wua_q.csv``: ``tests/unit/test_habitat_wua_api.py`` cross-validates it
+    against :meth:`openlimno.case.Case._compute_cell_wua` (``composite_csi``
+    over per-cell arrays plus :func:`cell_wua`) and requires agreement to
+    floating-point identity for every composite method, so regulatory
+    deliverables cannot depend on which entry point was used.
+
     Parameters
     ----------
     sections_solver
-        Callable ``(sections, Q) -> list[MANSQResult]``.
+        Callable ``(sections, Q) -> list[MANSQResult]``, e.g.
+        :meth:`openlimno.hydro.builtin_1d.Builtin1D.solve_reach`.
     sections
         Cross-sections to evaluate.
     discharges_m3s
@@ -79,12 +122,29 @@ def wua_q_curve(
     species, life_stage
         Target combination.
     section_areas_m2
-        Area weight per section (e.g. half-distance to neighbors). If None,
-        each section contributes its area_m2 from the hydraulic solution.
+        Area weight per section (e.g. half-distance to neighbors), indexed
+        positionally against ``sections_solver``'s result list. If None, each
+        section contributes its ``area_m2`` from the hydraulic solution —
+        which is what the ``Case`` pipeline always does.
     composite
         Composite method; if geom/arith requires acknowledge_independence.
     acknowledge_independence
-        SPEC §4.2.2.2 hard guard; required for geom/arith.
+        SPEC §4.2.2.2 hard guard; required for geom/arith. Checked before the
+        solver runs, so a rejected sweep does no hydraulic work.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per entry of ``discharges_m3s``, in the order given, with
+        columns ``discharge_m3s``, ``wua_m2`` and ``n_sections_used``.
+        ``n_sections_used`` counts *wetted* sections (``area_m2 > 0``), not
+        sections with non-zero suitability.
+
+    Notes
+    -----
+    Sections that come back dewatered (``area_m2 <= 0``) are skipped entirely,
+    including their ``section_areas_m2`` weight; the remaining weights stay
+    aligned to their original section index.
     """
     require_independence_ack(composite, acknowledge_independence)  # type: ignore[arg-type]
 
@@ -115,4 +175,7 @@ def wua_q_curve(
                 "n_sections_used": n_used,
             }
         )
-    return pd.DataFrame(rows)
+    # An empty sweep still has to carry the column contract: callers do
+    # ``df["wua_m2"]`` unconditionally, and a bare ``DataFrame([])`` has no
+    # columns at all, so it raises KeyError instead of yielding an empty Series.
+    return pd.DataFrame(rows, columns=list(_WUA_Q_COLUMNS))
