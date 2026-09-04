@@ -11,12 +11,76 @@ from pathlib import Path
 import click
 from rich.console import Console
 
-from openlimno.fishtank.cli import main as fishtank_cli
-
 console = Console()
 
+# Subcommand groups imported only when actually invoked, mapped to
+# ``"module:attribute"`` plus a copy of the command's help text (its docstring).
+# Every other command in this module keeps its imports inside the callback for
+# the same reason; ``openlimno.fishtank.cli`` needs the extra indirection
+# because it is a whole ``click`` group whose package ``__init__`` eagerly
+# re-exports the ODE/ABM stack (scipy.optimize, pandas) -- ~0.75 s of the
+# ~0.92 s it used to take to print ``openlimno --help``.
+#
+# It is the *help* text that is pinned, not the short help: click derives the
+# one-line summary with ``make_default_short_help(help, limit)``, which elides
+# to the available column width, but returns an explicit ``short_help``
+# verbatim. Pinning ``help`` keeps the stub on the same derivation as the real
+# command, so ``openlimno --help`` renders identically at any width. A unit
+# test diffs the two renderings to keep this copy honest.
+LAZY_COMMANDS: dict[str, tuple[str, str]] = {
+    "fishtank": (
+        "openlimno.fishtank.cli:main",
+        "Run, validate, calibrate, and launch the fishtank model.",
+    ),
+}
 
-@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+
+class LazyGroup(click.Group):
+    """Group that defers importing expensive subcommands until they are used.
+
+    ``get_command`` returns the real command, so invocation, ``--help`` on the
+    subcommand itself, and shell completion behave exactly as they did when the
+    command was registered eagerly. Only ``format_commands`` -- which resolves
+    every name purely to summarise it in the command list -- is served from
+    :data:`LAZY_COMMANDS` instead.
+    """
+
+    #: Set while ``format_commands`` walks the command list, so ``get_command``
+    #: can hand back a stand-in rather than importing the real module.
+    _listing_commands: bool = False
+
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        return sorted([*super().list_commands(ctx), *LAZY_COMMANDS])
+
+    def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+        spec = LAZY_COMMANDS.get(cmd_name)
+        if spec is None:
+            return super().get_command(ctx, cmd_name)
+        target, help_text = spec
+        if self._listing_commands:
+            return click.Command(cmd_name, help=help_text)
+        return _load_lazy_command(target)
+
+    def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        self._listing_commands = True
+        try:
+            super().format_commands(ctx, formatter)
+        finally:
+            self._listing_commands = False
+
+
+def _load_lazy_command(target: str) -> click.Command:
+    """Import ``"module:attribute"`` and return the ``click`` command it names."""
+    from importlib import import_module
+
+    module_name, _, attr_name = target.partition(":")
+    command = getattr(import_module(module_name), attr_name)
+    if not isinstance(command, click.Command):
+        raise TypeError(f"{target} is not a click command")
+    return command
+
+
+@click.group(cls=LazyGroup, context_settings={"help_option_names": ["-h", "--help"]})
 @click.version_option(package_name="openlimno")
 def main() -> None:
     """OpenLimno: ecological-flow and fish-habitat decision platform.
@@ -24,9 +88,6 @@ def main() -> None:
     Connects field data, hydraulic-model outputs, habitat suitability, passage
     analysis, provenance, and regulatory reporting.
     """
-
-
-main.add_command(fishtank_cli, "fishtank")
 
 
 @main.command()
