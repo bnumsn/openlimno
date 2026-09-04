@@ -18,7 +18,9 @@ keywords = [
     "HEC-RAS", "MIKE", "HABBY", "inSTREAM", "ecohydraulics",
 ]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    # ADR-0011 freezes stable major tags and docs/governance/MAINTAINERS.md is
+    # still unstaffed, so "Production/Stable" would overstate the project.
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
@@ -98,6 +100,8 @@ packages = ["src/openlimno"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/openlimno/fishtank/vendor/three.module.min.js" = "openlimno/fishtank/vendor/three.module.min.js"
 "src/openlimno/fishtank/vendor/THREE_LICENSE" = "openlimno/fishtank/vendor/THREE_LICENSE"
+"src/openlimno/fishtank/vendor/PROVENANCE.json" = "openlimno/fishtank/vendor/PROVENANCE.json"
+"src/openlimno/fishtank/vendor/README.md" = "openlimno/fishtank/vendor/README.md"
 
 # ---------------------------------------------------------------
 # ruff

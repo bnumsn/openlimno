@@ -11,6 +11,15 @@ We can't run the original PHABSIM Fortran here, but the algorithm is fully
 specified in Bovee 1986 / 1997 and Stalnaker 1995; the test below replicates
 those equations independently and asserts equivalence.
 
+**This is self-verification against published equations, not external
+validation.** Passing shows OpenLimno implements the documented PHABSIM
+algorithm on a case whose answer is analytically known; it does **not** show
+that OpenLimno reproduces what the USFWS PHABSIM binary prints for a real
+reach. Parity against the real binary lives in
+[`benchmarks/phabsim_real/`](../phabsim_real/), which is opt-in via
+`OPENLIMNO_PHABSIM_REAL_IMAGE`, ships no reference image, and is not run by
+CI.
+
 ## Test case
 
 A 6-section uniform prismatic reach. Each cross-section is identical
