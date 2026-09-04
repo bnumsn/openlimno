@@ -79,7 +79,7 @@ python -m openlimno.fishtank run examples/fishtank/mature_stocked_tank.yaml
 | `io.py` | scenario YAML / observations / reproducible outputs |
 | `cli.py` | `run` / `validate` / `calibrate` / `studio` |
 | `studio.py` / `studio_http.py` | 本地浏览器 Studio + ABM Agents 页 + 3D 虚拟鱼缸 + matplotlib 绘图 |
-| `vendor/` | Three.js 运行时与 MIT license,用于离线 3D 虚拟鱼缸 |
+| `vendor/` | Three.js **r165** 运行时与 MIT license,用于离线 3D 虚拟鱼缸;上游 URL / 版本 / SHA-256 / 重新校验命令见 `vendor/PROVENANCE.json`(由 `tests/unit/test_vendor_provenance.py` 钉死哈希) |
 
 ## 跑测试
 
