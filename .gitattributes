@@ -1,0 +1,42 @@
+# Line-ending policy.
+#
+# Without this file git applies its default text heuristic on checkout, which
+# on Windows rewrites LF to CRLF. For most sources that is harmless. For a
+# vendored artifact whose whole claim is "byte-identical to upstream" it is
+# not: the Windows Test matrix caught three.module.min.js checking out at
+# 677,941 bytes against the 677,935 recorded in vendor/PROVENANCE.json — six
+# newlines, six extra bytes, and a SHA-256 that no longer matches upstream
+# three.js r165.
+
+# Default: let git normalise text in the repository, and check it out with
+# native endings unless overridden below.
+* text=auto
+
+# --------------------------------------------------------------------
+# Vendored third-party artifacts — never touch these bytes.
+# Their SHA-256 is recorded in src/openlimno/fishtank/vendor/PROVENANCE.json
+# and verified by tests/unit/test_vendor_provenance.py, which is what makes
+# the provenance record meaningful rather than decorative.
+# --------------------------------------------------------------------
+src/openlimno/fishtank/vendor/three.module.min.js -text
+src/openlimno/fishtank/vendor/THREE_LICENSE      -text
+
+# --------------------------------------------------------------------
+# Frozen test fixtures and reference data. Checksums and golden-file
+# comparisons are taken over their exact bytes.
+# --------------------------------------------------------------------
+*.parquet  -text
+*.nc       -text
+*.hdf      -text
+*.zip      -text
+*.png      -text
+
+# --------------------------------------------------------------------
+# Data and schema files read back by checksum-sensitive code paths.
+# `openlimno reproduce` verifies SHA-256 over case inputs, so a CRLF
+# checkout would break reproduction on Windows for a case authored on Linux.
+# --------------------------------------------------------------------
+*.csv   text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.json  text eol=lf
