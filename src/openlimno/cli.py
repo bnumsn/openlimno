@@ -9,9 +9,15 @@ import sys
 from pathlib import Path
 
 import click
-from rich.console import Console
 
-console = Console()
+from openlimno._console import make_console
+
+# Hardens stdout/stderr against narrow console codecs before anything prints.
+# Until the fishtank group became a lazy import, this ran as a side effect of
+# importing ``openlimno.fishtank.cli`` at module scope; making it explicit is
+# what keeps `openlimno validate`'s check mark from aborting on a cp1252 or
+# GBK console. See openlimno._console.
+console = make_console()
 
 # Subcommand groups imported only when actually invoked, mapped to
 # ``"module:attribute"`` plus a copy of the command's help text (its docstring).

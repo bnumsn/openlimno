@@ -2,26 +2,15 @@
 
 from __future__ import annotations
 
-import sys
-
 import click
-from rich.console import Console
 
-# Teaching-lab machines run a Chinese GBK console (code page 936). rich's
-# legacy-windows renderer encodes with that codec directly and aborts with
-# UnicodeEncodeError when a message carries a glyph GBK lacks (em-dash in a
-# warning, a BOM echoed from a malformed scenario). Harden stdio so such a
-# glyph degrades to a placeholder instead of crashing the command, and keep
-# rich off the legacy path so its output honours this error handler.
-for _stream in (sys.stdout, sys.stderr):
-    _reconfigure = getattr(_stream, "reconfigure", None)
-    if _reconfigure is not None:
-        try:
-            _reconfigure(errors="replace")
-        except (ValueError, OSError):
-            pass
+from openlimno._console import make_console
 
-console = Console(legacy_windows=False)
+# Teaching-lab machines run a Chinese GBK console (code page 936), where a glyph
+# the codec lacks would otherwise abort the command. The shared helper hardens
+# stdio and keeps rich off its legacy Windows renderer, which ignores the error
+# handler. See openlimno._console for the full rationale.
+console = make_console()
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
