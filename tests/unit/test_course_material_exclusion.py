@@ -71,6 +71,17 @@ def _git(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _tracked_paths() -> set[str]:
+    """Every tracked path, as git spells it: forward slashes, on every platform.
+
+    ``-z`` rather than plain ``ls-files`` because git otherwise quotes and
+    escapes paths containing spaces or non-ASCII bytes, and splitting the
+    result on whitespace would corrupt them. Neither occurs in this repo today,
+    which is precisely why a test depending on that would rot silently.
+    """
+    return {name for name in _git("ls-files", "-z").stdout.split("\0") if name}
+
+
 @pytest.fixture(scope="module", autouse=True)
 def _requires_git_checkout() -> None:
     """Skip in an sdist/wheel install, where there is no repo to inspect."""
@@ -105,8 +116,7 @@ def test_no_course_material_is_actually_tracked() -> None:
     A file committed before its rule existed stays tracked forever, and
     .gitignore has no effect on it. Only `git ls-files` can tell us.
     """
-    tracked = set(_git("ls-files").stdout.split())
-    fishtank_docs = {p for p in tracked if p.startswith("docs/fishtank/")}
+    fishtank_docs = {p for p in _tracked_paths() if p.startswith("docs/fishtank/")}
     assert fishtank_docs <= SHIPPABLE_FISHTANK_DOCS, (
         "course material is tracked despite being gitignored: "
         f"{sorted(fishtank_docs - SHIPPABLE_FISHTANK_DOCS)}. "
@@ -122,9 +132,10 @@ def test_the_pinning_test_is_not_ignored_by_its_own_rule() -> None:
     fails silently and in the worst possible direction: the rule ships, the
     check that proves the rule works does not, and ``git status`` looks clean.
     """
-    tracked = set(_git("ls-files").stdout.split())
-    own_path = str(Path(__file__).resolve().relative_to(REPO_ROOT))
-    assert own_path in tracked, (
+    # as_posix(), not str(): on Windows str() yields backslashes while git
+    # always reports forward slashes, so a plain comparison fails there only.
+    own_path = Path(__file__).resolve().relative_to(REPO_ROOT).as_posix()
+    assert own_path in _tracked_paths(), (
         f"{own_path} is not tracked — most likely .gitignore's course-material "
         "patterns are swallowing it. Keep the `!` negation next to them."
     )
@@ -138,9 +149,9 @@ def test_no_tracked_file_exceeds_the_github_blob_limit() -> None:
     """
     limit = 100 * 1024 * 1024
     oversized = []
-    for name in _git("ls-files", "-z").stdout.split("\0"):
+    for name in _tracked_paths():
         path = REPO_ROOT / name
-        if not name or not path.is_file():
+        if not path.is_file():
             continue  # a deleted-but-tracked path, or a submodule entry
         size = path.stat().st_size
         if size > limit:
