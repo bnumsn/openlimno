@@ -183,6 +183,5 @@ def test_provenance_consumers_actually_reference_the_runtime() -> None:
         path = repo_root / entry["file"]
         assert path.is_file(), f"consumed_by names a missing file: {entry['file']}"
         assert "three.module.min.js" in path.read_text(encoding="utf-8"), (
-            f"consumed_by names {entry['file']}, but that file never mentions "
-            "three.module.min.js"
+            f"consumed_by names {entry['file']}, but that file never mentions three.module.min.js"
         )

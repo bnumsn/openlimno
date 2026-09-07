@@ -3112,8 +3112,7 @@ def _osm_fetch_lulc(output_dir: str, *, fetch_lulc: str) -> dict[str, object]:
         year=l_year,
     )
     console.print(
-        f"  → {wc.n_tiles} tile(s), version {wc.version}, "
-        f"{sum(wc.class_pixels.values()):,} pixels"
+        f"  → {wc.n_tiles} tile(s), version {wc.version}, {sum(wc.class_pixels.values()):,} pixels"
     )
     # Move/rename into case_dir/data/lulc.tif so it lives with the case.
     import shutil as _shutil
@@ -3189,8 +3188,7 @@ def _osm_fetch_climate(output_dir: str, *, fetch_climate: str) -> dict[str, obje
         c_ey = int(ey_s)
     except ValueError as e:
         raise click.UsageError(
-            f"--fetch-climate lat/lon must be decimal, years must be "
-            f"integer; got {fetch_climate!r}"
+            f"--fetch-climate lat/lon must be decimal, years must be integer; got {fetch_climate!r}"
         ) from e
     if c_sy > c_ey:
         raise click.UsageError(f"--fetch-climate start_year ({c_sy}) must be ≤ end_year ({c_ey})")
