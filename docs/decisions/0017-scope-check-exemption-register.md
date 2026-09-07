@@ -182,7 +182,7 @@ there is agent-based code here, and here is the document that authorised it"*.
 
 ## Open items
 
-**O1 — `fishtank` has no root-charter basis.** `src/openlimno/fishtank/`
+**O1 — `fishtank` has no root-charter basis.** *(CLOSED by ADR-0018: named in root SPEC §0.5 as a declared second product line, with three hard constraints.)* `src/openlimno/fishtank/`
 (5,538 LOC) contains an explicit agent-based model
 (`simulate_agent_based_model`, `FishAgent`, `MicrobePatch`). Its ABM *is*
 declared in-scope — but only by `docs/fishtank/SPEC.md` §0, a module-local
@@ -197,7 +197,7 @@ The hook is named "SPEC scope check (warn if §0.3 keywords appear in 1.0 code)"
 and ADR-0010 §Decision says the check "warns, does not auto-fail". With this ADR
 it fails. Both wordings need updating; neither file is edited here.
 
-**O3 — Local browser Studios.** `ibm/studio_http.py` and
+**O3 — Local browser Studios.** *(CLOSED by ADR-0018: a single-user loopback Studio is not the excluded outward-facing service; the checker's `web_gui` category is now expressed as service posture, not framework names.)* `ibm/studio_http.py` and
 `fishtank/studio_http.py` serve HTTP UIs from `http.server`. SPEC §0.3 excludes
 "Web GUI / 云原生 / 多租户 / REST 服务". The current keyword set encodes web-GUI
 scope as *frameworks* (`fastapi`/`flask`/`django`/`tauri`), so a stdlib

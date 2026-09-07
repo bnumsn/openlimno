@@ -23,6 +23,7 @@ ADRs document significant architectural / technical decisions. Format: [MADR 4.0
 | [0015](0015-ibm-moratorium-exception.md) | Moratorium relationship for native IBM experiment | Superseded by ADR-0016 |
 | [0016](0016-author-override-direct-merge.md) | Author override — direct merge of IBM pivot to main | **Accepted (BDFL decision)** |
 | [0017](0017-scope-check-exemption-register.md) | SPEC §0.3 scope check — exemption register + hard fail | **Accepted** |
+| [0018](0018-fishtank-product-line-and-localhost-studio.md) | fishtank as declared second product line; localhost Studio is not the excluded Web GUI | **Accepted** |
 
 ## Template
 

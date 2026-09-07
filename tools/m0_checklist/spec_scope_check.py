@@ -258,6 +258,23 @@ NON_GOAL_KEYWORDS: tuple[Keyword, ...] = (
     _token_kw("exner", "sediment", "exner"),
     _token_kw("hirano", "sediment", "hirano"),
     # --- Web GUI / 云原生 ------------------------------------------------
+    # --- Web GUI --------------------------------------------------------
+    # ADR-0018: §0.3 excludes an OUTWARD-FACING SERVICE posture (multi-tenant,
+    # exposed past loopback, OpenLimno as a REST backend), not "any HTTP". A
+    # single-user Studio bound to 127.0.0.1 is the desktop app rendered
+    # differently and is explicitly in scope.
+    #
+    # So posture is what these look for. Framework names are kept as weak
+    # signals — a fastapi import is worth a look — but they are not the
+    # definition, and on their own they would have waved through a multi-tenant
+    # service written on stdlib http.server while flagging a loopback-only tool
+    # written on fastapi. Exactly backwards.
+    _phrase_kw("non_loopback_bind", "web_gui", "non", "loopback", "bind"),
+    _phrase_kw("multi_tenant", "web_gui", "multi", "tenant"),
+    _phrase_kw("multi_tenancy", "web_gui", "multi", "tenancy"),
+    _phrase_kw("tenant_id", "web_gui", "tenant", "id"),
+    _phrase_kw("session_store", "web_gui", "session", "store"),
+    _phrase_kw("rest_api_server", "web_gui", "rest", "api", "server"),
     _token_kw("fastapi", "web_gui", "fastapi"),
     _token_kw(
         "flask",
@@ -267,6 +284,8 @@ NON_GOAL_KEYWORDS: tuple[Keyword, ...] = (
     ),
     _token_kw("django", "web_gui", "django"),
     _token_kw("tauri", "web_gui", "tauri"),
+    _token_kw("uvicorn", "web_gui", "uvicorn"),
+    _token_kw("gunicorn", "web_gui", "gunicorn"),
     _token_kw("kubernetes", "cloud", "kubernetes"),
     _phrase_kw("argo_workflows", "cloud", "argo", "workflows"),
     _token_kw("helm", "cloud", "helm"),
@@ -344,15 +363,17 @@ EXEMPTIONS: tuple[Exemption, ...] = (
         path_glob="src/openlimno/fishtank/**",
         keywords=("abm", "agent_based"),
         reason=(
-            "Teaching microcosm (closed-aquarium ODE + ABM) used as the worked "
-            "example for a 4-hour Master's lab. Its own spec lists the ABM as "
-            "in-scope; it is not part of the 1.0 ecological-flow capability "
-            "boundary. NOTE: this basis is module-local — the root SPEC §0.3 / "
-            "README charter does not yet mention fishtank at all (ADR-0017 open item O1)."
+            "Teaching microcosm (closed-aquarium ODE + ABM), declared as the "
+            "second product line in root SPEC §0.5. §0.3's IBM/ABM non-goal "
+            "excludes REGULATORY-GRADE individual-based conclusions; fishtank "
+            "is fenced off from the regulatory exporters entirely, does not "
+            "reverse-depend on the main line, and sits outside the 1.0 semver "
+            "promise. ADR-0017 open item O1 closed by ADR-0018."
         ),
         basis=(
-            "docs/fishtank/SPEC.md §0 (in-scope list names the ABM)",
-            "docs/decisions/0017-scope-check-exemption-register.md",
+            "SPEC.md §0.5 (second product line, with the three hard constraints)",
+            "SPEC.md §0.3 (IBM/ABM clarification: regulatory-grade only)",
+            "docs/decisions/0018-fishtank-product-line-and-localhost-studio.md",
         ),
     ),
     Exemption(

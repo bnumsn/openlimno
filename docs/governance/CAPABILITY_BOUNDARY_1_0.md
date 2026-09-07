@@ -92,9 +92,14 @@ PRs touching any of these will be closed and pointed at this section.
 - ❌ GPU acceleration of any solver
 - ❌ Uncertainty quantification / ensemble forecasts / data assimilation
 - ❌ ML surrogate models / neural operators
-- ❌ Individual-based / agent-based models / population dynamics
+- ❌ Individual-based / agent-based models / population dynamics **as regulatory
+  evidence**. Two non-regulatory ABMs ship and are fenced off from the exporters:
+  `ibm/` (§13 research route) and `fishtank/` (SPEC §0.5 teaching line). See ADR-0018.
 - ❌ Water temperature, water quality, sediment transport, bed evolution
-- ❌ Web GUI / cloud-native / multi-tenant / REST API
+- ❌ Web GUI **as an outward-facing service** — cloud-native, multi-tenant, REST
+  backend for third parties. A single-user Studio bound to loopback is the desktop
+  app rendered differently and IS in scope; the test is service posture, not the
+  HTTP library. See ADR-0018.
 - ❌ Embedded real-time scheduling
 - ❌ Multi-solver BMI interchange (only SCHISM is deeply integrated)
 - ❌ PEST++ multi-parameter inversion (research-route scope; 1-parameter scipy is in)

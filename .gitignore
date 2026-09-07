@@ -104,3 +104,23 @@ docs/fishtank/USAGE_WALKTHROUGH.md
 docs/fishtank/OPENSOURCE_GUIDE.md
 docs/fishtank/CHANGELOG_LOCAL.md
 docs/fishtank/REHEARSAL_LOG_*.md
+
+# ...and any archive of that material, wherever it is staged. Every rule above
+# is path-specific to docs/fishtank/, so a bundle of exactly those directories
+# written anywhere else walks past all of them: on 2026-09-07 a 172 MB
+# fishtank_course_materials.zip sat untracked at the repo root, one `git add -A`
+# from a commit GitHub would then refuse (100 MB per-file hard limit) and that
+# would need history rewriting to undo. ADR-0018's fourth fence is only real if
+# it survives the material being packaged. Pinned by
+# tests/unit/test_course_material_exclusion.py.
+*course_material*
+fishtank_course*
+student_bundle*
+# The patterns above are deliberately broad — material also arrives unpacked,
+# as a directory — which means they also match source files merely *named*
+# after the thing they exclude. This test is the only such file, and it was in
+# fact ignored by its own rule for the length of one `git status`. Negating it
+# by name is safer than narrowing the patterns to archive extensions, because
+# that would let an unpacked `fishtank_course_materials/` back in.
+# test_the_pinning_test_is_not_ignored_by_its_own_rule keeps this honest.
+!tests/unit/test_course_material_exclusion.py
