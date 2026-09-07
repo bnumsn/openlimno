@@ -5,12 +5,21 @@
 > hydraulic results, MIKE 21/FM/1D projects, passage analysis, species evidence,
 > and regulatory reports.
 
-**Status**: package metadata is **v3.6.1**. The 1.0 line froze its public
+**Status**: package metadata is **v3.6.1**; the PyPI maturity classifier
+is `Development Status :: 4 - Beta`. The 1.0 line froze its public
 API surface at v1.0.0 (2026-05-12); v2.0 / v3.0 added per-cell composite
 and a strict-by-default path sandbox respectively; v3.0 → v3.6.1 was
 18 rounds of triple-AI CLI code review that closed ~146 substantive
-findings. **706 default-gated tests pass; 31 optional/external tests are
-deselected by default; ruff 0; mypy `--strict` core + Studio clean.**
+findings — that is *code* review, not numerical validation against
+reference implementations (see [Validation status](#validation-status)).
+The merge gate is **`pixi run check`** = `lint` (ruff) +
+`typecheck-strict-core` (mypy `--strict`, non-GUI core) +
+`typecheck-strict-gui` (mypy `--strict`, Studio) + `test` +
+`validate-schemas`; CI runs it on every PR, so the CI run — not a count
+pasted here — is the authority on what is green. Optional and
+external-dependency tests
+(markers `online`, `qgis`, `osgeo`, `pestpp`, `workflow`) are deselected
+by default.
 
 > ⚠️ **Stable-major-tag MORATORIUM in effect (2026-05-19)** — per
 > [ADR-0011](./docs/decisions/0011-stable-major-tag-moratorium.md), the
@@ -24,8 +33,8 @@ deselected by default; ruff 0; mypy `--strict` core + Studio clean.**
 >
 > ⚠️ **External-action phase (2026-05-20)** — internal-code work is
 > substantively complete (U6 audit gate closed; 4 R-DOC-AUDIT-WIRED
-> passes; 706 default-gated tests green; PEST++ real-binary gate green
-> separately). The project is now blocked on **external
+> passes; the default-gated test suite green; PEST++ real-binary gate
+> green separately). The project is now blocked on **external
 > action only**: maintainer recruitment, regulatory reviewer outreach,
 > real-basin data acquisition, USFWS PHABSIM source license
 > verification. See [`docs/external_action_phase.md`](./docs/external_action_phase.md)
@@ -41,6 +50,42 @@ deselected by default; ruff 0; mypy `--strict` core + Studio clean.**
 All 1.0-scope modules implemented end-to-end; case YAML drives the full pipeline:
 hydraulics → HSI/WUA cell+HMU → drift egg → regulatory export (CN-SL712 / US-FERC / EU-WFD) → provenance.
 v0.3 → v0.8 added a subscription-free fetch surface (9 fetchers, global coverage, see below).
+
+## Validation status
+
+What has been checked, and what has not:
+
+**Checked in CI**
+
+- End-to-end runs of the bundled example cases (Lemhi, composite HSI,
+  drift/egg, TELEMAC/NetCDF WUA, PHABSIM replication) from case YAML
+  through regulatory export and provenance.
+- Analytic benchmarks: MMS 1D manufactured solutions, Toro shock-tube
+  Riemann problems, and the closed-form Bovee-1997 PHABSIM regression
+  (`pixi run benchmark-all`). These compare OpenLimno against
+  hand-computable answers, not against another program's output.
+- Real-file interoperability: the public FEMA `rashdf`
+  `BaldEagleDamBrk.p18.hdf` HEC-RAS fixture and the official River2D
+  tutorial archive are pinned by SHA-256 and genuinely parsed by
+  dedicated CI jobs.
+
+**Not checked**
+
+- Numerical agreement with the original **PHABSIM** Fortran, **HABBY**,
+  **River2D**, or **FishXing** output. The comparison adapters are
+  written (`benchmarks/phabsim_real/`, `benchmarks/habby/`,
+  `benchmarks/river2d/`, `benchmarks/fishxing/`) but each requires
+  reference data supplied out-of-band via `OPENLIMNO_PHABSIM_REAL_IMAGE`,
+  `HABBY_REFERENCE_DIR`, `RIVER2D_REFERENCE_DIR`, or
+  `FISHXING_REPORT_DIR`. The repository ships no such reference outputs
+  and no CI job sets those variables, so every cross-code comparison
+  skips by default.
+- Any real-basin case study, and any regulatory reviewer-of-record
+  sign-off. Both are unfreeze-gate items in
+  [ADR-0011](./docs/decisions/0011-stable-major-tag-moratorium.md).
+
+Interop coverage per format is tracked in
+[`docs/strategy/interop-validation-matrix.md`](./docs/strategy/interop-validation-matrix.md).
 
 ## What it is
 
@@ -153,12 +198,20 @@ human-run end-to-end smoke at `tools/fetch_all_smoke.py`.
 
 ## Governance
 
-Apache Way / NumFOCUS-aligned. See [`docs/governance/`](./docs/governance/) for:
+Apache Way / NumFOCUS-aligned **in design, not yet in staffing**. Every
+row in [`docs/governance/MAINTAINERS.md`](./docs/governance/MAINTAINERS.md)
+— maintainers, PSC seats, release manager, reviewers-of-record — is
+still `_TBD_`. The items below are therefore **targets defined in
+[`docs/governance/`](./docs/governance/)**, not properties the project
+currently has:
 
-- 3 named maintainers (≥ 2 institutions)
-- Quarterly release cadence
+- 3 named maintainers from ≥ 2 institutions (0 named today)
 - Bus factor ≥ 2 per core module
-- API semver
+- Quarterly release cadence
+- API semver on stable major tags (tags currently frozen — see ADR-0011)
+
+Recruiting those maintainers is the first item of the external-action
+phase; see [`docs/external_action_phase.md`](./docs/external_action_phase.md).
 
 ## License
 

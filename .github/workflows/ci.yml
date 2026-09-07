@@ -34,6 +34,14 @@ jobs:
           pixi-version: v0.67.2
           environments: default
           cache: true
+      # The strict gate. This is the type-checking half of `pixi run check`
+      # (typecheck-strict-core + typecheck-strict-gui); `check` itself is not
+      # invoked here because its `lint` and `test` members already have their
+      # own jobs below, and `test` runs a 3-OS x 2-Python matrix.
+      - run: pixi run typecheck-strict
+      # Non-strict sweep over the whole package. Redundant with the above for
+      # core + GUI, but it is the only default-environment check that covers
+      # src/openlimno/qgis/, which ADR-0011 keeps out of the strict default.
       - run: pixi run typecheck
 
   schema-validation:

@@ -22,6 +22,7 @@ ADRs document significant architectural / technical decisions. Format: [MADR 4.0
 | [0014](0014-charter-pivot-native-ibm.md) | Charter pivot — native IBM as inSTREAM successor (v4 target) | Merged via ADR-0016; PSC ratification pending |
 | [0015](0015-ibm-moratorium-exception.md) | Moratorium relationship for native IBM experiment | Superseded by ADR-0016 |
 | [0016](0016-author-override-direct-merge.md) | Author override — direct merge of IBM pivot to main | **Accepted (BDFL decision)** |
+| [0017](0017-scope-check-exemption-register.md) | SPEC §0.3 scope check — exemption register + hard fail | **Accepted** |
 
 ## Template
 

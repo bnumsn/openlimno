@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -120,3 +122,228 @@ def test_partially_wet_segment() -> None:
     # Wetted only between x ≈ 0.89 and 3.11; T < 4.0
     assert 0 < T < 4.0
     assert A > 0
+
+
+# ---------------------------------------------------------------------
+# work_dir persistence: prepare/run/read_results must not use pickle.
+#
+# ``work_dir`` sits under the case's ``output.dir`` — the directory
+# OpenLimno asks users to archive, exchange and ``openlimno reproduce``.
+# When it held pickles, calling the public ``Builtin1D.read_results()`` on
+# somebody else's output directory was arbitrary code execution, which
+# flatly contradicts the path-sandbox / content-addressing posture the
+# rest of the project maintains.
+# ---------------------------------------------------------------------
+def _staged_case(tmp_path: Path) -> tuple[Builtin1D, list[CrossSection], list[float], Path]:
+    """prepare() a small multi-section, multi-discharge run directory."""
+    sections = [
+        CrossSection(
+            station_m=float(i) * 100.0,
+            # deliberately ragged: sections carry different point counts
+            distance_m=np.linspace(0.0, 6.0, 5 + i),
+            elevation_m=np.concatenate(
+                [
+                    np.linspace(3.0, 0.0, (5 + i) // 2),
+                    np.linspace(0.0, 3.0, 5 + i - (5 + i) // 2),
+                ]
+            ),
+            manning_n=0.030 + 0.001 * i,
+        )
+        for i in range(4)
+    ]
+    # irrational-ish discharges: the exact values case.py later uses as
+    # dict keys, so any float round-trip loss shows up immediately
+    discharges = [float(q) for q in np.logspace(0, 1.5, 8)]
+    work_dir = tmp_path / "hydro_work_builtin-1d"
+    solver = Builtin1D(slope=0.002)
+    solver.prepare(tmp_path / "case.yaml", work_dir, sections=sections, discharges_m3s=discharges)
+    return solver, sections, discharges, work_dir
+
+
+def test_work_dir_contains_no_pickle(tmp_path: Path) -> None:
+    """The staged run directory must be pure data — no *.pkl anywhere."""
+    solver, _, _, work_dir = _staged_case(tmp_path)
+    solver.run(work_dir)
+
+    assert list(work_dir.rglob("*.pkl")) == []
+    assert list(work_dir.rglob("*.pickle")) == []
+    names = {p.name for p in work_dir.iterdir()}
+    assert names == {
+        ".openlimno_prepared",
+        "config.json",
+        "sections.parquet",
+        "results.parquet",
+    }
+    # marker semantics preserved
+    assert (work_dir / ".openlimno_prepared").read_text().strip() == "builtin-1d"
+
+
+def test_results_round_trip_is_bit_exact(tmp_path: Path) -> None:
+    """read_results() must reproduce the in-memory solution bit for bit."""
+    solver, sections, discharges, work_dir = _staged_case(tmp_path)
+    reference = {q: solver.solve_reach(sections, float(q), slope=0.002) for q in discharges}
+
+    solver.run(work_dir)
+    restored = solver.read_results(work_dir)
+
+    assert list(restored.keys()) == list(reference.keys())
+    for q in discharges:
+        got = restored[q]
+        want = reference[q]
+        assert len(got) == len(want)
+        for a, b in zip(got, want, strict=True):
+            for field in (
+                "station_m",
+                "discharge_m3s",
+                "water_surface_m",
+                "depth_mean_m",
+                "velocity_mean_ms",
+                "area_m2",
+                "top_width_m",
+                "hydraulic_radius_m",
+            ):
+                # exact equality, not approx: this is deterministic arithmetic
+                # reloaded from disk, so any drift is a serialization defect
+                assert getattr(a, field) == getattr(b, field), field
+
+
+def test_discharge_keys_match_config_json_exactly(tmp_path: Path) -> None:
+    """Q keys must compare equal to config.json's discharges.
+
+    case.py indexes ``hydraulic_results[Q]`` with the discharges it holds in
+    memory; a key that is off by one ULP silently drops the whole flow.
+    """
+    import json
+
+    solver, _, discharges, work_dir = _staged_case(tmp_path)
+    solver.run(work_dir)
+    restored = solver.read_results(work_dir)
+
+    meta = json.loads((work_dir / "config.json").read_text())
+    assert meta["discharges_m3s"] == discharges
+    for q in meta["discharges_m3s"]:
+        assert q in restored, f"discharge {q!r} lost in round-trip"
+        assert restored[q], f"discharge {q!r} came back with no sections"
+    assert [float(k) for k in restored] == [float(q) for q in discharges]
+
+
+def test_sections_round_trip_preserves_ragged_geometry(tmp_path: Path) -> None:
+    """Variable-length station/elevation arrays survive prepare() -> run()."""
+    from openlimno.hydro.builtin_1d import _read_sections_parquet
+
+    _, sections, _, work_dir = _staged_case(tmp_path)
+    restored = _read_sections_parquet(work_dir / "sections.parquet")
+
+    assert len(restored) == len(sections)
+    for want, got in zip(sections, restored, strict=True):
+        assert got.station_m == want.station_m
+        assert got.manning_n == want.manning_n
+        assert np.array_equal(got.distance_m, want.distance_m)
+        assert np.array_equal(got.elevation_m, want.elevation_m)
+
+
+def test_standard_step_results_round_trip(tmp_path: Path) -> None:
+    """The backwater branch of run() persists through the same format."""
+    sections = [
+        CrossSection(
+            station_m=float(i) * 50.0,
+            distance_m=np.array([0.0, 1.0, 2.0, 3.0, 4.0]),
+            elevation_m=np.array([2.0, 0.4, 0.0, 0.4, 2.0]) + 0.05 * float(i),
+            manning_n=0.032,
+        )
+        for i in range(3)
+    ]
+    work_dir = tmp_path / "work"
+    solver = Builtin1D(slope=0.001)
+    solver.prepare(
+        tmp_path / "case.yaml",
+        work_dir,
+        sections=sections,
+        discharges_m3s=[2.5],
+        downstream_wse_m=0.8,
+    )
+    reference = solver.solve_standard_step(sections, 2.5, downstream_wse_m=0.8)
+    solver.run(work_dir)
+    restored = solver.read_results(work_dir)[2.5]
+
+    assert len(restored) == len(reference)
+    for got, want in zip(restored, reference, strict=True):
+        assert got == want
+
+
+def test_read_results_without_run_raises(tmp_path: Path) -> None:
+    solver, _, _, work_dir = _staged_case(tmp_path)
+    with pytest.raises(FileNotFoundError, match=r"No results\.parquet in .*was run\(\) called\?"):
+        solver.read_results(work_dir)
+
+
+def test_legacy_pickle_is_refused_and_never_executed(tmp_path: Path) -> None:
+    """A leftover results.pkl must raise, not be unpickled.
+
+    The payload below is a legitimate pickle whose *load* would call
+    ``Path.write_text``. If read_results() ever grows a pickle fallback,
+    the canary file appears and this test fails.
+    """
+    import pickle
+
+    canary = tmp_path / "canary.txt"
+
+    class _Payload:
+        def __reduce__(self) -> tuple[object, tuple[object, ...]]:
+            return (Path.write_text, (canary, "unpickled"))
+
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    (work_dir / ".openlimno_prepared").write_text("builtin-1d")
+    (work_dir / "results.pkl").write_bytes(pickle.dumps(_Payload()))
+
+    with pytest.raises(FileNotFoundError, match=r"legacy results\.pkl"):
+        Builtin1D().read_results(work_dir)
+    assert not canary.exists(), "results.pkl was unpickled — pickle path is back"
+
+
+def test_run_refuses_legacy_sections_pickle(tmp_path: Path) -> None:
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    (work_dir / ".openlimno_prepared").write_text("builtin-1d")
+    (work_dir / "config.json").write_text('{"discharges_m3s": [1.0], "slope": 0.001}')
+    (work_dir / "sections.pkl").write_bytes(b"\x80\x04N.")
+
+    with pytest.raises(FileNotFoundError, match=r"legacy sections\.pkl"):
+        Builtin1D().run(work_dir)
+
+
+def test_prepare_purges_legacy_pickles(tmp_path: Path) -> None:
+    """Re-preparing an old work_dir removes the stale (unreadable) pickles."""
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    (work_dir / "sections.pkl").write_bytes(b"\x80\x04N.")
+    (work_dir / "results.pkl").write_bytes(b"\x80\x04N.")
+
+    Builtin1D().prepare(
+        tmp_path / "case.yaml",
+        work_dir,
+        sections=[make_trapezoid_xs()],
+        discharges_m3s=[1.0],
+    )
+    assert list(work_dir.glob("*.pkl")) == []
+    assert (work_dir / "sections.parquet").exists()
+
+
+def test_empty_discharge_list_round_trips(tmp_path: Path) -> None:
+    work_dir = tmp_path / "work"
+    solver = Builtin1D()
+    solver.prepare(
+        tmp_path / "case.yaml", work_dir, sections=[make_trapezoid_xs()], discharges_m3s=[]
+    )
+    solver.run(work_dir)
+    assert solver.read_results(work_dir) == {}
+
+
+def test_discharge_with_no_sections_keeps_its_key(tmp_path: Path) -> None:
+    """A Q that solved to an empty section list stays a key with an empty list."""
+    work_dir = tmp_path / "work"
+    solver = Builtin1D()
+    solver.prepare(tmp_path / "case.yaml", work_dir, sections=[], discharges_m3s=[1.0, 2.0])
+    solver.run(work_dir)
+    assert solver.read_results(work_dir) == {1.0: [], 2.0: []}

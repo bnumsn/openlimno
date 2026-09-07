@@ -1,0 +1,113 @@
+{
+  "schema": "openlimno/vendor-provenance",
+  "schema_version": 1,
+  "description": "Provenance record for third-party binaries vendored into openlimno.fishtank. Field names in `records[]` deliberately mirror `openlimno.preprocess.fetch.sidecar.ExternalSourceRecord` (the `.openlimno_external_sources.json` sidecar) so the project speaks one provenance vocabulary for fetched data and for vendored code alike. Extra keys (`size_bytes`, `upstream`, `license`, `verification`) are vendor-specific additions.",
+  "path_base": "src/openlimno/fishtank/vendor",
+  "path_base_note": "`records[].produced_file` is relative to this directory (the directory holding PROVENANCE.json), the way sidecar `produced_file` is relative to its case_dir.",
+  "upstream": {
+    "name": "three.js",
+    "homepage": "https://threejs.org/",
+    "repository": "https://github.com/mrdoob/three.js",
+    "release_tag": "r165",
+    "version": "r165",
+    "npm_package": "three",
+    "npm_version": "0.165.0",
+    "release_notes": "https://github.com/mrdoob/three.js/releases/tag/r165",
+    "version_verified": true,
+    "version_evidence": [
+      "Byte-for-byte identity: the vendored file is identical (same 677935 bytes, same SHA-256) to `build/three.module.min.js` at upstream tag r165, fetched independently from two sources on 2026-09-04 (raw.githubusercontent.com at tag r165, and the npm artifact three@0.165.0 via unpkg). This alone pins the version.",
+      "In-bundle REVISION constant: the minified module opens with `const t=\"165\"` and its export map contains `t as REVISION`, i.e. `THREE.REVISION === \"165\"`. The same `t` is passed to `__THREE_DEVTOOLS__.dispatchEvent(new CustomEvent(\"register\",{detail:{revision:t}}))`, which is exactly how three.js core reports its revision.",
+      "Deprecation strings bracket the revision independently of REVISION: the bundle still contains `THREE.BufferAttribute: updateRange() is deprecated and will be removed in r169` and `THREE.WebGLMultipleRenderTargets has been deprecated and will be removed in r172` (so the build predates r169), it contains `THREE.LoaderUtils: decodeText() has been deprecated with r165 and will be removed with r175` (so the build is r165 or later), and `THREE.WebGLRenderer: WebGL 1 is not supported since r163` (so r163 or later). Intersection: exactly r165.",
+      "License header year range `Copyright 2010-2024 Three.js Authors` is consistent with r165 (released July 2024)."
+    ]
+  },
+  "license": {
+    "spdx_id": "MIT",
+    "holder": "three.js authors",
+    "copyright": "Copyright © 2010-2024 three.js authors",
+    "copyright_note": "Verbatim from THREE_LICENSE. The minified bundle's own header comment capitalises it differently (`Copyright 2010-2024 Three.js Authors`); both are upstream text, neither was edited here.",
+    "file": "THREE_LICENSE",
+    "upstream_file_url": "https://raw.githubusercontent.com/mrdoob/three.js/r165/LICENSE",
+    "verbatim": true,
+    "verbatim_note": "THREE_LICENSE is byte-identical to upstream LICENSE at tag r165 (sha256 4c40a1ef62450b857c3b2aaf294936304cd552d965fbcd9d32d4c5bcf4ba4454), verified 2026-09-04."
+  },
+  "why_vendored": "The fishtank Studio renders a 3D virtual aquarium in the browser. The course it supports is taught on student machines that are frequently offline or behind networks that cannot reach public CDNs, so the renderer cannot be loaded from unpkg/jsdelivr at class time. The runtime is therefore committed to the repository and served locally by the Studio HTTP server. No build step, no npm, no bundler: a single pre-minified ES module served verbatim.",
+  "modifications": "None. The file is served verbatim, byte-for-byte as published upstream; it has never been edited, patched, re-minified or re-bundled in this repository (its git history is a single add commit and the blob at that commit hashes to the value recorded below).",
+  "consumed_by": [
+    {
+      "file": "src/openlimno/fishtank/studio_http.py",
+      "detail": "serves it at the route `/assets/three.module.min.js` from `_VENDOR_DIR`"
+    },
+    {
+      "file": "src/openlimno/fishtank/studio_assets.py",
+      "detail": "the Studio page imports it: `import * as THREE from '/assets/three.module.min.js';`"
+    },
+    {
+      "file": "pyproject.toml",
+      "detail": "`[tool.hatch.build.targets.wheel.force-include]` copies the vendor files into the wheel"
+    }
+  ],
+  "verification": {
+    "algorithm": "sha256",
+    "last_verified": "2026-09-04",
+    "verified_against": [
+      "https://raw.githubusercontent.com/mrdoob/three.js/r165/build/three.module.min.js",
+      "https://unpkg.com/three@0.165.0/build/three.module.min.js"
+    ],
+    "offline_commands": [
+      "sha256sum src/openlimno/fishtank/vendor/three.module.min.js",
+      "pytest tests/unit/test_vendor_provenance.py -q"
+    ],
+    "refetch_commands": [
+      "curl -sSL -o /tmp/three.module.min.js https://raw.githubusercontent.com/mrdoob/three.js/r165/build/three.module.min.js",
+      "curl -sSL -o /tmp/THREE_LICENSE https://raw.githubusercontent.com/mrdoob/three.js/r165/LICENSE",
+      "sha256sum /tmp/three.module.min.js /tmp/THREE_LICENSE",
+      "cmp /tmp/three.module.min.js src/openlimno/fishtank/vendor/three.module.min.js",
+      "cmp /tmp/THREE_LICENSE src/openlimno/fishtank/vendor/THREE_LICENSE"
+    ],
+    "refetch_commands_npm_mirror": [
+      "curl -sSL -o /tmp/three.module.min.js https://unpkg.com/three@0.165.0/build/three.module.min.js",
+      "sha256sum /tmp/three.module.min.js"
+    ]
+  },
+  "records": [
+    {
+      "label": "three_js_runtime",
+      "source_type": "vendored_npm_release",
+      "source_url": "https://raw.githubusercontent.com/mrdoob/three.js/r165/build/three.module.min.js",
+      "mirror_url": "https://unpkg.com/three@0.165.0/build/three.module.min.js",
+      "fetch_time": "2026-05-29T08:17:31+08:00",
+      "fetch_time_note": "Filesystem mtime of the vendored file, which is the best available record of when it was placed in the tree; the file was first committed the same morning in c17835da8aef56cfbef8b64b11bbf853aeca23f9 (2026-05-29T10:06:33+08:00) and has not been touched since.",
+      "produced_file": "three.module.min.js",
+      "produced_sha256": "1af5bef9a9fd79fcb73fcfd3e4dd2ac0cea8720205bc7607d67369ce194a87fa",
+      "size_bytes": 677935,
+      "media_type": "text/javascript; charset=utf-8",
+      "recorded_in_commit": "c17835da8aef56cfbef8b64b11bbf853aeca23f9",
+      "params": {
+        "ref": "r165",
+        "npm_version": "0.165.0",
+        "build_artifact": "build/three.module.min.js",
+        "module_format": "esm",
+        "minified": true
+      },
+      "notes": "Official pre-minified ES-module build of three.js r165. Served to the browser by the fishtank Studio for the 3D virtual aquarium. Provenance for this file was reconstructed after the fact (2026-09-04) rather than recorded at vendoring time; see upstream.version_evidence for the chain."
+    },
+    {
+      "label": "three_js_license",
+      "source_type": "vendored_npm_release",
+      "source_url": "https://raw.githubusercontent.com/mrdoob/three.js/r165/LICENSE",
+      "mirror_url": "https://unpkg.com/three@0.165.0/LICENSE",
+      "fetch_time": "2026-05-29T08:17:31+08:00",
+      "produced_file": "THREE_LICENSE",
+      "produced_sha256": "4c40a1ef62450b857c3b2aaf294936304cd552d965fbcd9d32d4c5bcf4ba4454",
+      "size_bytes": 1081,
+      "media_type": "text/plain; charset=utf-8",
+      "recorded_in_commit": "c17835da8aef56cfbef8b64b11bbf853aeca23f9",
+      "params": {
+        "ref": "r165",
+        "npm_version": "0.165.0"
+      },
+      "notes": "Verbatim MIT license text shipped with three.js r165, kept alongside the runtime to satisfy the MIT attribution requirement in both the source tree and the built wheel."
+    }
+  ]
+}
