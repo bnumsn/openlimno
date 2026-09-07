@@ -2547,6 +2547,738 @@ def fetch(
     console.print(f"\n[green]✓[/] ran {n_ran} fetcher(s); case.yaml updated to WEDM 0.2")
 
 
+# ---------------------------------------------------------------------------
+# init-from-osm stage helpers
+#
+# ``init-from-osm`` is one long orchestration: locate the reach, build the
+# synthetic case, then run whichever ``--fetch-*`` fetchers the user asked
+# for. Each fetcher is an independent stage that parses its own option
+# string, calls into ``openlimno.preprocess.fetch``, records a sidecar
+# entry, and hands back the WEDM v0.2 ``data`` block it wants merged (or
+# ``None`` when it has no block to contribute). The stages are split out
+# here so the command body reads as the sequence it is.
+#
+# Every heavy import stays *inside* these helpers, exactly as it was inside
+# the command body: ``openlimno.cli`` is import-time-sensitive (see
+# LAZY_COMMANDS above and tests/unit/test_cli_lazy_import.py).
+# ---------------------------------------------------------------------------
+
+
+def _parse_osm_bbox(bbox: str | None) -> tuple[float, ...] | None:
+    """Parse ``--bbox`` into a 4-tuple; ``None`` when the option is absent."""
+    if not bbox:
+        return None
+    try:
+        bbox_parts = [float(x.strip()) for x in bbox.split(",")]
+        if len(bbox_parts) != 4:
+            raise ValueError
+        return tuple(bbox_parts)
+    except (ValueError, IndexError) as e:
+        raise click.BadParameter("--bbox must be 'lon_min,lat_min,lon_max,lat_max'") from e
+
+
+def _record_osm_mesh_fetch(
+    output_dir: str,
+    paths: dict[str, str],
+    *,
+    bbox_tuple: tuple[float, ...] | None,
+    river: str | None,
+    region: str,
+    n_sections: int,
+    reach_km: float,
+    descriptor: str,
+    osm_fetch_time: str,
+) -> None:
+    """Round-4 fix: record OSM as an external source.
+
+    The OSM Overpass dataset evolves continuously — two users running the
+    same init-from-osm 6 months apart can get different centerlines, and
+    the resulting mesh.ugrid.nc / cross_section.parquet will hash
+    differently. Without an OSM record in the sidecar, ``openlimno
+    reproduce`` would say "all SHAs match" on day-zero but provenance
+    silently loses the centerline-source provenance over time. This is the
+    transparency gap that motivated the sidecar in the first place.
+    """
+    from openlimno.preprocess.fetch import record_fetch as _rf
+    from openlimno.preprocess.osm_builder import build_overpass_query
+
+    # Round-5 fix: use osm_builder's canonical query string instead
+    # of re-deriving it here — the previous reconstruction
+    # diverged (`way["waterway"~"^(river|stream)$"]` vs the actual
+    # `way["waterway"]`, different output format), so the recorded
+    # query in provenance.json wouldn't actually replay the same
+    # Overpass call. Now we read it from the same source the real
+    # fetch uses; if osm_builder ever changes the query, this
+    # automatically stays in sync.
+    overpass_query = build_overpass_query(
+        bbox=bbox_tuple,
+        river_name=river,
+        region_name=region,
+    )
+    if bbox_tuple:
+        osm_params: dict[str, object] = {"bbox": list(bbox_tuple)}
+    else:
+        osm_params = {"river_name": river, "region_name": region}
+    _rf(
+        output_dir,
+        label="mesh_osm",
+        source_type="osm_overpass",
+        source_url="https://overpass-api.de/api/interpreter",
+        fetch_time=osm_fetch_time,
+        produced_file=Path(paths["mesh"]).relative_to(output_dir),
+        params={
+            **osm_params,
+            "n_sections": n_sections,
+            "reach_length_m": reach_km * 1000.0,
+            "overpass_query": overpass_query,
+        },
+        notes=(
+            f"OSM Overpass query — mesh.ugrid.nc derived from "
+            f"waterway polyline ({descriptor}). OSM is mutable; "
+            f"this record pins which dataset version produced the "
+            f"current mesh SHA."
+        ),
+    )
+
+
+def _osm_fetch_dem(
+    output_dir: str,
+    paths: dict[str, str],
+    *,
+    bbox_tuple: tuple[float, ...] | None,
+    n_sections: int,
+    valley_width: float,
+) -> str:
+    """Replace the synthesized V-sections with DEM-cut real bathymetry.
+
+    Returns the merged GeoTIFF path for the WEDM ``data.dem`` block.
+    """
+    if not bbox_tuple:
+        raise click.UsageError(
+            "--fetch-dem requires --bbox (DEM tile selection needs an "
+            "explicit lat/lon footprint). River-name mode would need "
+            "an extra geocoding step we haven't wired."
+        )
+    from openlimno.preprocess.fetch import (
+        clip_centerline_to_bbox,
+        cut_cross_sections_from_dem,
+        fetch_copernicus_dem,
+        record_fetch,
+    )
+    from openlimno.preprocess.osm_builder import fetch_river_polyline
+
+    console.print("[bold]Fetching Copernicus GLO-30 DEM for bbox...[/]")
+    dem = fetch_copernicus_dem(*bbox_tuple)
+    console.print(f"  → DEM {dem.n_tiles} tile(s), bounds {dem.bounds}")
+    polyline = clip_centerline_to_bbox(fetch_river_polyline(bbox=bbox_tuple), *bbox_tuple)
+    console.print(f"  → centerline clipped to bbox: {len(polyline)} verts")
+    xs_df = cut_cross_sections_from_dem(
+        dem.path,
+        polyline,
+        n_sections=n_sections,
+        section_width_m=valley_width,
+        points_per_section=21,
+    )
+    xs_df.to_parquet(paths["cross_section"], index=False)
+    console.print(
+        f"  → cross_section.parquet replaced with {xs_df['station_m'].nunique()} "
+        f"real DEM-cut sections (z range "
+        f"{xs_df['elevation_m'].min():.0f}–{xs_df['elevation_m'].max():.0f} m)"
+    )
+    # Record into sidecar for provenance.json
+    primary_ce = dem.cache_entries[0]
+    record_fetch(
+        output_dir,
+        label="cross_section_dem",
+        source_type="copernicus_dem",
+        source_url=primary_ce.source_url,
+        fetch_time=primary_ce.fetch_time,
+        produced_file=Path(paths["cross_section"]).relative_to(output_dir),
+        params={
+            "bbox": list(bbox_tuple),
+            "n_sections": n_sections,
+            "section_width_m": valley_width,
+            "n_tiles": dem.n_tiles,
+        },
+        notes=(
+            f"Copernicus GLO-30 DEM, {dem.n_tiles} tile(s); "
+            f"perpendicular xs cut along OSM centerline "
+            f"({len(polyline)} verts after bbox clip)"
+        ),
+    )
+    # WEDM v0.2: record raw DEM path under data.dem. The merged
+    # GeoTIFF lives in the cache; we don't copy it into case_dir
+    # (it'd duplicate ~50MB), but the path is still resolvable.
+    return str(dem.path)
+
+
+def _osm_fetch_discharge(
+    output_dir: str,
+    paths: dict[str, str],
+    *,
+    fetch_discharge: str,
+) -> None:
+    """Fetch a USGS NWIS daily series and wire it into case.yaml.
+
+    Unlike the other fetchers this one patches case.yaml directly rather
+    than contributing a WEDM ``data`` block, so it returns nothing.
+    """
+    import re
+
+    from openlimno.preprocess.fetch import (
+        fetch_nwis_daily_discharge,
+        record_fetch,
+    )
+
+    discharge_parts = fetch_discharge.split(":")
+    if len(discharge_parts) != 4 or discharge_parts[0] != "usgs-nwis":
+        raise click.UsageError(
+            f"--fetch-discharge must be 'usgs-nwis:SITE_ID:START:END' (got {fetch_discharge!r})"
+        )
+    _, site, start, end = discharge_parts
+    # Validate date format to avoid a silent 400 from NWIS — they
+    # require YYYY-MM-DD and we just pass through what the user
+    # typed (round-1 review).
+    date_pat = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    if not (date_pat.match(start) and date_pat.match(end)):
+        raise click.UsageError(
+            f"--fetch-discharge dates must be YYYY-MM-DD (got start={start!r} end={end!r})"
+        )
+    # Round-3 review: also enforce start <= end. NWIS returns
+    # a HTTP 400 for inverted ranges which surfaces as a noisy
+    # requests traceback; users get a much clearer local error.
+    if start > end:  # lexicographic OK for YYYY-MM-DD
+        raise click.UsageError(
+            f"--fetch-discharge start_date ({start}) must be on or before end_date ({end})"
+        )
+    # Site IDs are USGS station numbers (8–15 digits). Reject
+    # anything else upfront so the silent 400 is replaced by a
+    # clear local error.
+    if not re.match(r"^\d{8,15}$", site):
+        raise click.UsageError(f"--fetch-discharge site_id must be 8–15 digits (got {site!r})")
+    console.print(f"[bold]Fetching USGS NWIS site {site}, {start}..{end}...[/]")
+    nwis = fetch_nwis_daily_discharge(site, start, end)
+    console.print(
+        f"  → station: {nwis.station_name} ({nwis.station_lat:.4f}, {nwis.station_lon:.4f})"
+    )
+    q_path = Path(output_dir) / "data" / f"Q_{start[:4]}_{end[:4]}.csv"
+    nwis.df.to_csv(q_path, index=False)
+    console.print(f"  → discharge: {len(nwis.df)} days → {q_path.name}")
+    record_fetch(
+        output_dir,
+        label="discharge_nwis",
+        source_type="usgs_nwis",
+        source_url=nwis.cache.source_url,
+        fetch_time=nwis.cache.fetch_time,
+        produced_file=q_path.relative_to(output_dir),
+        params={
+            "site_id": site,
+            "start_date": start,
+            "end_date": end,
+            "parameterCd": "00060",
+        },
+        notes=(
+            f"USGS NWIS station {site} "
+            f"({nwis.station_name} {nwis.station_lat:.4f},{nwis.station_lon:.4f}); "
+            f"{len(nwis.df)} daily values"
+        ),
+    )
+    # P0 wire-in: edit case.yaml so the fetched CSV is actually
+    # consumed by the model run. Two changes:
+    #   1. data.rating_curve = data/<fetched>.csv  (matches Lemhi
+    #      reference schema; consumed by regulatory_export modules)
+    #   2. regulatory_export: [...]  ENABLED  (without this the
+    #      rating_curve is silently ignored by Case.run because
+    #      the regulatory step is opt-in via this top-level key).
+    # Without both edits the user's auto-fetch from NWIS sits
+    # dead-cold in data/ and `openlimno run` produces no eco-flow
+    # exports.
+    case_yaml_path = Path(paths["case_yaml"])
+    # v3.4.0 R13-3: ruamel.yaml round-trip preserves comments.
+    # 2026-05-20 R-DOC-AUDIT-WIRED (closes R18-4 here): route
+    # through the v3.0 sandbox via ``case=``.
+    from openlimno._yaml_rt import dump_round_trip, load_round_trip
+    from openlimno.case import Case as _Case
+
+    case_doc = load_round_trip(case_yaml_path)
+    if case_doc.get("data") is None:
+        case_doc["data"] = {}
+    case_doc["data"]["rating_curve"] = f"data/{q_path.name}"
+    if "regulatory_export" not in case_doc:
+        case_doc["regulatory_export"] = ["US-FERC-4e", "EU-WFD", "CN-SL712"]
+    _case = _Case(
+        config=dict(case_doc),
+        case_yaml_path=case_yaml_path.resolve(),
+    )
+    dump_round_trip(case_doc, case_yaml_path, case=_case)
+    console.print("  → wired into case.yaml: data.rating_curve + regulatory_export")
+
+
+def _osm_fetch_watershed(output_dir: str, *, fetch_watershed: str) -> dict[str, object]:
+    """Delineate the upstream catchment via HydroSHEDS HydroBASINS."""
+    from openlimno.preprocess.fetch import (
+        fetch_hydrobasins,
+        find_basin_at,
+        upstream_basin_ids,
+        write_watershed_geojson,
+    )
+    from openlimno.preprocess.fetch import (
+        record_fetch as _rfw,
+    )
+
+    wparts = fetch_watershed.split(":")
+    if not (4 <= len(wparts) <= 5) or wparts[0] != "hydrosheds":
+        raise click.UsageError(
+            "--fetch-watershed must be "
+            "'hydrosheds:REGION:LAT:LON[:LEVEL]' "
+            f"(got {fetch_watershed!r})"
+        )
+    w_region = wparts[1]
+    try:
+        w_lat = float(wparts[2])
+        w_lon = float(wparts[3])
+        w_level = int(wparts[4]) if len(wparts) == 5 else 12
+    except ValueError as e:
+        raise click.UsageError(
+            f"--fetch-watershed lat/lon must be decimal, "
+            f"level must be integer; got {fetch_watershed!r}"
+        ) from e
+    console.print(
+        f"[bold]Fetching HydroBASINS lev{w_level:02d} {w_region.upper()} "
+        f"@({w_lat:.4f}, {w_lon:.4f})…[/]"
+    )
+    layer = fetch_hydrobasins(region=w_region, level=w_level)
+    console.print(
+        f"  → shapefile {layer.shp_path.name} "
+        f"({'cache' if layer.cache.cache_hit else 'downloaded'})"
+    )
+    pour = find_basin_at(layer.shp_path, w_lat, w_lon)
+    if pour is None:
+        raise click.ClickException(
+            f"(lat={w_lat}, lon={w_lon}) falls outside HydroBASINS "
+            f"region {w_region.upper()} — check the region code."
+        )
+    pour_id = int(pour["HYBAS_ID"])
+    console.print(
+        f"  → pour-point basin HYBAS_ID={pour_id}, SUB_AREA={pour.get('SUB_AREA', 'n/a')} km²"
+    )
+    upstream = upstream_basin_ids(layer.shp_path, pour_id)
+    ws_path = Path(output_dir) / "data" / "watershed.geojson"
+    summary = write_watershed_geojson(layer.shp_path, upstream, ws_path)
+    console.print(
+        f"  → watershed: {summary['n_basins']} basins, "
+        f"{summary['area_km2']:.1f} km² → {ws_path.name}"
+    )
+    _rfw(
+        output_dir,
+        label="watershed_hydrosheds",
+        source_type="hydrosheds_hydrobasins",
+        source_url=layer.cache.source_url,
+        fetch_time=layer.cache.fetch_time,
+        produced_file=ws_path.relative_to(output_dir),
+        params={
+            "region": w_region,
+            "level": w_level,
+            "pour_lat": w_lat,
+            "pour_lon": w_lon,
+            "pour_hybas_id": pour_id,
+            "n_basins": summary["n_basins"],
+            "area_km2": summary["area_km2"],
+        },
+        notes=(
+            f"HydroSHEDS HydroBASINS v1c level {w_level} for "
+            f"{w_region.upper()}. Upstream catchment derived by "
+            f"walking NEXT_DOWN topology from pour-point basin "
+            f"HYBAS_ID={pour_id}. Citation: {layer.citation}"
+        ),
+    )
+    return {
+        "uri": str(ws_path.relative_to(output_dir)),
+        "pour_lat": w_lat,
+        "pour_lon": w_lon,
+        "pour_hybas_id": pour_id,
+        "region": w_region,
+        "level": w_level,
+        "n_basins": summary["n_basins"],
+        "area_km2": round(summary["area_km2"], 3),
+    }
+
+
+def _osm_fetch_species(output_dir: str, *, fetch_species: str) -> dict[str, object]:
+    """Match a GBIF taxon and pull georeferenced occurrences in a bbox."""
+    from openlimno.preprocess.fetch import (
+        fetch_gbif_occurrences,
+        match_species,
+    )
+    from openlimno.preprocess.fetch import (
+        record_fetch as _rfsp,
+    )
+
+    # Format: gbif:SCIENTIFIC_NAME:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX
+    # Scientific names contain spaces but never colons, so naive
+    # split-by-':' works. We expect exactly 6 parts.
+    spparts = fetch_species.split(":")
+    if len(spparts) != 6 or spparts[0] != "gbif":
+        raise click.UsageError(
+            "--fetch-species must be "
+            "'gbif:SCIENTIFIC_NAME:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX' "
+            f"(got {fetch_species!r})"
+        )
+    sp_name = spparts[1].strip()
+    try:
+        sp_bbox = (
+            float(spparts[2]),
+            float(spparts[3]),
+            float(spparts[4]),
+            float(spparts[5]),
+        )
+    except ValueError as e:
+        raise click.UsageError(
+            f"--fetch-species bbox values must be decimal; got {fetch_species!r}"
+        ) from e
+    console.print(f"[bold]Matching GBIF taxon for {sp_name!r}…[/]")
+    m = match_species(sp_name)
+    if m.usage_key is None or m.match_type == "NONE":
+        raise click.ClickException(
+            f"GBIF could not match {sp_name!r} (match_type={m.match_type}). Check spelling."
+        )
+    console.print(
+        f"  → usageKey={m.usage_key} ({m.canonical_name}, "
+        f"{m.match_type}, confidence {m.confidence}); "
+        f"family={m.family}, order={m.order}"
+    )
+    console.print(f"[bold]Fetching GBIF occurrences in bbox {sp_bbox}…[/]")
+    occ = fetch_gbif_occurrences(m.usage_key, sp_bbox)
+    sp_path = Path(output_dir) / "data" / f"species_gbif_{m.usage_key}.csv"
+    sp_path.parent.mkdir(parents=True, exist_ok=True)
+    occ.df.to_csv(sp_path, index=False)
+    console.print(
+        f"  → {len(occ.df)} occurrences pulled "
+        f"(GBIF total in bbox: {occ.total_matched:,} across "
+        f"{occ.n_pages_fetched} page(s)) → {sp_path.name}"
+    )
+    # First page's cache entry stands in as the canonical fetch
+    # record; subsequent pages' SHAs go in params for audit.
+    primary_cache = occ.cache[0] if occ.cache else None
+    _rfsp(
+        output_dir,
+        label=f"species_gbif_{m.usage_key}",
+        source_type="gbif_occurrence",
+        source_url=(
+            primary_cache.source_url
+            if primary_cache
+            else "https://api.gbif.org/v1/occurrence/search"
+        ),
+        fetch_time=primary_cache.fetch_time if primary_cache else "",
+        produced_file=sp_path.relative_to(output_dir),
+        params={
+            "scientific_name": sp_name,
+            "canonical_name": m.canonical_name,
+            "usage_key": m.usage_key,
+            "match_type": m.match_type,
+            "confidence": m.confidence,
+            "family": m.family,
+            "order": m.order,
+            "bbox": list(sp_bbox),
+            "occurrence_count_returned": len(occ.df),
+            "occurrence_count_total": occ.total_matched,
+            "pages_fetched": occ.n_pages_fetched,
+            "page_shas": [c.sha256[:16] for c in occ.cache],
+        },
+        notes=(
+            f"GBIF taxon match + occurrence search inside bbox. "
+            f"Per-row license varies by source dataset — see "
+            f"data/species_*.csv 'license' column for re-use "
+            f"terms. Citation: {m.citation}"
+        ),
+    )
+    return {
+        "uri": str(sp_path.relative_to(output_dir)),
+        "scientific_name": sp_name,
+        "canonical_name": m.canonical_name,
+        "usage_key": int(m.usage_key),
+        "family": m.family,
+        "order": m.order,
+        "match_type": m.match_type,
+        "confidence": int(m.confidence) if m.confidence is not None else 0,
+        "occurrence_count_returned": len(occ.df),
+        "occurrence_count_total": int(occ.total_matched),
+    }
+
+
+def _osm_fetch_soil(output_dir: str, *, fetch_soil: str) -> dict[str, object]:
+    """Pull ISRIC SoilGrids 2.0 point properties."""
+    from openlimno.preprocess.fetch import (
+        fetch_soilgrids,
+    )
+    from openlimno.preprocess.fetch import (
+        record_fetch as _rfs,
+    )
+
+    sparts = fetch_soil.split(":")
+    if len(sparts) != 3 or sparts[0] != "soilgrids":
+        raise click.UsageError(f"--fetch-soil must be 'soilgrids:LAT:LON' (got {fetch_soil!r})")
+    try:
+        s_lat = float(sparts[1])
+        s_lon = float(sparts[2])
+    except ValueError as e:
+        raise click.UsageError(f"--fetch-soil lat/lon must be decimal; got {fetch_soil!r}") from e
+    console.print(f"[bold]Fetching SoilGrids @({s_lat:.4f}, {s_lon:.4f})…[/]")
+    sg = fetch_soilgrids(s_lat, s_lon)
+    soil_path = Path(output_dir) / "data" / "soil.csv"
+    soil_path.parent.mkdir(parents=True, exist_ok=True)
+    sg.df.to_csv(soil_path, index=False)
+    # Console summary: clay/sand/silt at the top depth.
+    try:
+        clay = sg.get("clay", "0-5cm")
+        sand = sg.get("sand", "0-5cm")
+        silt = sg.get("silt", "0-5cm")
+        ph = sg.get("phh2o", "0-5cm")
+        console.print(
+            f"  → top 0-5 cm: clay {clay:.0f} g/kg, "
+            f"sand {sand:.0f} g/kg, silt {silt:.0f} g/kg, "
+            f"pH {ph:.1f}"
+        )
+    except KeyError:
+        console.print(f"  → {len(sg.df)} (property, depth) values")
+    _rfs(
+        output_dir,
+        label="soil_soilgrids",
+        source_type="isric_soilgrids_v2",
+        source_url=sg.cache.source_url,
+        fetch_time=sg.cache.fetch_time,
+        produced_file=soil_path.relative_to(output_dir),
+        params={
+            "lat": s_lat,
+            "lon": s_lon,
+            "n_rows": len(sg.df),
+            "properties": sorted(sg.df["property"].unique().tolist()),
+            "depths": sorted(sg.df["depth"].unique().tolist()),
+            "statistic": (sg.df["statistic"].iloc[0] if len(sg.df) else None),
+        },
+        notes=(
+            f"ISRIC SoilGrids 2.0 point query (250 m grid). Top "
+            f"0-30 cm layers, posterior mean. Citation: "
+            f"{sg.citation}"
+        ),
+    )
+    return {
+        "uri": str(soil_path.relative_to(output_dir)),
+        "lat": s_lat,
+        "lon": s_lon,
+        "properties": sorted(sg.df["property"].unique().tolist()),
+        "depths": sorted(sg.df["depth"].unique().tolist()),
+        "statistic": (str(sg.df["statistic"].iloc[0]) if len(sg.df) else "mean"),
+    }
+
+
+def _osm_fetch_lulc(output_dir: str, *, fetch_lulc: str) -> dict[str, object]:
+    """Pull ESA WorldCover 10 m land cover for a bbox."""
+    from openlimno.preprocess.fetch import (
+        WORLDCOVER_CLASSES,
+        fetch_esa_worldcover,
+    )
+    from openlimno.preprocess.fetch import (
+        record_fetch as _rfl,
+    )
+
+    lparts = fetch_lulc.split(":")
+    if not (5 <= len(lparts) <= 6) or lparts[0] != "worldcover":
+        raise click.UsageError(
+            "--fetch-lulc must be "
+            "'worldcover:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX[:YEAR]' "
+            f"(got {fetch_lulc!r})"
+        )
+    try:
+        l_lon_min = float(lparts[1])
+        l_lat_min = float(lparts[2])
+        l_lon_max = float(lparts[3])
+        l_lat_max = float(lparts[4])
+        l_year = int(lparts[5]) if len(lparts) == 6 else 2021
+    except ValueError as e:
+        raise click.UsageError(
+            f"--fetch-lulc bbox values must be decimal, year integer; got {fetch_lulc!r}"
+        ) from e
+    console.print(
+        f"[bold]Fetching ESA WorldCover {l_year} for bbox "
+        f"({l_lon_min:.3f}, {l_lat_min:.3f}, {l_lon_max:.3f}, "
+        f"{l_lat_max:.3f})…[/]"
+    )
+    wc = fetch_esa_worldcover(
+        l_lon_min,
+        l_lat_min,
+        l_lon_max,
+        l_lat_max,
+        year=l_year,
+    )
+    console.print(
+        f"  → {wc.n_tiles} tile(s), version {wc.version}, {sum(wc.class_pixels.values()):,} pixels"
+    )
+    # Move/rename into case_dir/data/lulc.tif so it lives with the case.
+    import shutil as _shutil
+
+    lulc_path = Path(output_dir) / "data" / f"lulc_{l_year}.tif"
+    lulc_path.parent.mkdir(parents=True, exist_ok=True)
+    if wc.path != lulc_path:
+        _shutil.copy(wc.path, lulc_path)
+    # Top 3 classes for the console summary.
+    top = sorted(
+        wc.class_km2.items(),
+        key=lambda kv: kv[1],
+        reverse=True,
+    )[:3]
+    top_str = ", ".join(f"{WORLDCOVER_CLASSES[c]} {km:.1f} km²" for c, km in top)
+    console.print(f"  → top classes: {top_str}")
+    # Sidecar: store the full histogram for downstream stats.
+    _rfl(
+        output_dir,
+        label=f"lulc_worldcover_{l_year}",
+        source_type="esa_worldcover",
+        source_url=wc.cache_entries[0].source_url
+        if wc.cache_entries
+        else f"https://esa-worldcover.s3.eu-central-1.amazonaws.com/{wc.version}/{l_year}/map/",
+        fetch_time=wc.cache_entries[0].fetch_time if wc.cache_entries else "",
+        produced_file=lulc_path.relative_to(output_dir),
+        params={
+            "bbox": [l_lon_min, l_lat_min, l_lon_max, l_lat_max],
+            "year": l_year,
+            "version": wc.version,
+            "n_tiles": wc.n_tiles,
+            "class_pixels": {str(k): v for k, v in wc.class_pixels.items()},
+            "class_km2": {str(k): round(v, 6) for k, v in wc.class_km2.items()},
+        },
+        notes=(
+            f"ESA WorldCover 10 m {l_year} ({wc.version}). 11-class "
+            f"LCCS schema (codes 10..100; see WORLDCOVER_CLASSES). "
+            f"Pixel area uses cos(lat) shrinkage at bbox centroid — "
+            f"adequate for fraction summaries, not equal-area exact. "
+            f"Citation: {wc.citation}"
+        ),
+    )
+    return {
+        "uri": str(lulc_path.relative_to(output_dir)),
+        "year": l_year,
+        "version": wc.version,
+        "class_km2": {str(k): round(v, 6) for k, v in wc.class_km2.items()},
+    }
+
+
+def _osm_fetch_climate(output_dir: str, *, fetch_climate: str) -> dict[str, object]:
+    """Pull a daily climate series from Daymet or Open-Meteo."""
+    from openlimno.preprocess.fetch import (
+        fetch_daymet_daily,
+        fetch_open_meteo_daily,
+    )
+    from openlimno.preprocess.fetch import (
+        record_fetch as _rfc,
+    )
+
+    cparts = fetch_climate.split(":")
+    valid_sources = {"daymet", "open-meteo"}
+    if len(cparts) != 5 or cparts[0] not in valid_sources:
+        raise click.UsageError(
+            "--fetch-climate must be '<source>:LAT:LON:START_YEAR:END_YEAR' "
+            f"with source ∈ {sorted(valid_sources)} (got {fetch_climate!r})"
+        )
+    source, lat_s, lon_s, sy_s, ey_s = cparts
+    try:
+        c_lat = float(lat_s)
+        c_lon = float(lon_s)
+        c_sy = int(sy_s)
+        c_ey = int(ey_s)
+    except ValueError as e:
+        raise click.UsageError(
+            f"--fetch-climate lat/lon must be decimal, years must be integer; got {fetch_climate!r}"
+        ) from e
+    if c_sy > c_ey:
+        raise click.UsageError(f"--fetch-climate start_year ({c_sy}) must be ≤ end_year ({c_ey})")
+
+    if source == "daymet":
+        console.print(f"[bold]Fetching Daymet ({c_lat:.4f}, {c_lon:.4f}) {c_sy}–{c_ey}…[/]")
+        res = fetch_daymet_daily(c_lat, c_lon, c_sy, c_ey)
+        console.print(
+            f"  → snapped to Daymet pixel ({res.lat:.4f}, {res.lon:.4f}), "
+            f"tile {res.tile_id}, elev {res.elevation_m:.0f} m"
+        )
+        label = "climate_daymet"
+        source_type = "daymet_v4"
+        notes = (
+            f"Daymet v4 (Thornton et al. ORNL DAAC, tile {res.tile_id}). "
+            f"T_water column = Stefan & Preud'homme 1993 air→water "
+            f"linear model (a=5.0, b=0.75) — unshaded mid-latitude "
+            f"default; basin-specific calibration recommended."
+        )
+    else:  # open-meteo
+        console.print(f"[bold]Fetching Open-Meteo ({c_lat:.4f}, {c_lon:.4f}) {c_sy}–{c_ey}…[/]")
+        res = fetch_open_meteo_daily(c_lat, c_lon, c_sy, c_ey)
+        console.print(
+            f"  → snapped to Open-Meteo cell ({res.lat:.4f}, {res.lon:.4f}), "
+            f"elev {res.elevation_m:.0f} m, tz {res.timezone}"
+        )
+        label = "climate_open_meteo"
+        source_type = "open_meteo_archive"
+        notes = (
+            f"Open-Meteo archive (ERA5/ERA5-Land backend, "
+            f"Hersbach et al. 2020). T_water column = Stefan & "
+            f"Preud'homme 1993 (a=5.0, b=0.75) — unshaded "
+            f"mid-latitude default; basin-specific calibration "
+            f"recommended. Citation: {res.citation}"
+        )
+
+    clim_path = Path(output_dir) / "data" / f"climate_{c_sy}_{c_ey}.csv"
+    res.df.to_csv(clim_path, index=False)
+    console.print(
+        f"  → climate: {len(res.df)} days "
+        f"(air mean {res.df['T_air_C_mean'].mean():.1f} °C, "
+        f"peak water {res.df['T_water_C_stefan'].max():.1f} °C "
+        f"via Stefan 1993) → {clim_path.name}"
+    )
+    _rfc(
+        output_dir,
+        label=label,
+        source_type=source_type,
+        source_url=res.cache.source_url,
+        fetch_time=res.cache.fetch_time,
+        produced_file=clim_path.relative_to(output_dir),
+        params={
+            "lat": c_lat,
+            "lon": c_lon,
+            "start_year": c_sy,
+            "end_year": c_ey,
+        },
+        notes=notes,
+    )
+    return {
+        "uri": str(clim_path.relative_to(output_dir)),
+        "source": source,
+        "lat": c_lat,
+        "lon": c_lon,
+        "start_year": c_sy,
+        "end_year": c_ey,
+    }
+
+
+def _apply_wedm_v02_patches(paths: dict[str, str], patches: dict[str, dict]) -> None:
+    """WEDM v0.2 patch pass: fold collected fetch outputs into case.yaml.
+
+    The case then self-describes the data it was built from. v0.1 cases
+    that didn't use any fetcher remain on '0.1' (no patch).
+    """
+    import yaml as _yaml_v02
+
+    case_yaml_path = Path(paths["case_yaml"])
+    case_doc = _yaml_v02.safe_load(case_yaml_path.read_text()) or {}
+    case_doc["openlimno"] = "0.2"
+    if "case_bbox" in patches:
+        case_doc.setdefault("case", {})["bbox"] = patches["case_bbox"]
+    if patches["data"]:
+        case_doc.setdefault("data", {}).update(patches["data"])
+    case_yaml_path.write_text(_yaml_v02.safe_dump(case_doc, sort_keys=False, allow_unicode=True))
+    console.print(
+        f"  → case.yaml bumped to WEDM 0.2 with {len(patches['data'])} fetched data block(s)"
+    )
+
+
 @main.command("init-from-osm")
 @click.option(
     "--river",
@@ -2691,15 +3423,7 @@ def init_from_osm(
     """
     from openlimno.preprocess.osm_builder import OSMCaseSpec, build_case
 
-    bbox_tuple = None
-    if bbox:
-        try:
-            bbox_parts = [float(x.strip()) for x in bbox.split(",")]
-            if len(bbox_parts) != 4:
-                raise ValueError
-            bbox_tuple = tuple(bbox_parts)
-        except (ValueError, IndexError) as e:
-            raise click.BadParameter("--bbox must be 'lon_min,lat_min,lon_max,lat_max'") from e
+    bbox_tuple = _parse_osm_bbox(bbox)
 
     if not (river or bbox_tuple or polyline_path):
         raise click.UsageError("Provide --river, --bbox, or --polyline")
@@ -2734,670 +3458,57 @@ def init_from_osm(
     osm_fetch_time = _time.strftime("%Y-%m-%dT%H:%M:%S%z")
     paths = build_case(spec, output_dir)
 
-    # Round-4 fix: record OSM as an external source. The OSM Overpass
-    # dataset evolves continuously — two users running the same
-    # init-from-osm 6 months apart can get different centerlines, and
-    # the resulting mesh.ugrid.nc / cross_section.parquet will hash
-    # differently. Without an OSM record in the sidecar, ``openlimno
-    # reproduce`` would say "all SHAs match" on day-zero but provenance
-    # silently loses the centerline-source provenance over time. This
-    # is the transparency gap that motivated the sidecar in the first
-    # place.
     if not polyline_path:  # only when we actually hit OSM Overpass
-        from openlimno.preprocess.fetch import record_fetch as _rf
-        from openlimno.preprocess.osm_builder import build_overpass_query
-
-        # Round-5 fix: use osm_builder's canonical query string instead
-        # of re-deriving it here — the previous reconstruction
-        # diverged (`way["waterway"~"^(river|stream)$"]` vs the actual
-        # `way["waterway"]`, different output format), so the recorded
-        # query in provenance.json wouldn't actually replay the same
-        # Overpass call. Now we read it from the same source the real
-        # fetch uses; if osm_builder ever changes the query, this
-        # automatically stays in sync.
-        overpass_query = build_overpass_query(
-            bbox=bbox_tuple,
-            river_name=river,
-            region_name=region,
-        )
-        if bbox_tuple:
-            osm_params: dict[str, object] = {"bbox": list(bbox_tuple)}
-        else:
-            osm_params = {"river_name": river, "region_name": region}
-        _rf(
+        _record_osm_mesh_fetch(
             output_dir,
-            label="mesh_osm",
-            source_type="osm_overpass",
-            source_url="https://overpass-api.de/api/interpreter",
-            fetch_time=osm_fetch_time,
-            produced_file=Path(paths["mesh"]).relative_to(output_dir),
-            params={
-                **osm_params,
-                "n_sections": n_sections,
-                "reach_length_m": reach_km * 1000.0,
-                "overpass_query": overpass_query,
-            },
-            notes=(
-                f"OSM Overpass query — mesh.ugrid.nc derived from "
-                f"waterway polyline ({descriptor}). OSM is mutable; "
-                f"this record pins which dataset version produced the "
-                f"current mesh SHA."
-            ),
+            paths,
+            bbox_tuple=bbox_tuple,
+            river=river,
+            region=region,
+            n_sections=n_sections,
+            reach_km=reach_km,
+            descriptor=descriptor,
+            osm_fetch_time=osm_fetch_time,
         )
 
     # v0.3 P0: optional online fetches that REPLACE the synthesized
     # V-section cross_section.parquet and the placeholder Q_2024.csv
     # with real-world data.
     if fetch_dem != "none":
-        if not bbox_tuple:
-            raise click.UsageError(
-                "--fetch-dem requires --bbox (DEM tile selection needs an "
-                "explicit lat/lon footprint). River-name mode would need "
-                "an extra geocoding step we haven't wired."
-            )
-        from openlimno.preprocess.fetch import (
-            clip_centerline_to_bbox,
-            cut_cross_sections_from_dem,
-            fetch_copernicus_dem,
-            record_fetch,
-        )
-        from openlimno.preprocess.osm_builder import fetch_river_polyline
-
-        console.print("[bold]Fetching Copernicus GLO-30 DEM for bbox...[/]")
-        dem = fetch_copernicus_dem(*bbox_tuple)
-        console.print(f"  → DEM {dem.n_tiles} tile(s), bounds {dem.bounds}")
-        polyline = clip_centerline_to_bbox(fetch_river_polyline(bbox=bbox_tuple), *bbox_tuple)
-        console.print(f"  → centerline clipped to bbox: {len(polyline)} verts")
-        xs_df = cut_cross_sections_from_dem(
-            dem.path,
-            polyline,
-            n_sections=n_sections,
-            section_width_m=valley_width,
-            points_per_section=21,
-        )
-        xs_df.to_parquet(paths["cross_section"], index=False)
-        console.print(
-            f"  → cross_section.parquet replaced with {xs_df['station_m'].nunique()} "
-            f"real DEM-cut sections (z range "
-            f"{xs_df['elevation_m'].min():.0f}–{xs_df['elevation_m'].max():.0f} m)"
-        )
-        # Record into sidecar for provenance.json
-        primary_ce = dem.cache_entries[0]
-        record_fetch(
+        _wedm_patches["data"]["dem"] = _osm_fetch_dem(
             output_dir,
-            label="cross_section_dem",
-            source_type="copernicus_dem",
-            source_url=primary_ce.source_url,
-            fetch_time=primary_ce.fetch_time,
-            produced_file=Path(paths["cross_section"]).relative_to(output_dir),
-            params={
-                "bbox": list(bbox_tuple),
-                "n_sections": n_sections,
-                "section_width_m": valley_width,
-                "n_tiles": dem.n_tiles,
-            },
-            notes=(
-                f"Copernicus GLO-30 DEM, {dem.n_tiles} tile(s); "
-                f"perpendicular xs cut along OSM centerline "
-                f"({len(polyline)} verts after bbox clip)"
-            ),
+            paths,
+            bbox_tuple=bbox_tuple,
+            n_sections=n_sections,
+            valley_width=valley_width,
         )
-        # WEDM v0.2: record raw DEM path under data.dem. The merged
-        # GeoTIFF lives in the cache; we don't copy it into case_dir
-        # (it'd duplicate ~50MB), but the path is still resolvable.
-        _wedm_patches["data"]["dem"] = str(dem.path)
 
     if fetch_discharge:
-        import re
-
-        from openlimno.preprocess.fetch import (
-            fetch_nwis_daily_discharge,
-            record_fetch,
-        )
-
-        discharge_parts = fetch_discharge.split(":")
-        if len(discharge_parts) != 4 or discharge_parts[0] != "usgs-nwis":
-            raise click.UsageError(
-                f"--fetch-discharge must be 'usgs-nwis:SITE_ID:START:END' (got {fetch_discharge!r})"
-            )
-        _, site, start, end = discharge_parts
-        # Validate date format to avoid a silent 400 from NWIS — they
-        # require YYYY-MM-DD and we just pass through what the user
-        # typed (round-1 review).
-        date_pat = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-        if not (date_pat.match(start) and date_pat.match(end)):
-            raise click.UsageError(
-                f"--fetch-discharge dates must be YYYY-MM-DD (got start={start!r} end={end!r})"
-            )
-        # Round-3 review: also enforce start <= end. NWIS returns
-        # a HTTP 400 for inverted ranges which surfaces as a noisy
-        # requests traceback; users get a much clearer local error.
-        if start > end:  # lexicographic OK for YYYY-MM-DD
-            raise click.UsageError(
-                f"--fetch-discharge start_date ({start}) must be on or before end_date ({end})"
-            )
-        # Site IDs are USGS station numbers (8–15 digits). Reject
-        # anything else upfront so the silent 400 is replaced by a
-        # clear local error.
-        if not re.match(r"^\d{8,15}$", site):
-            raise click.UsageError(f"--fetch-discharge site_id must be 8–15 digits (got {site!r})")
-        console.print(f"[bold]Fetching USGS NWIS site {site}, {start}..{end}...[/]")
-        nwis = fetch_nwis_daily_discharge(site, start, end)
-        console.print(
-            f"  → station: {nwis.station_name} ({nwis.station_lat:.4f}, {nwis.station_lon:.4f})"
-        )
-        q_path = Path(output_dir) / "data" / f"Q_{start[:4]}_{end[:4]}.csv"
-        nwis.df.to_csv(q_path, index=False)
-        console.print(f"  → discharge: {len(nwis.df)} days → {q_path.name}")
-        record_fetch(
-            output_dir,
-            label="discharge_nwis",
-            source_type="usgs_nwis",
-            source_url=nwis.cache.source_url,
-            fetch_time=nwis.cache.fetch_time,
-            produced_file=q_path.relative_to(output_dir),
-            params={
-                "site_id": site,
-                "start_date": start,
-                "end_date": end,
-                "parameterCd": "00060",
-            },
-            notes=(
-                f"USGS NWIS station {site} "
-                f"({nwis.station_name} {nwis.station_lat:.4f},{nwis.station_lon:.4f}); "
-                f"{len(nwis.df)} daily values"
-            ),
-        )
-        # P0 wire-in: edit case.yaml so the fetched CSV is actually
-        # consumed by the model run. Two changes:
-        #   1. data.rating_curve = data/<fetched>.csv  (matches Lemhi
-        #      reference schema; consumed by regulatory_export modules)
-        #   2. regulatory_export: [...]  ENABLED  (without this the
-        #      rating_curve is silently ignored by Case.run because
-        #      the regulatory step is opt-in via this top-level key).
-        # Without both edits the user's auto-fetch from NWIS sits
-        # dead-cold in data/ and `openlimno run` produces no eco-flow
-        # exports.
-        case_yaml_path = Path(paths["case_yaml"])
-        # v3.4.0 R13-3: ruamel.yaml round-trip preserves comments.
-        # 2026-05-20 R-DOC-AUDIT-WIRED (closes R18-4 here): route
-        # through the v3.0 sandbox via ``case=``.
-        from openlimno._yaml_rt import dump_round_trip, load_round_trip
-        from openlimno.case import Case as _Case
-
-        case_doc = load_round_trip(case_yaml_path)
-        if case_doc.get("data") is None:
-            case_doc["data"] = {}
-        case_doc["data"]["rating_curve"] = f"data/{q_path.name}"
-        if "regulatory_export" not in case_doc:
-            case_doc["regulatory_export"] = ["US-FERC-4e", "EU-WFD", "CN-SL712"]
-        _case = _Case(
-            config=dict(case_doc),
-            case_yaml_path=case_yaml_path.resolve(),
-        )
-        dump_round_trip(case_doc, case_yaml_path, case=_case)
-        console.print("  → wired into case.yaml: data.rating_curve + regulatory_export")
+        _osm_fetch_discharge(output_dir, paths, fetch_discharge=fetch_discharge)
 
     if fetch_watershed:
-        from openlimno.preprocess.fetch import (
-            fetch_hydrobasins,
-            find_basin_at,
-            upstream_basin_ids,
-            write_watershed_geojson,
+        _wedm_patches["data"]["watershed"] = _osm_fetch_watershed(
+            output_dir, fetch_watershed=fetch_watershed
         )
-        from openlimno.preprocess.fetch import (
-            record_fetch as _rfw,
-        )
-
-        wparts = fetch_watershed.split(":")
-        if not (4 <= len(wparts) <= 5) or wparts[0] != "hydrosheds":
-            raise click.UsageError(
-                "--fetch-watershed must be "
-                "'hydrosheds:REGION:LAT:LON[:LEVEL]' "
-                f"(got {fetch_watershed!r})"
-            )
-        w_region = wparts[1]
-        try:
-            w_lat = float(wparts[2])
-            w_lon = float(wparts[3])
-            w_level = int(wparts[4]) if len(wparts) == 5 else 12
-        except ValueError as e:
-            raise click.UsageError(
-                f"--fetch-watershed lat/lon must be decimal, "
-                f"level must be integer; got {fetch_watershed!r}"
-            ) from e
-        console.print(
-            f"[bold]Fetching HydroBASINS lev{w_level:02d} {w_region.upper()} "
-            f"@({w_lat:.4f}, {w_lon:.4f})…[/]"
-        )
-        layer = fetch_hydrobasins(region=w_region, level=w_level)
-        console.print(
-            f"  → shapefile {layer.shp_path.name} "
-            f"({'cache' if layer.cache.cache_hit else 'downloaded'})"
-        )
-        pour = find_basin_at(layer.shp_path, w_lat, w_lon)
-        if pour is None:
-            raise click.ClickException(
-                f"(lat={w_lat}, lon={w_lon}) falls outside HydroBASINS "
-                f"region {w_region.upper()} — check the region code."
-            )
-        pour_id = int(pour["HYBAS_ID"])
-        console.print(
-            f"  → pour-point basin HYBAS_ID={pour_id}, SUB_AREA={pour.get('SUB_AREA', 'n/a')} km²"
-        )
-        upstream = upstream_basin_ids(layer.shp_path, pour_id)
-        ws_path = Path(output_dir) / "data" / "watershed.geojson"
-        summary = write_watershed_geojson(layer.shp_path, upstream, ws_path)
-        console.print(
-            f"  → watershed: {summary['n_basins']} basins, "
-            f"{summary['area_km2']:.1f} km² → {ws_path.name}"
-        )
-        _rfw(
-            output_dir,
-            label="watershed_hydrosheds",
-            source_type="hydrosheds_hydrobasins",
-            source_url=layer.cache.source_url,
-            fetch_time=layer.cache.fetch_time,
-            produced_file=ws_path.relative_to(output_dir),
-            params={
-                "region": w_region,
-                "level": w_level,
-                "pour_lat": w_lat,
-                "pour_lon": w_lon,
-                "pour_hybas_id": pour_id,
-                "n_basins": summary["n_basins"],
-                "area_km2": summary["area_km2"],
-            },
-            notes=(
-                f"HydroSHEDS HydroBASINS v1c level {w_level} for "
-                f"{w_region.upper()}. Upstream catchment derived by "
-                f"walking NEXT_DOWN topology from pour-point basin "
-                f"HYBAS_ID={pour_id}. Citation: {layer.citation}"
-            ),
-        )
-        _wedm_patches["data"]["watershed"] = {
-            "uri": str(ws_path.relative_to(output_dir)),
-            "pour_lat": w_lat,
-            "pour_lon": w_lon,
-            "pour_hybas_id": pour_id,
-            "region": w_region,
-            "level": w_level,
-            "n_basins": summary["n_basins"],
-            "area_km2": round(summary["area_km2"], 3),
-        }
 
     if fetch_species:
-        from openlimno.preprocess.fetch import (
-            fetch_gbif_occurrences,
-            match_species,
+        _wedm_patches["data"]["species_occurrences"] = _osm_fetch_species(
+            output_dir, fetch_species=fetch_species
         )
-        from openlimno.preprocess.fetch import (
-            record_fetch as _rfsp,
-        )
-
-        # Format: gbif:SCIENTIFIC_NAME:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX
-        # Scientific names contain spaces but never colons, so naive
-        # split-by-':' works. We expect exactly 6 parts.
-        spparts = fetch_species.split(":")
-        if len(spparts) != 6 or spparts[0] != "gbif":
-            raise click.UsageError(
-                "--fetch-species must be "
-                "'gbif:SCIENTIFIC_NAME:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX' "
-                f"(got {fetch_species!r})"
-            )
-        sp_name = spparts[1].strip()
-        try:
-            sp_bbox = (
-                float(spparts[2]),
-                float(spparts[3]),
-                float(spparts[4]),
-                float(spparts[5]),
-            )
-        except ValueError as e:
-            raise click.UsageError(
-                f"--fetch-species bbox values must be decimal; got {fetch_species!r}"
-            ) from e
-        console.print(f"[bold]Matching GBIF taxon for {sp_name!r}…[/]")
-        m = match_species(sp_name)
-        if m.usage_key is None or m.match_type == "NONE":
-            raise click.ClickException(
-                f"GBIF could not match {sp_name!r} (match_type={m.match_type}). Check spelling."
-            )
-        console.print(
-            f"  → usageKey={m.usage_key} ({m.canonical_name}, "
-            f"{m.match_type}, confidence {m.confidence}); "
-            f"family={m.family}, order={m.order}"
-        )
-        console.print(f"[bold]Fetching GBIF occurrences in bbox {sp_bbox}…[/]")
-        occ = fetch_gbif_occurrences(m.usage_key, sp_bbox)
-        sp_path = Path(output_dir) / "data" / f"species_gbif_{m.usage_key}.csv"
-        sp_path.parent.mkdir(parents=True, exist_ok=True)
-        occ.df.to_csv(sp_path, index=False)
-        console.print(
-            f"  → {len(occ.df)} occurrences pulled "
-            f"(GBIF total in bbox: {occ.total_matched:,} across "
-            f"{occ.n_pages_fetched} page(s)) → {sp_path.name}"
-        )
-        # First page's cache entry stands in as the canonical fetch
-        # record; subsequent pages' SHAs go in params for audit.
-        primary_cache = occ.cache[0] if occ.cache else None
-        _rfsp(
-            output_dir,
-            label=f"species_gbif_{m.usage_key}",
-            source_type="gbif_occurrence",
-            source_url=(
-                primary_cache.source_url
-                if primary_cache
-                else "https://api.gbif.org/v1/occurrence/search"
-            ),
-            fetch_time=primary_cache.fetch_time if primary_cache else "",
-            produced_file=sp_path.relative_to(output_dir),
-            params={
-                "scientific_name": sp_name,
-                "canonical_name": m.canonical_name,
-                "usage_key": m.usage_key,
-                "match_type": m.match_type,
-                "confidence": m.confidence,
-                "family": m.family,
-                "order": m.order,
-                "bbox": list(sp_bbox),
-                "occurrence_count_returned": len(occ.df),
-                "occurrence_count_total": occ.total_matched,
-                "pages_fetched": occ.n_pages_fetched,
-                "page_shas": [c.sha256[:16] for c in occ.cache],
-            },
-            notes=(
-                f"GBIF taxon match + occurrence search inside bbox. "
-                f"Per-row license varies by source dataset — see "
-                f"data/species_*.csv 'license' column for re-use "
-                f"terms. Citation: {m.citation}"
-            ),
-        )
-        _wedm_patches["data"]["species_occurrences"] = {
-            "uri": str(sp_path.relative_to(output_dir)),
-            "scientific_name": sp_name,
-            "canonical_name": m.canonical_name,
-            "usage_key": int(m.usage_key),
-            "family": m.family,
-            "order": m.order,
-            "match_type": m.match_type,
-            "confidence": int(m.confidence) if m.confidence is not None else 0,
-            "occurrence_count_returned": len(occ.df),
-            "occurrence_count_total": int(occ.total_matched),
-        }
 
     if fetch_soil:
-        from openlimno.preprocess.fetch import (
-            fetch_soilgrids,
-        )
-        from openlimno.preprocess.fetch import (
-            record_fetch as _rfs,
-        )
-
-        sparts = fetch_soil.split(":")
-        if len(sparts) != 3 or sparts[0] != "soilgrids":
-            raise click.UsageError(f"--fetch-soil must be 'soilgrids:LAT:LON' (got {fetch_soil!r})")
-        try:
-            s_lat = float(sparts[1])
-            s_lon = float(sparts[2])
-        except ValueError as e:
-            raise click.UsageError(
-                f"--fetch-soil lat/lon must be decimal; got {fetch_soil!r}"
-            ) from e
-        console.print(f"[bold]Fetching SoilGrids @({s_lat:.4f}, {s_lon:.4f})…[/]")
-        sg = fetch_soilgrids(s_lat, s_lon)
-        soil_path = Path(output_dir) / "data" / "soil.csv"
-        soil_path.parent.mkdir(parents=True, exist_ok=True)
-        sg.df.to_csv(soil_path, index=False)
-        # Console summary: clay/sand/silt at the top depth.
-        try:
-            clay = sg.get("clay", "0-5cm")
-            sand = sg.get("sand", "0-5cm")
-            silt = sg.get("silt", "0-5cm")
-            ph = sg.get("phh2o", "0-5cm")
-            console.print(
-                f"  → top 0-5 cm: clay {clay:.0f} g/kg, "
-                f"sand {sand:.0f} g/kg, silt {silt:.0f} g/kg, "
-                f"pH {ph:.1f}"
-            )
-        except KeyError:
-            console.print(f"  → {len(sg.df)} (property, depth) values")
-        _rfs(
-            output_dir,
-            label="soil_soilgrids",
-            source_type="isric_soilgrids_v2",
-            source_url=sg.cache.source_url,
-            fetch_time=sg.cache.fetch_time,
-            produced_file=soil_path.relative_to(output_dir),
-            params={
-                "lat": s_lat,
-                "lon": s_lon,
-                "n_rows": len(sg.df),
-                "properties": sorted(sg.df["property"].unique().tolist()),
-                "depths": sorted(sg.df["depth"].unique().tolist()),
-                "statistic": (sg.df["statistic"].iloc[0] if len(sg.df) else None),
-            },
-            notes=(
-                f"ISRIC SoilGrids 2.0 point query (250 m grid). Top "
-                f"0-30 cm layers, posterior mean. Citation: "
-                f"{sg.citation}"
-            ),
-        )
-        _wedm_patches["data"]["soil"] = {
-            "uri": str(soil_path.relative_to(output_dir)),
-            "lat": s_lat,
-            "lon": s_lon,
-            "properties": sorted(sg.df["property"].unique().tolist()),
-            "depths": sorted(sg.df["depth"].unique().tolist()),
-            "statistic": (str(sg.df["statistic"].iloc[0]) if len(sg.df) else "mean"),
-        }
+        _wedm_patches["data"]["soil"] = _osm_fetch_soil(output_dir, fetch_soil=fetch_soil)
 
     if fetch_lulc:
-        from openlimno.preprocess.fetch import (
-            WORLDCOVER_CLASSES,
-            fetch_esa_worldcover,
-        )
-        from openlimno.preprocess.fetch import (
-            record_fetch as _rfl,
-        )
-
-        lparts = fetch_lulc.split(":")
-        if not (5 <= len(lparts) <= 6) or lparts[0] != "worldcover":
-            raise click.UsageError(
-                "--fetch-lulc must be "
-                "'worldcover:LON_MIN:LAT_MIN:LON_MAX:LAT_MAX[:YEAR]' "
-                f"(got {fetch_lulc!r})"
-            )
-        try:
-            l_lon_min = float(lparts[1])
-            l_lat_min = float(lparts[2])
-            l_lon_max = float(lparts[3])
-            l_lat_max = float(lparts[4])
-            l_year = int(lparts[5]) if len(lparts) == 6 else 2021
-        except ValueError as e:
-            raise click.UsageError(
-                f"--fetch-lulc bbox values must be decimal, year integer; got {fetch_lulc!r}"
-            ) from e
-        console.print(
-            f"[bold]Fetching ESA WorldCover {l_year} for bbox "
-            f"({l_lon_min:.3f}, {l_lat_min:.3f}, {l_lon_max:.3f}, "
-            f"{l_lat_max:.3f})…[/]"
-        )
-        wc = fetch_esa_worldcover(
-            l_lon_min,
-            l_lat_min,
-            l_lon_max,
-            l_lat_max,
-            year=l_year,
-        )
-        console.print(
-            f"  → {wc.n_tiles} tile(s), version {wc.version}, "
-            f"{sum(wc.class_pixels.values()):,} pixels"
-        )
-        # Move/rename into case_dir/data/lulc.tif so it lives with the case.
-        import shutil as _shutil
-
-        lulc_path = Path(output_dir) / "data" / f"lulc_{l_year}.tif"
-        lulc_path.parent.mkdir(parents=True, exist_ok=True)
-        if wc.path != lulc_path:
-            _shutil.copy(wc.path, lulc_path)
-        # Top 3 classes for the console summary.
-        top = sorted(
-            wc.class_km2.items(),
-            key=lambda kv: kv[1],
-            reverse=True,
-        )[:3]
-        top_str = ", ".join(f"{WORLDCOVER_CLASSES[c]} {km:.1f} km²" for c, km in top)
-        console.print(f"  → top classes: {top_str}")
-        # Sidecar: store the full histogram for downstream stats.
-        _rfl(
-            output_dir,
-            label=f"lulc_worldcover_{l_year}",
-            source_type="esa_worldcover",
-            source_url=wc.cache_entries[0].source_url
-            if wc.cache_entries
-            else f"https://esa-worldcover.s3.eu-central-1.amazonaws.com/{wc.version}/{l_year}/map/",
-            fetch_time=wc.cache_entries[0].fetch_time if wc.cache_entries else "",
-            produced_file=lulc_path.relative_to(output_dir),
-            params={
-                "bbox": [l_lon_min, l_lat_min, l_lon_max, l_lat_max],
-                "year": l_year,
-                "version": wc.version,
-                "n_tiles": wc.n_tiles,
-                "class_pixels": {str(k): v for k, v in wc.class_pixels.items()},
-                "class_km2": {str(k): round(v, 6) for k, v in wc.class_km2.items()},
-            },
-            notes=(
-                f"ESA WorldCover 10 m {l_year} ({wc.version}). 11-class "
-                f"LCCS schema (codes 10..100; see WORLDCOVER_CLASSES). "
-                f"Pixel area uses cos(lat) shrinkage at bbox centroid — "
-                f"adequate for fraction summaries, not equal-area exact. "
-                f"Citation: {wc.citation}"
-            ),
-        )
-        _wedm_patches["data"]["lulc"] = {
-            "uri": str(lulc_path.relative_to(output_dir)),
-            "year": l_year,
-            "version": wc.version,
-            "class_km2": {str(k): round(v, 6) for k, v in wc.class_km2.items()},
-        }
+        _wedm_patches["data"]["lulc"] = _osm_fetch_lulc(output_dir, fetch_lulc=fetch_lulc)
 
     if fetch_climate:
-        from openlimno.preprocess.fetch import (
-            fetch_daymet_daily,
-            fetch_open_meteo_daily,
-        )
-        from openlimno.preprocess.fetch import (
-            record_fetch as _rfc,
+        _wedm_patches["data"]["climate"] = _osm_fetch_climate(
+            output_dir, fetch_climate=fetch_climate
         )
 
-        cparts = fetch_climate.split(":")
-        valid_sources = {"daymet", "open-meteo"}
-        if len(cparts) != 5 or cparts[0] not in valid_sources:
-            raise click.UsageError(
-                "--fetch-climate must be '<source>:LAT:LON:START_YEAR:END_YEAR' "
-                f"with source ∈ {sorted(valid_sources)} (got {fetch_climate!r})"
-            )
-        source, lat_s, lon_s, sy_s, ey_s = cparts
-        try:
-            c_lat = float(lat_s)
-            c_lon = float(lon_s)
-            c_sy = int(sy_s)
-            c_ey = int(ey_s)
-        except ValueError as e:
-            raise click.UsageError(
-                f"--fetch-climate lat/lon must be decimal, years must be "
-                f"integer; got {fetch_climate!r}"
-            ) from e
-        if c_sy > c_ey:
-            raise click.UsageError(
-                f"--fetch-climate start_year ({c_sy}) must be ≤ end_year ({c_ey})"
-            )
-
-        if source == "daymet":
-            console.print(f"[bold]Fetching Daymet ({c_lat:.4f}, {c_lon:.4f}) {c_sy}–{c_ey}…[/]")
-            res = fetch_daymet_daily(c_lat, c_lon, c_sy, c_ey)
-            console.print(
-                f"  → snapped to Daymet pixel ({res.lat:.4f}, {res.lon:.4f}), "
-                f"tile {res.tile_id}, elev {res.elevation_m:.0f} m"
-            )
-            label = "climate_daymet"
-            source_type = "daymet_v4"
-            notes = (
-                f"Daymet v4 (Thornton et al. ORNL DAAC, tile {res.tile_id}). "
-                f"T_water column = Stefan & Preud'homme 1993 air→water "
-                f"linear model (a=5.0, b=0.75) — unshaded mid-latitude "
-                f"default; basin-specific calibration recommended."
-            )
-        else:  # open-meteo
-            console.print(f"[bold]Fetching Open-Meteo ({c_lat:.4f}, {c_lon:.4f}) {c_sy}–{c_ey}…[/]")
-            res = fetch_open_meteo_daily(c_lat, c_lon, c_sy, c_ey)
-            console.print(
-                f"  → snapped to Open-Meteo cell ({res.lat:.4f}, {res.lon:.4f}), "
-                f"elev {res.elevation_m:.0f} m, tz {res.timezone}"
-            )
-            label = "climate_open_meteo"
-            source_type = "open_meteo_archive"
-            notes = (
-                f"Open-Meteo archive (ERA5/ERA5-Land backend, "
-                f"Hersbach et al. 2020). T_water column = Stefan & "
-                f"Preud'homme 1993 (a=5.0, b=0.75) — unshaded "
-                f"mid-latitude default; basin-specific calibration "
-                f"recommended. Citation: {res.citation}"
-            )
-
-        clim_path = Path(output_dir) / "data" / f"climate_{c_sy}_{c_ey}.csv"
-        res.df.to_csv(clim_path, index=False)
-        console.print(
-            f"  → climate: {len(res.df)} days "
-            f"(air mean {res.df['T_air_C_mean'].mean():.1f} °C, "
-            f"peak water {res.df['T_water_C_stefan'].max():.1f} °C "
-            f"via Stefan 1993) → {clim_path.name}"
-        )
-        _rfc(
-            output_dir,
-            label=label,
-            source_type=source_type,
-            source_url=res.cache.source_url,
-            fetch_time=res.cache.fetch_time,
-            produced_file=clim_path.relative_to(output_dir),
-            params={
-                "lat": c_lat,
-                "lon": c_lon,
-                "start_year": c_sy,
-                "end_year": c_ey,
-            },
-            notes=notes,
-        )
-        _wedm_patches["data"]["climate"] = {
-            "uri": str(clim_path.relative_to(output_dir)),
-            "source": source,
-            "lat": c_lat,
-            "lon": c_lon,
-            "start_year": c_sy,
-            "end_year": c_ey,
-        }
-
-    # WEDM v0.2 patch pass: fold collected fetch outputs into case.yaml
-    # so the case self-describes the data it was built from. v0.1
-    # cases that didn't use any fetcher remain on '0.1' (no patch).
     if _wedm_patches["data"] or "case_bbox" in _wedm_patches:
-        import yaml as _yaml_v02
-
-        case_yaml_path = Path(paths["case_yaml"])
-        case_doc = _yaml_v02.safe_load(case_yaml_path.read_text()) or {}
-        case_doc["openlimno"] = "0.2"
-        if "case_bbox" in _wedm_patches:
-            case_doc.setdefault("case", {})["bbox"] = _wedm_patches["case_bbox"]
-        if _wedm_patches["data"]:
-            case_doc.setdefault("data", {}).update(_wedm_patches["data"])
-        case_yaml_path.write_text(
-            _yaml_v02.safe_dump(case_doc, sort_keys=False, allow_unicode=True)
-        )
-        console.print(
-            f"  → case.yaml bumped to WEDM 0.2 with "
-            f"{len(_wedm_patches['data'])} fetched data block(s)"
-        )
+        _apply_wedm_v02_patches(paths, _wedm_patches)
 
     console.print()
     console.print(f"[green]✓[/] case built in {output_dir}")

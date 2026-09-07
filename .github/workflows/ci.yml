@@ -167,6 +167,23 @@ jobs:
           OPENLIMNO_RUN_NETCDF_REAL: "1"
           OPENLIMNO_NETCDF_FIXTURE_DIR: ${{ runner.temp }}/openlimno_netcdf_fixtures
 
+  studio-browser:
+    name: Studio JS execution (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.67.2
+          environments: browser
+          cache: true
+      # The 1,553 lines of Studio JS in src/openlimno/*/assets/ have no other
+      # execution coverage; these tests load each page in headless Chromium and
+      # fail on any console error. They auto-skip where chromium is absent, so
+      # this dedicated job is where they actually run.
+      - run: pixi run -e browser playwright install --with-deps chromium
+      - run: pixi run -e browser pytest tests/unit/test_studio_browser.py tests/unit/test_studio_assets_extraction.py -q
+
   docs:
     name: Docs build
     runs-on: ubuntu-latest
@@ -193,7 +210,7 @@ jobs:
 
   ci-success:
     name: CI success gate
-    needs: [lint, typecheck, schema-validation, test, benchmark-fast, hecras-interoperability, river2d-interoperability, mike-interoperability, telemac-interoperability, netcdf-interoperability, docs, spec-scope-check]
+    needs: [lint, typecheck, schema-validation, test, benchmark-fast, hecras-interoperability, river2d-interoperability, mike-interoperability, telemac-interoperability, netcdf-interoperability, studio-browser, docs, spec-scope-check]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:

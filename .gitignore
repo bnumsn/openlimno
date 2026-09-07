@@ -91,6 +91,7 @@ tmp/
 # (软件必要文件只含 src/tests/examples/pyproject + docs/fishtank/{README,SPEC}.md)
 docs/fishtank/slides/
 docs/fishtank/notebooks/
+docs/fishtank/abm_minicourse/
 docs/fishtank/exercises/
 docs/fishtank/student_bundle/
 docs/fishtank/dist_cli/

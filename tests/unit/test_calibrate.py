@@ -117,12 +117,52 @@ def _write_minimal_calibration_case(tmp_path):
     return case_yaml
 
 
-def test_build_pestpp_workspace_writes_control_files_and_runner(tmp_path) -> None:
-    """PEST++ route should generate a runnable local model workspace."""
+# ---------------------------------------------------------------------
+# The generated PEST++ workspace is covered by two tests that used to be
+# one:
+#
+#   * ``test_build_pestpp_workspace_writes_control_files_and_runner``
+#     asserts the *contents* of every generated file. Pure file I/O,
+#     milliseconds, fully deterministic.
+#   * ``test_generated_pestpp_runner_executes`` spawns the generated
+#     runner in a fresh interpreter. That subprocess re-imports the whole
+#     scientific stack (numpy + scipy + pandas + pyarrow + openlimno) and
+#     is therefore dominated by filesystem/page-cache behaviour, not by
+#     anything this repository controls.
+#
+# Splitting them keeps the "the files we generate are correct" contract on
+# the fast path (so a regression there is reported in milliseconds and
+# never masked by a subprocess timeout), while the "and the workspace
+# really runs" contract stays in the default gate — ``slow`` is a
+# descriptive marker here, nothing in ``pyproject.toml`` addopts or the
+# ``pixi run test`` / ``test-cov`` ``-m`` filters deselects it, so CI still
+# executes it on all six matrix cells. ``-m "not slow"`` is available
+# locally for a fast inner loop.
+# ---------------------------------------------------------------------
+
+#: Wall-clock cap for the generated-runner subprocess.
+#:
+#: Measured on one Linux workstation, same code, same machine: ~1 s of
+#: interpreter start-up with a warm page cache, 339 s on a cold cache, and
+#: SIGKILL (returncode -9) when run concurrently with the full suite. The
+#: spread is ~2 orders of magnitude and is driven by I/O contention, so any
+#: tight bound is a coin flip rather than an assertion — and CI runs this on
+#: a 3-OS x 2-Python matrix of shared runners where macOS/Windows disk I/O
+#: is routinely slower than Linux.
+#:
+#: 600 s is not a guess: it is the default ``timeout`` that
+#: ``run_pestpp_glm_workspace`` already applies to an external process in
+#: this same module, and it stays far inside the GitHub Actions job limit,
+#: so the test still cannot hang forever if the generated script deadlocks.
+RUNNER_TIMEOUT_S = 600.0
+
+
+@pytest.fixture
+def pestpp_workspace(tmp_path):
+    """A generated PEST++ GLM workspace for the two assertions below."""
     case_yaml = _write_minimal_calibration_case(tmp_path)
     obs = pd.DataFrame({"h_m": [0.5, 1.0], "Q_m3s": [2.5, 6.0]})
-
-    workspace = build_pestpp_glm_workspace(
+    return build_pestpp_glm_workspace(
         case_yaml,
         obs,
         tmp_path / "pestpp",
@@ -130,6 +170,10 @@ def test_build_pestpp_workspace_writes_control_files_and_runner(tmp_path) -> Non
         slope=0.001,
     )
 
+
+def test_build_pestpp_workspace_writes_control_files_and_runner(pestpp_workspace) -> None:
+    """PEST++ route should generate a complete, self-consistent workspace."""
+    workspace = pestpp_workspace
     for path in (
         workspace.control_file,
         workspace.template_file,
@@ -145,20 +189,64 @@ def test_build_pestpp_workspace_writes_control_files_and_runner(tmp_path) -> Non
     assert "manning_n log factor 0.04" in control
     assert "slope log factor 0.001" in control
     assert "q_0001 2.5 1.0 rating" in control
+    assert "q_0002 6 1.0 rating" in control
     assert "params.tpl params.in" in control
+    assert "model.ins model.out" in control
+    # The control file names the runner PEST++ will actually invoke.
+    assert f"python {workspace.runner_script.name}" in control
 
+    assert workspace.template_file.read_text() == (
+        "ptf ~\nmanning_n ~ manning_n ~\nslope ~ slope ~\n"
+    )
+    assert workspace.parameter_file.read_text() == "manning_n 0.04\nslope 0.001\n"
+    # One `l1 w !name!` instruction line per observation, after the header
+    # line that skips the model.out column header.
+    assert workspace.instruction_file.read_text() == ("pif @\nl1\nl1 w !q_0001!\nl1 w !q_0002!\n")
+    observed = pd.read_csv(workspace.observed_file)
+    assert list(observed.columns) == ["obs_name", "h_m", "Q_m3s"]
+    assert list(observed["obs_name"]) == ["q_0001", "q_0002"]
+    assert "pestpp-glm openlimno_calibration.pst" in workspace.readme_file.read_text()
+
+    # Static contract of the generated runner: it must resolve the case's
+    # cross-section through the sandbox-checked absolute path and write the
+    # model output PEST++ reads back through model.ins.
+    runner_src = workspace.runner_script.read_text()
+    assert "load_sections_from_parquet" in runner_src
+    assert "cross_section.parquet" in runner_src
+    assert 'params["manning_n"]' in runner_src
+    assert 'params["slope"]' in runner_src
+    assert '"model.out"' in runner_src
+
+
+@pytest.mark.slow
+def test_generated_pestpp_runner_executes(pestpp_workspace) -> None:
+    """The generated runner must actually run and emit a model.out PEST++ can read."""
+    workspace = pestpp_workspace
     proc = subprocess.run(
         [sys.executable, str(workspace.runner_script)],
         cwd=workspace.directory,
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=RUNNER_TIMEOUT_S,
     )
-    assert proc.returncode == 0, proc.stderr
+    # A negative returncode is a signal, not a script error — surface it
+    # explicitly, because stderr is empty for SIGKILL (OOM killer / harness)
+    # and a bare `assert proc.returncode == 0, proc.stderr` reads as a
+    # mysterious empty failure.
+    assert proc.returncode == 0, (
+        f"runner exited with {proc.returncode}\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+    )
     model_out = workspace.model_output_file.read_text()
     assert "obs_name predicted_Q_m3s" in model_out
     assert "q_0001" in model_out
     assert "q_0002" in model_out
+    # Every observation in the control file must have a prediction, or the
+    # model.ins instruction file will not line up with model.out.
+    assert len(model_out.strip().splitlines()) == 3
+    predictions = [float(line.split()[1]) for line in model_out.strip().splitlines()[1:]]
+    assert all(q > 0 for q in predictions)
+    # Manning discharge is monotonic in depth: h=1.0 must carry more than h=0.5.
+    assert predictions[1] > predictions[0]
 
 
 @pytest.mark.skipif(

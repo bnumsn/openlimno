@@ -9,7 +9,8 @@ import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
+from urllib.parse import urlsplit
 
 from .agent import simulate_agent_based_model
 from .calibration import fit
@@ -30,7 +31,12 @@ _STUDIO_MAX_EXPANDED_EVENTS = 1000
 _STUDIO_MIN_REPEAT_DAYS = 0.25
 _STUDIO_MAX_OUTPUT_ROWS = 5000
 _STUDIO_MAX_ABM_STEPS = 6500
-_LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+_LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+# Bind addresses that mean "every interface". When the operator asked for one of
+# these we cannot enumerate the names a legitimate client will use, so the Host
+# allowlist is relaxed for that run (see ``_bind_policy``).
+_WILDCARD_BIND_HOSTS = frozenset({"", "0.0.0.0", "::"})
+_JSON_MEDIA_TYPE = "application/json"
 
 # The Studio opens on the fishless cycle — a coherent scenario with no fish at
 # risk. The rest of the typical cases ship in the scenario library (§8) and are
@@ -173,12 +179,24 @@ def run_fishtank_studio(
             flush=True,
         )
     url = f"http://{host}:{server.server_port}/"
-    if host not in _LOCAL_HOSTS:
+    if _normalize_host(host) not in _LOCAL_HOSTS:
         print(
             "Warning: OpenLimno Fishtank Studio is intended for trusted local use; "
-            "do not expose it directly to the public internet.",
+            "do not expose it directly to the public internet. It has no "
+            "authentication: anyone who can reach "
+            f"{host}:{server.server_port} can start runs on this machine.",
             flush=True,
         )
+        if not server.enforce_host_header:
+            # Wildcard bind: clients may legitimately arrive under any name this
+            # machine answers to, so the Host allowlist that blocks DNS rebinding
+            # cannot be applied. Say so out loud rather than pretend otherwise.
+            print(
+                f"Warning: --host {host} serves every interface, so the Host-header "
+                "check that protects against DNS rebinding is relaxed for this run. "
+                "Prefer --host 127.0.0.1 unless you really need remote access.",
+                flush=True,
+            )
     print(f"OpenLimno Fishtank Studio serving {url}", flush=True)
     if open_browser:
         webbrowser.open(url)
@@ -190,15 +208,225 @@ def run_fishtank_studio(
         server.server_close()
 
 
+# ---------------------------------------------------------------------------
+# Cross-origin guard
+#
+# The Studio is a trusted single-user local tool, but it is still an HTTP server
+# that any web page a student happens to have open can talk to. Three cheap
+# checks close the three ways that goes wrong:
+#
+#   Host         a page on attacker.example can point its own DNS name at
+#                127.0.0.1 ("DNS rebinding"). The browser then treats
+#                http://attacker.example:8768/ as same-origin with the attacker's
+#                page and *can read the responses*. The one header that still
+#                tells the truth is Host, so we only answer to our own names.
+#   Origin       a request that carries an Origin we do not recognise is refused.
+#                A request with *no* Origin (address-bar navigation, curl, the
+#                desktop shell) is allowed, which keeps the teaching workflows
+#                working.
+#   Content-Type enforced for POST in ``_read_json``. Without it a page can send
+#                a CORS "simple request" (text/plain or form-encoded) that skips
+#                the preflight entirely; the attacker cannot read the reply, but
+#                the Studio would still have run the simulation — resource abuse
+#                on the shared RDP hosts these classes run on.
+# ---------------------------------------------------------------------------
+
+
+def _normalize_host(value: str) -> str:
+    """Lower-case a host and strip the brackets IPv6 literals are written in."""
+
+    host = value.strip().lower()
+    if host.startswith("[") and host.endswith("]"):
+        host = host[1:-1]
+    return host
+
+
+def _bind_policy(host: str) -> tuple[frozenset[str], bool]:
+    """Return ``(allowed_hosts, enforce_host_header)`` for a bind address."""
+
+    bind_host = _normalize_host(host)
+    if bind_host in _WILDCARD_BIND_HOSTS:
+        # "Serve on every interface" — the client may legitimately arrive under
+        # any address/name of this machine, so an allowlist is not expressible.
+        # Origin is then checked against the request's own Host instead.
+        return _LOCAL_HOSTS, False
+    return _LOCAL_HOSTS | {bind_host}, True
+
+
+def _parse_authority(value: str | None) -> tuple[str, int] | None:
+    """Split a ``host[:port]`` authority (Host header) into ``(host, port)``."""
+
+    if value is None:
+        return None
+    try:
+        parts = urlsplit(f"//{value.strip()}")
+        hostname = parts.hostname
+        port = parts.port
+    except ValueError:  # malformed port, e.g. "evil.com:notaport"
+        return None
+    if not hostname:
+        return None
+    return hostname.lower(), 80 if port is None else port
+
+
+def _parse_origin(value: str) -> tuple[str, int] | None:
+    """Split an ``http://host[:port]`` Origin into ``(host, port)``.
+
+    Anything that is not plain ``http`` — including the literal ``null`` that
+    sandboxed iframes and ``file://`` pages send — returns ``None`` and is
+    therefore refused: this server speaks http only, so no other scheme can be
+    one of its own pages.
+    """
+
+    try:
+        parts = urlsplit(value.strip())
+        hostname = parts.hostname
+        port = parts.port
+    except ValueError:
+        return None
+    if parts.scheme != "http" or not hostname:
+        return None
+    return hostname.lower(), 80 if port is None else port
+
+
+def _shown(value: str | None, limit: int = 120) -> str:
+    """Render a header value for an error message without echoing an essay."""
+
+    if value is None:
+        return "absent"
+    return repr(value[:limit] + "…") if len(value) > limit else repr(value)
+
+
+def _host_header_error(value: str | None, allowed: frozenset[str], port: int) -> str | None:
+    authority = _parse_authority(value)
+    if authority is not None and authority[0] in allowed and authority[1] == port:
+        return None
+    expected = ", ".join(f"{host}:{port}" for host in sorted(allowed))
+    return (
+        "Refused: this Studio only answers requests addressed to itself. The Host "
+        f"header was {_shown(value)}, but this server answers to: {expected}. Open "
+        f"the Studio at http://127.0.0.1:{port}/ instead. (The check blocks DNS "
+        "rebinding, where an outside web page aims its own domain name at "
+        "127.0.0.1 so it can read what your local tools say.)"
+    )
+
+
+def _origin_header_error(
+    value: str | None,
+    *,
+    host_header: str | None,
+    allowed: frozenset[str],
+    port: int,
+    enforce_host: bool,
+) -> str | None:
+    if value is None or not value.strip():
+        # No Origin at all: an address-bar navigation, curl, requests, or the
+        # desktop shell. Browsers always send one on a cross-origin fetch, so
+        # letting this through costs nothing and keeps command-line use working.
+        return None
+    origin = _parse_origin(value)
+    if enforce_host:
+        ok = origin is not None and origin[0] in allowed and origin[1] == port
+        expected = ", ".join(f"http://{host}:{port}" for host in sorted(allowed))
+    else:
+        # Wildcard bind: "our own origin" is whatever address this request was
+        # addressed to, so require Origin and Host to agree.
+        host_authority = _parse_authority(host_header)
+        ok = origin is not None and host_authority is not None and origin == host_authority
+        expected = f"http://{host_header}" if host_header else f"http://<this host>:{port}"
+    if ok:
+        return None
+    return (
+        f"Refused: cross-origin request. The Origin header was {_shown(value)}, which "
+        f"is not this Studio ({expected}). Only the Studio page served from this "
+        "server may call its API — another site in another tab must not. "
+        "Command-line clients (curl, requests) send no Origin and are unaffected."
+    )
+
+
+def _content_type_error(value: str | None, port: int) -> str | None:
+    media_type = (value or "").split(";", 1)[0].strip().lower()
+    if media_type == _JSON_MEDIA_TYPE:
+        return None
+    return (
+        f"Refused: POST bodies must be JSON. The Content-Type header was {_shown(value)}, "
+        f"expected '{_JSON_MEDIA_TYPE}' (a ';charset=utf-8' parameter is fine). Requiring "
+        "it is what stops another web page from POSTing runs to this Studio without a "
+        "CORS preflight. From a shell, add the header: curl -X POST -H "
+        f"'Content-Type: application/json' -d '{{\"run\": {{\"days\": 7}}}}' "
+        f"http://127.0.0.1:{port}/api/run"
+    )
+
+
 class _FishtankStudioServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+
+    #: Host names this server answers to, and whether the Host header is
+    #: enforced at all (it is not for a wildcard bind — see ``_bind_policy``).
+    allowed_hosts: frozenset[str] = _LOCAL_HOSTS
+    enforce_host_header: bool = True
+
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        handler_class: type[BaseHTTPRequestHandler],
+        bind_and_activate: bool = True,  # positional, to match the stdlib signature
+    ) -> None:
+        super().__init__(server_address, handler_class, bind_and_activate)
+        self.allowed_hosts, self.enforce_host_header = _bind_policy(server_address[0])
 
 
 class _FishtankStudioHandler(BaseHTTPRequestHandler):
     server_version = "OpenLimnoFishtankStudio/0.1"
 
+    @property
+    def studio_server(self) -> _FishtankStudioServer:
+        return cast(_FishtankStudioServer, self.server)
+
+    def _cross_origin_error(self) -> str | None:
+        """Return a refusal message if this request is not one of our own."""
+
+        server = self.studio_server
+        port = int(server.server_port)
+        host_header = self.headers.get("Host")
+        if server.enforce_host_header:
+            error = _host_header_error(host_header, server.allowed_hosts, port)
+            if error is not None:
+                return error
+        return _origin_header_error(
+            self.headers.get("Origin"),
+            host_header=host_header,
+            allowed=server.allowed_hosts,
+            port=port,
+            enforce_host=server.enforce_host_header,
+        )
+
+    def _drain_request_body(self) -> None:
+        """Read and discard the body of a request we are about to refuse.
+
+        Closing a socket that still has unread bytes queued makes the kernel
+        send RST, which can wipe out the response we just wrote — the student
+        would see a connection reset instead of the explanation. Draining first
+        (bounded by the same limit as a real body) keeps the message readable.
+        """
+
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            return
+        if 0 < length <= _REQUEST_BODY_LIMIT_BYTES:
+            self.rfile.read(length)
+
+    def _reject_cross_origin(self, error: str) -> None:
+        self._drain_request_body()
+        self._send_json({"ok": False, "error": error}, status=HTTPStatus.FORBIDDEN)
+
     def do_GET(self) -> None:  # noqa: N802
+        error = self._cross_origin_error()
+        if error is not None:
+            self._reject_cross_origin(error)
+            return
         if self.path in {"/", "/index.html"}:
             self._send_html(INDEX_HTML)
             return
@@ -218,6 +446,10 @@ class _FishtankStudioHandler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:  # noqa: N802
+        error = self._cross_origin_error()
+        if error is not None:
+            self._reject_cross_origin(error)
+            return
         try:
             payload = self._read_json()
             if self.path == "/api/run":
@@ -234,6 +466,11 @@ class _FishtankStudioHandler(BaseHTTPRequestHandler):
             self._send_json(
                 {"ok": False, "error": str(exc)},
                 status=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+            )
+        except _UnsupportedMediaTypeError as exc:
+            self._send_json(
+                {"ok": False, "error": str(exc)},
+                status=HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
             )
         except Exception as exc:  # noqa: BLE001 - convert model errors into browser JSON
             self._send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
@@ -253,6 +490,17 @@ class _FishtankStudioHandler(BaseHTTPRequestHandler):
             raise _PayloadTooLargeError(
                 f"request body too large: {n_bytes} bytes (max {_REQUEST_BODY_LIMIT_BYTES} bytes)"
             )
+        # Media type is checked *after* the size limit so a flood of bytes is
+        # still reported as 413 (and never buffered), then before the body is
+        # read so a non-JSON POST costs us nothing. An empty body is checked
+        # too: a bodiless cross-origin POST would otherwise run the defaults.
+        content_type_error = _content_type_error(
+            self.headers.get("Content-Type"), int(self.studio_server.server_port)
+        )
+        if content_type_error is not None:
+            if n_bytes:
+                self.rfile.read(n_bytes)  # drain, so the 415 body survives the close
+            raise _UnsupportedMediaTypeError(content_type_error)
         raw = self.rfile.read(n_bytes) if n_bytes else b"{}"
         data = json.loads(raw.decode("utf-8"))
         if not isinstance(data, dict):
@@ -423,6 +671,10 @@ def _float(value: Any, label: str) -> float:
 
 class _PayloadTooLargeError(ValueError):
     """Request exceeds the local Studio API body limit."""
+
+
+class _UnsupportedMediaTypeError(ValueError):
+    """POST body was not sent as ``application/json``."""
 
 
 def _validate_studio_payload_limits(

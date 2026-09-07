@@ -32,6 +32,17 @@ src/openlimno/fishtank/vendor/THREE_LICENSE      -text
 *.png      -text
 
 # --------------------------------------------------------------------
+# Studio front-end assets. studio_assets.py inlines these into a page whose
+# rendered SHA-256 is pinned by a test, and read_text() normalises newlines on
+# read — so the page survives a CRLF checkout, but the files themselves must
+# stay LF or the committed bytes differ per platform. Pinned explicitly rather
+# than relying on the `text=auto` default.
+# --------------------------------------------------------------------
+src/openlimno/*/assets/*.js   text eol=lf
+src/openlimno/*/assets/*.mjs  text eol=lf
+src/openlimno/*/assets/*.css  text eol=lf
+
+# --------------------------------------------------------------------
 # Data and schema files read back by checksum-sensitive code paths.
 # `openlimno reproduce` verifies SHA-256 over case inputs, so a CRLF
 # checkout would break reproduction on Windows for a case authored on Linux.

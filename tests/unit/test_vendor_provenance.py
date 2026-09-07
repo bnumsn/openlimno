@@ -156,7 +156,11 @@ def test_recorded_version_is_either_verified_or_honestly_flagged() -> None:
 
 @pytest.mark.parametrize(
     "consumer",
-    ["studio_http.py", "studio_assets.py"],
+    # studio_http.py serves the file; studio_tank3d.mjs is the module that
+    # actually imports it. The import used to live inside the studio_assets.py
+    # string literal — when the JS moved into a real asset file, this list had
+    # to move with it, which is the point of pinning the consumer names here.
+    ["studio_http.py", "studio_tank3d.mjs"],
 )
 def test_provenance_lists_the_modules_that_consume_the_runtime(consumer: str) -> None:
     consumed = _load_provenance().get("consumed_by", [])
@@ -165,3 +169,19 @@ def test_provenance_lists_the_modules_that_consume_the_runtime(consumer: str) ->
         f"PROVENANCE.json consumed_by should name {consumer}, so a future "
         f"reader can find who depends on the vendored runtime."
     )
+
+
+def test_provenance_consumers_actually_reference_the_runtime() -> None:
+    """Every consumed_by entry must really mention the vendored file.
+
+    Without this, consumed_by silently rots into a list of plausible-looking
+    paths — exactly what happened when the three.js import moved out of
+    studio_assets.py into an asset file.
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    for entry in _load_provenance().get("consumed_by", []):
+        path = repo_root / entry["file"]
+        assert path.is_file(), f"consumed_by names a missing file: {entry['file']}"
+        assert "three.module.min.js" in path.read_text(encoding="utf-8"), (
+            f"consumed_by names {entry['file']}, but that file never mentions three.module.min.js"
+        )

@@ -21,6 +21,31 @@ import yaml
 from openlimno.case import Case
 
 
+def _case_class_source() -> str:
+    """Source text of the whole ``Case`` class, for the source-inspection pins.
+
+    Why the *class* and not ``Case.run``: each pin below asserts that a piece
+    of wiring still exists in production code. That is a property of the
+    pipeline, not of whichever method happens to host it. These pins were
+    originally written as ``inspect.getsource(Case.run)`` back when ``run``
+    was a single ~560-line function. When ``run`` was later split into
+    per-stage helpers (``_run_hydraulics`` and siblings), the R11-2 wiring
+    moved into a sibling method and the pins went red even though behaviour
+    was bit-for-bit unchanged — verified by SHA-256 over every artifact of
+    the lemhi / composite_hsi / phabsim_replication example cases.
+
+    Widening to the class keeps the full guarantee: every string pinned
+    below occurs EXACTLY ONCE in case.py, so deleting the production code
+    still turns these tests red (mutation-verified). It just stops the pins
+    from freezing the internal method structure of ``Case``.
+
+    Do not narrow this back to a single method.
+    """
+    import inspect
+
+    return inspect.getsource(Case)
+
+
 def _minimal_yaml(
     case_dir: Path,
     *,
@@ -138,13 +163,14 @@ def test_v320_write_safe_url_scheme_rejected(tmp_path: Path) -> None:
 
 
 def test_v320_output_dir_routes_through_write_safe() -> None:
-    """v3.2.0: pin via source-inspection that Case.run's output.dir
-    resolution uses _resolve_write_safe (not raw _resolve)."""
-    import inspect
+    """v3.2.0: pin via source-inspection that the pipeline's output.dir
+    resolution uses _resolve_write_safe (not raw _resolve).
 
-    src = inspect.getsource(Case.run)
+    Scope is the whole Case class — see _case_class_source."""
+    src = _case_class_source()
     assert "out_dir = self._resolve_write_safe(" in src, (
-        "v3.2.0 regression: Case.run's output.dir is no longer routed through _resolve_write_safe."
+        "v3.2.0 regression: the pipeline's output.dir is no longer routed "
+        "through _resolve_write_safe."
     )
 
 
@@ -218,13 +244,15 @@ def test_v320_r112_solver_warns_on_missing_boundaries_no_bbox() -> None:
     solver-init code MUST emit a warning.
 
     Source-inspection pin (the full Case.run end-to-end requires
-    mesh + cross-section fixtures; we pin the wiring here)."""
-    import inspect
+    mesh + cross-section fixtures; we pin the wiring here).
 
-    src = inspect.getsource(Case.run)
+    Scope is the whole Case class — see _case_class_source. The wiring
+    currently lives in Case._run_hydraulics, but this test does not care
+    which method hosts it, only that it is still there."""
+    src = _case_class_source()
     assert "v3.2.0 R11-2" in src, (
         "v3.2.0 R11-2 regression: the solver-level missing-boundaries "
-        "warning was removed from Case.run."
+        "warning was removed from the Case pipeline."
     )
     # Both signals are checked: boundaries absent AND bbox absent.
     assert "boundaries" in src and "bbox" in src, (
@@ -273,23 +301,25 @@ def _r112_warning_fires(case_cfg: dict) -> bool:
 
 
 def test_v330_r153_source_matches_corrected_intent() -> None:
-    """v3.5.0 R16-6 (claude HIGH): source-inspect Case.run to
+    """v3.5.0 R16-6 (claude HIGH): source-inspect the Case pipeline to
     confirm the R11-2 check uses the CORRECTED form (bbox-in-case
     AND boundaries-not-in-hydro), not the v3.2.0-broken form
     (boundaries-not-in-hydro AND bbox-NOT-in-case). The v3.2.0
     bug shipped because the test mirrored the code in both
     directions — this source-inspection pin breaks that cycle by
-    reading the production code directly."""
-    import inspect
+    reading the production code directly.
 
-    from openlimno.case import Case
-
-    src = inspect.getsource(Case.run)
+    Reading the production code is the whole point of this test, so the
+    scope stays as wide as the code may legitimately move — the whole
+    Case class. See _case_class_source. The `_r112_warning_fires` shim
+    below stays the reference implementation; this test is what keeps the
+    shim and the production condition from drifting apart."""
+    src = _case_class_source()
     # The corrected condition: `"boundaries" not in hydro_block` AND
     # `"bbox" in cfg.get("case", {})`. The broken v3.2.0 had
     # `"bbox" not in cfg.get("case", {})`.
     assert "v3.3.0 R11-2" in src, (
-        "R16-6 regression: v3.3.0 R11-2 marker missing from Case.run source."
+        "R16-6 regression: v3.3.0 R11-2 marker missing from the Case pipeline source."
     )
     assert '"bbox" in cfg.get("case", {})' in src or "'bbox' in cfg.get('case', {})" in src, (
         "R16-6 regression: the corrected `bbox IN case` predicate "
