@@ -47,8 +47,17 @@
 - 不确定性量化 / 集合预报 / 数据同化
 - ML 代理模型 / 神经算子
 - 个体行为模型 (IBM/ABM) / 种群动力学
+  - **澄清 (v0.6)**: 排除的是**监管级**的 IBM/种群动力学结论。仓库内两处 ABM 实现均为已声明的非监管用途:
+    `src/openlimno/ibm/` 是 §13 研究路线的原生非 NetLogo 原型 (ADR-0014/0015/0016),
+    `src/openlimno/fishtank/` 是 §0.5 教学产品线的水族箱微宇宙。二者产出的任何数字都
+    **不得**进入 §4 的监管导出通道 (SL/Z 712 / FERC 4(e) / EU WFD)
 - 水温 / 水质 / 泥沙 / 河床演变 (后期)
 - Web GUI / 云原生 / 多租户 / REST 服务
+  - **澄清 (v0.6, ADR-0018)**: 排除的是**对外服务**形态 —— 多租户、公网暴露、把 OpenLimno
+    当作 REST 后端供第三方调用。**单用户、绑定 loopback、随命令启停的本地 Studio 不在此列**,
+    它与 PySide6 桌面端是同一件东西的两种渲染方式, 都属于 §0.2 目标 1「能装上、跑通、出图」。
+    判定依据是**服务形态**而非实现技术: 用 stdlib `http.server` 起一个多租户公网服务同样越界,
+    用 fastapi 写一个只绑 127.0.0.1 的单用户工具同样不越界
 - 嵌入式实时调度
 - 多求解器 BMI 互换 (1.0 只深度集成 SCHISM 一个)
 
@@ -72,6 +81,42 @@
 | RST | Rotary Screw Trap | 旋转鼓式陷阱, 监测下行迁徙鱼 |
 | eDNA | environmental DNA | 环境 DNA 采样 |
 | TUF | Time Use Factor | 时段使用因子 (IFIM 加权), 生命阶段-时段映射 |
+
+### 0.5 第二产品线: fishtank 教学微宇宙 (v0.6 新增)
+
+`src/openlimno/fishtank/` 与主线的生态流量评估**没有领域交集** —— 它是一个封闭淡水
+水族箱 (microcosm) 的机理模型: 氮循环 (Tier-1)、碳酸盐/pH 耦合、植物氮汇与反硝化
+(Tier-2)、以及一个鱼与微生物斑块的 ABM。它同时是「水生生态模型」硕士课 4 学时实验课
+的完整案例。
+
+**为什么它在这个仓库里。** 它复用主线已经建好的地基, 而不是复制一份:
+WEDM 式的 provenance 与 SHA-256 内容寻址、pixi 跨平台环境、`ruff`/`mypy --strict`/
+schema 自校验的同一套门禁、以及 Studio 的前端约定。一个独立仓库要把这些重建一遍,
+而它的教学价值恰恰来自「用真实工程标准做一个小模型」。
+
+**边界 (与 §0.3 的关系)。**
+
+| | 主线 (生态流量) | fishtank (教学) |
+|---|---|---|
+| 对象 | 河流 / 河段 / 断面 | 封闭水族箱 |
+| 监管导出 | SL/Z 712 / FERC 4(e) / EU WFD | **无, 且禁止** |
+| ABM | §13 研究路线原型 (`ibm/`) | 课程内容, 见 §0.3 IBM 澄清 |
+| API 稳定性 | semver, 冻结于 1.0 | 跟随课程演进, **不受 1.0 API 冻结约束** |
+| 入口 | `openlimno` | `openlimno fishtank` (惰性加载) + 独立 `fishtank` |
+
+**硬约束:**
+
+1. fishtank **不得**向 `src/openlimno/{habitat,hydro,passage,studyplan,wedm}/` 反向依赖,
+   主线也**不得**依赖 fishtank。当前 `cli.py` 通过 `LazyGroup` 惰性挂载, 主 CLI 的
+   导入图里不含 fishtank (由 `tests/unit/test_cli_lazy_import.py` 钉住)。
+2. fishtank 的任何输出**不得**进入监管导出通道。
+3. fishtank 的 API 变动**不计入** 1.0 的 semver 承诺; 反之它也不得成为推迟 1.0 的理由。
+4. 课程材料 (slides / notebooks / exercises / student_bundle) 不入公开仓库,
+   见 `.gitignore`; 仓库只保留 `docs/fishtank/{README,SPEC}.md`。
+
+详见 `docs/fishtank/SPEC.md` 与 `docs/decisions/0018-fishtank-product-line-and-localhost-studio.md`。
+(此处刻意不用相对链接: `docs/SPEC.md` 是指向本文件的符号链接, 同一段相对路径
+在 GitHub 视图与 MkDocs 视图下无法同时成立。)
 
 ---
 
@@ -859,14 +904,24 @@ openlimno/
 │   ├── habitat/                    # ⭐ HSI/WUA
 │   ├── passage/                    # 涵洞 + 鱼游泳
 │   ├── workflows/                  # Snakemake rules
+│   ├── studyplan/                  # IFIM 研究设计 (v0.4)
+│   ├── ibm/                        # §13 研究路线原生 IBM 原型 (ADR-0014/16)
+│   ├── fishtank/                   # §0.5 第二产品线 (教学微宇宙, 不入监管通道)
+│   ├── gui_core/                   # Studio/QGIS 共用控制器 (PySide6)
+│   ├── studio/                     # 桌面 Studio 入口
+│   ├── _console.py                 # CLI stdio 加固 (窄编码控制台)
 │   ├── cli.py
-│   └── qgis/                       # QGIS plugin (可独立打包)
+│   └── qgis/                       # QGIS plugin (可独立打包, 维护模式 ADR-0011)
 ├── benchmarks/                     # §7 验证套件
 ├── examples/                       # 教程数据
 └── tests/
 ```
 
 不引入 monorepo, 不引入多 package 切分, 不引入 Bazel。
+
+> v0.6: `fishtank/` 是单仓内的第二产品线而非第二个 package —— 它复用同一套
+> 环境、门禁与 provenance 约定, 但按 §0.5 与主线保持单向解耦 (主线不依赖它,
+> 它的 API 不受 1.0 semver 约束)。
 
 ---
 

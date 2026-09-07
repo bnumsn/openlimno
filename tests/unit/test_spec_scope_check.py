@@ -411,3 +411,53 @@ def test_real_src_tree_is_detected_and_fully_accounted_for() -> None:
     assert not unexempted, "unexempted §0.3 non-goal code on the 1.0 line:\n" + "\n".join(
         f"  {f.path}:{f.lineno} [{f.category}/{f.keyword_id}]" for f in unexempted[:20]
     )
+
+
+# ---------------------------------------------------------------------
+# ADR-0018 — §0.3's Web GUI exclusion is about service POSTURE, not the
+# HTTP library. Encoding it as framework names had it backwards: it would
+# wave through a multi-tenant service on stdlib http.server and flag a
+# loopback-only tool that happened to import fastapi.
+# ---------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("source", "should_hit"),
+    [
+        # Outward-facing service posture — excluded whatever the library.
+        ("MULTI_TENANT = True", True),
+        ("def resolve_tenant_id(req): ...", True),
+        ("class SessionStore: ...", True),
+        ("BIND = NON_LOOPBACK_BIND", True),
+        ("def start_rest_api_server(): ...", True),
+        # Single-user loopback Studio — explicitly in scope per ADR-0018.
+        ('from http.server import ThreadingHTTPServer\nHOST = "127.0.0.1"', False),
+        ("server = ThreadingHTTPServer((host, port), handler)", False),
+        ('_LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}', False),
+    ],
+)
+def test_web_gui_category_keys_on_service_posture(
+    tmp_path: Path, source: str, should_hit: bool
+) -> None:
+    mod = tmp_path / "svc.py"
+    mod.write_text(source + "\n", encoding="utf-8")
+    findings = ssc.scan([mod])
+    web = [f for f in findings if f.category == "web_gui"]
+    if should_hit:
+        assert web, f"service-posture source was not flagged: {source!r}"
+    else:
+        assert not web, (
+            f"loopback Studio source was flagged as an excluded Web GUI "
+            f"(ADR-0018 says it is in scope): {source!r} -> " + ", ".join(f.keyword_id for f in web)
+        )
+
+
+def test_fishtank_exemption_cites_the_root_charter() -> None:
+    """ADR-0017 O1 was closed by naming fishtank in root SPEC §0.5.
+
+    The register previously leaned on docs/fishtank/SPEC.md — a module-local
+    document, and a weaker basis than the same register demanded of ibm/.
+    """
+    rules = [e for e in ssc.EXEMPTIONS if "fishtank" in e.path_glob]
+    assert rules, "fishtank exemption disappeared"
+    bases = " ".join(b for e in rules for b in e.basis)
+    assert "SPEC.md §0.5" in bases, f"fishtank exemption no longer cites root SPEC: {bases}"
+    assert "0018" in bases, f"fishtank exemption no longer cites ADR-0018: {bases}"
