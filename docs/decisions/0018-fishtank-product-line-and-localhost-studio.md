@@ -54,7 +54,12 @@ What acknowledgement costs, and the fences that pay for it (SPEC §0.5):
 3. **Outside the 1.0 semver promise.** fishtank's API follows the course, and
    correspondingly may never be a reason to delay 1.0.
 4. **Course material stays out of the public repo** (`.gitignore`); only
-   `docs/fishtank/{README,SPEC}.md` ship.
+   `docs/fishtank/{README,SPEC}.md` ship — pinned by
+   `tests/unit/test_course_material_exclusion.py`, which checks the bundled
+   forms too. The `.gitignore` rules are path-specific to `docs/fishtank/`, so
+   an archive of that same material staged elsewhere defeats every one of them;
+   a 172 MB `fishtank_course_materials.zip` was sitting untracked at the repo
+   root when this ADR was written, above GitHub's 100 MB per-file limit.
 
 §0.3's IBM/ABM non-goal is clarified accordingly: what 1.0 excludes is
 *regulatory-grade* IBM and population-dynamics conclusions. Both ABMs in the

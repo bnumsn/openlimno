@@ -113,6 +113,9 @@ schema 自校验的同一套门禁、以及 Studio 的前端约定。一个独�
 3. fishtank 的 API 变动**不计入** 1.0 的 semver 承诺; 反之它也不得成为推迟 1.0 的理由。
 4. 课程材料 (slides / notebooks / exercises / student_bundle) 不入公开仓库,
    见 `.gitignore`; 仓库只保留 `docs/fishtank/{README,SPEC}.md`。
+   打包形态 (zip / tar) 同样排除 —— `.gitignore` 中逐条列出的都是
+   `docs/fishtank/` 下的路径, 把同一批材料打成压缩包放到别处即可绕过全部规则。
+   由 `tests/unit/test_course_material_exclusion.py` 固化。
 
 详见 `docs/fishtank/SPEC.md` 与 `docs/decisions/0018-fishtank-product-line-and-localhost-studio.md`。
 (此处刻意不用相对链接: `docs/SPEC.md` 是指向本文件的符号链接, 同一段相对路径
