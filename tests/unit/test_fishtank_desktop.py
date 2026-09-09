@@ -49,6 +49,26 @@ def test_kpis_and_status_line():
 
 
 # ---- Qt offscreen GUI smoke -------------------------------------------------
+def test_gui_opens_with_data_not_empty_axes():
+    # Regression guard: a freshly-opened window must already show a run (charts
+    # populated), not bare 0–1 matplotlib axes — the empty first-impression that
+    # read as a broken app. No manual run here: construction alone must draw.
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6.QtWidgets")
+    from PySide6.QtWidgets import QApplication
+
+    from openlimno.fishtank.desktop.main_window import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+    app.processEvents()
+    assert len(win.chart_n.ax.lines) == 3  # nitrogen drawn on open
+    assert len(win.chart_bio.ax.lines) == 3  # biofilm drawn on open
+    assert win.table.rowCount() > 0  # data table filled on open
+    assert win.desc.text()  # scenario description shown on open
+    assert "运行完成" in win.statusBar().currentMessage()
+
+
 def test_gui_smoke_runs_and_draws():
     # Skip where Qt can't actually run — not just where PySide6 is absent, but
     # also where it's installed-but-broken (e.g. a Windows runner whose QtWidgets
